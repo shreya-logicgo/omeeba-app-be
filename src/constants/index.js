@@ -18,7 +18,14 @@ export const HTTP_STATUS = {
 export const USER_ROLES = {
   USER: "user",
   ADMIN: "admin",
-  MODERATOR: "moderator",
+};
+
+// Payment Providers
+export const PAYMENT_PROVIDERS = {
+  STRIPE: "stripe",
+  RAZORPAY: "razorpay",
+  APPLE: "apple",
+  GOOGLE: "google",
 };
 
 // Content Types

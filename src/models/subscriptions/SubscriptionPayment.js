@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { SubscriptionStatus } from "../enums.js";
+import { PAYMENT_PROVIDERS } from "../../constants/index.js";
 
 const subscriptionPaymentSchema = new mongoose.Schema(
   {
@@ -27,7 +28,7 @@ const subscriptionPaymentSchema = new mongoose.Schema(
     paymentProvider: {
       type: String,
       required: true,
-      enum: ["stripe", "razorpay", "apple", "google"],
+      enum: Object.values(PAYMENT_PROVIDERS),
     },
     transactionId: {
       type: String,

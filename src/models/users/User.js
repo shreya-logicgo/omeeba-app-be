@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { USER_ROLES } from "../../constants/index.js";
 
 const userSchema = new mongoose.Schema(
   {
@@ -59,6 +60,11 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    role: {
+      type: String,
+      enum: Object.values(USER_ROLES),
+      default: USER_ROLES.USER,
+    },
     isDeleted: {
       type: Boolean,
       default: false,
@@ -73,6 +79,7 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ email: 1 });
 userSchema.index({ username: 1 });
 userSchema.index({ phoneNumber: 1 });
+userSchema.index({ role: 1 });
 userSchema.index({ isDeleted: 1 });
 
 const User = mongoose.model("User", userSchema);
