@@ -1,7 +1,7 @@
 import app from "./app.js";
 import { connectDB } from "./config/database.js";
 import logger from "./utils/logger.js";
-import { PORT, NODE_ENV } from "./config/env.js";
+import config from "./config/env.js";
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (err) => {
@@ -14,8 +14,10 @@ process.on("uncaughtException", (err) => {
 connectDB();
 
 // Start server
-const server = app.listen(PORT, () => {
-  logger.info(`Server running in ${NODE_ENV} mode on port ${PORT}`);
+const server = app.listen(config.port, () => {
+  logger.info(
+    `Server running in ${config.nodeEnv} mode on port ${config.port}`
+  );
 });
 
 // Handle unhandled promise rejections

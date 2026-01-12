@@ -13,5 +13,9 @@ export default {
   coverageReporters: ["text", "lcov", "html"],
   setupFilesAfterEnv: ["<rootDir>/tests/setup.js"],
   verbose: true,
+  // Set NODE_ENV to test for all test runs
+  // This ensures env.js uses MONGODB_URI_TEST automatically
+  testEnvironmentOptions: {
+    NODE_ENV: "test",
+  },
 };
-

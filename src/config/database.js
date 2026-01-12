@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import logger from "../utils/logger.js";
-import { MONGODB_URI } from "./env.js";
+import config from "./env.js";
 
 /**
  * Connect to MongoDB database
@@ -8,7 +8,11 @@ import { MONGODB_URI } from "./env.js";
  */
 export const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(MONGODB_URI);
+    const conn = await mongoose.connect(config.mongodb.url);
+
+    if (config.nodeEnv === "development") {
+      logger.info(`MongoDB Connected: ${conn.connection.host}`);
+    }
 
     // Handle connection events
     mongoose.connection.on("error", (err) => {

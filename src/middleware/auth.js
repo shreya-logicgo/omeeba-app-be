@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import { StatusCodes } from "http-status-codes";
-import { JWT_SECRET } from "../config/env.js";
+import config from "../config/env.js";
 import User from "../models/users/User.js";
 
 /**
@@ -24,7 +24,7 @@ export const protect = async (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, config.jwt.secretKey);
     req.user = await User.findById(decoded.id).select("-password");
 
     if (!req.user) {
@@ -57,4 +57,3 @@ export const authorize = (...roles) => {
     next();
   };
 };
-

@@ -5,7 +5,7 @@ import morgan from "morgan";
 import compression from "compression";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import logger from "./utils/logger.js";
-import { NODE_ENV, CORS_ORIGINS } from "./config/env.js";
+import config from "./config/env.js";
 
 // Import routes
 import apiRoutes from "./routes/index.js";
@@ -17,7 +17,7 @@ app.use(helmet());
 
 // CORS configuration
 const corsOptions = {
-  origin: CORS_ORIGINS,
+  origin: config.cors.origins,
   credentials: true,
   optionsSuccessStatus: 200,
 };
@@ -31,7 +31,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(compression());
 
 // Logging middleware
-if (NODE_ENV === "development") {
+if (config.nodeEnv === "development") {
   app.use(morgan("dev"));
 } else {
   app.use(morgan("combined", { stream: { write: (msg) => logger.info(msg) } }));
@@ -56,4 +56,3 @@ app.use(notFound);
 app.use(errorHandler);
 
 export default app;
-

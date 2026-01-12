@@ -1,7 +1,7 @@
 import winston from "winston";
 import path from "path";
 import { fileURLToPath } from "url";
-import { LOG_LEVEL, LOG_FILE, NODE_ENV } from "../config/env.js";
+import config from "../config/env.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,13 +28,13 @@ const consoleFormat = winston.format.combine(
 
 // Create logger
 const logger = winston.createLogger({
-  level: LOG_LEVEL,
+  level: config.logging.level,
   format: logFormat,
   defaultMeta: { service: "omeeba-backend" },
   transports: [
     // Write all logs to console
     new winston.transports.Console({
-      format: NODE_ENV === "development" ? consoleFormat : logFormat,
+      format: config.nodeEnv === "development" ? consoleFormat : logFormat,
     }),
     // Write all logs with level 'error' and below to error.log
     new winston.transports.File({
@@ -48,14 +48,4 @@ const logger = winston.createLogger({
   ],
 });
 
-// If we're not in production, log to the console with simpler format
-if (NODE_ENV !== "production") {
-  logger.add(
-    new winston.transports.Console({
-      format: consoleFormat,
-    })
-  );
-}
-
 export default logger;
-

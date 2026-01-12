@@ -1,66 +1,202 @@
+/**
+ * Environment Configuration
+ *
+ * This is the ONLY file that should access process.env directly.
+ * All environment variables are validated using Joi.
+ *
+ */
+
+import Joi from "joi";
 import dotenv from "dotenv";
+import enums from "../constants/enums.js";
 
-dotenv.config();
+// Determine node environment
+const nodeEnv = process.env.NODE_ENV || enums.nodeEnvEnums.DEVELOPMENT;
 
-export const NODE_ENV = process.env.NODE_ENV || "development";
-export const PORT = parseInt(process.env.PORT, 10) || 3000;
-export const API_VERSION = process.env.API_VERSION || "v1";
+// Load environment variables based on environment
+dotenv.config({
+  path: nodeEnv === enums.nodeEnvEnums.DEVELOPMENT ? ".env.dev" : ".env",
+});
 
-// Database
+// Joi schema for environment variables validation
+const envVarsSchema = Joi.object({
+  // Server Configuration
+  NODE_ENV: Joi.string()
+    .valid(
+      enums.nodeEnvEnums.DEVELOPMENT,
+      enums.nodeEnvEnums.PRODUCTION,
+      enums.nodeEnvEnums.TEST,
+      enums.nodeEnvEnums.STAGING
+    )
+    .default(enums.nodeEnvEnums.DEVELOPMENT),
+  PORT: Joi.number().default(3000),
+  API_VERSION: Joi.string().default("v1"),
+
+  // Database Configuration
+  MONGODB_URI: Joi.string()
+    .trim()
+    .default("mongodb://localhost:27017/omeeba")
+    .description("MongoDB connection URL"),
+  MONGODB_URI_TEST: Joi.string()
+    .trim()
+    .default("mongodb://localhost:27017/omeeba_test")
+    .description("MongoDB test database URL"),
+
+  // JWT Configuration
+  JWT_SECRET: Joi.string()
+    .default("your-secret-key-change-in-production")
+    .description("JWT secret key"),
+  JWT_EXPIRE: Joi.string().default("7d"),
+  JWT_REFRESH_SECRET: Joi.string()
+    .default("your-refresh-secret-change-in-production")
+    .description("JWT refresh secret key"),
+  JWT_REFRESH_EXPIRE: Joi.string().default("30d"),
+
+  // Bcrypt Configuration
+  BCRYPT_SALT_ROUNDS: Joi.number().default(12),
+
+  // File Upload Configuration
+  MAX_FILE_SIZE: Joi.number().default(10485760), // 10MB
+  UPLOAD_PATH: Joi.string().default("./uploads"),
+
+  // Cloudinary Configuration
+  CLOUDINARY_CLOUD_NAME: Joi.string().optional(),
+  CLOUDINARY_API_KEY: Joi.string().optional(),
+  CLOUDINARY_API_SECRET: Joi.string().optional(),
+
+  // Email Configuration
+  SMTP_HOST: Joi.string().optional().description("SMTP server host"),
+  SMTP_PORT: Joi.number().default(587).description("SMTP server port"),
+  SMTP_USER: Joi.string().optional().description("SMTP username"),
+  SMTP_PASS: Joi.string().optional().description("SMTP password"),
+  FROM_EMAIL: Joi.string().default("noreply@omeeba.com"),
+
+  // CORS Configuration
+  ALLOWED_ORIGINS: Joi.string().default("http://localhost:3000"),
+
+  // Logging Configuration
+  LOG_LEVEL: Joi.string()
+    .valid("error", "warn", "info", "debug")
+    .default("info"),
+  LOG_FILE: Joi.string().default("./logs/app.log"),
+
+  // OTP Configuration
+  OTP_EXPIRE_MINUTES: Joi.number().default(10),
+  OTP_LENGTH: Joi.number().default(6),
+
+  // Pagination Configuration
+  DEFAULT_PAGE_SIZE: Joi.number().default(20),
+  MAX_PAGE_SIZE: Joi.number().default(100),
+})
+  .unknown()
+  .prefs({ errors: { label: "key" } });
+
+// Validate environment variables
+const { value: envVars, error } = envVarsSchema.validate(process.env, {
+  abortEarly: false,
+});
+
+// Throw error if validation fails
+if (error) {
+  const errorMessage = error.details
+    .map((detail) => `${detail.path.join(".")}: ${detail.message}`)
+    .join(", ");
+  throw new Error(`Environment variable validation error: ${errorMessage}`);
+}
+
+export default {
+  port: envVars.PORT,
+  nodeEnv: nodeEnv,
+  apiVersion: envVars.API_VERSION,
+  mongodb: {
+    url:
+      nodeEnv === enums.nodeEnvEnums.TEST
+        ? envVars.MONGODB_URI_TEST ||
+          envVars.MONGODB_URI ||
+          "mongodb://localhost:27017/omeeba_test"
+        : envVars.MONGODB_URI || "mongodb://localhost:27017/omeeba",
+    testUrl:
+      envVars.MONGODB_URI_TEST || "mongodb://localhost:27017/omeeba_test",
+    options: {},
+  },
+  jwt: {
+    secretKey: envVars.JWT_SECRET,
+    expiresIn: envVars.JWT_EXPIRE,
+    refreshSecret: envVars.JWT_REFRESH_SECRET,
+    refreshExpiresIn: envVars.JWT_REFRESH_EXPIRE,
+  },
+  bcrypt: {
+    saltRounds: envVars.BCRYPT_SALT_ROUNDS,
+  },
+  fileUpload: {
+    maxFileSize: envVars.MAX_FILE_SIZE,
+    uploadPath: envVars.UPLOAD_PATH,
+  },
+  cloudinary: {
+    cloudName: envVars.CLOUDINARY_CLOUD_NAME,
+    apiKey: envVars.CLOUDINARY_API_KEY,
+    apiSecret: envVars.CLOUDINARY_API_SECRET,
+  },
+  nodemailer: {
+    host: envVars.SMTP_HOST,
+    port: envVars.SMTP_PORT,
+    auth: {
+      user: envVars.SMTP_USER,
+      pass: envVars.SMTP_PASS,
+    },
+  },
+  email: {
+    from: envVars.FROM_EMAIL,
+  },
+  cors: {
+    origins: envVars.ALLOWED_ORIGINS
+      ? envVars.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
+      : ["http://localhost:3000"],
+  },
+  logging: {
+    level: envVars.LOG_LEVEL,
+    file: envVars.LOG_FILE,
+  },
+  otp: {
+    expireMinutes: envVars.OTP_EXPIRE_MINUTES,
+    length: envVars.OTP_LENGTH,
+  },
+  pagination: {
+    defaultPageSize: envVars.DEFAULT_PAGE_SIZE,
+    maxPageSize: envVars.MAX_PAGE_SIZE,
+  },
+};
+
+// Export individual variables for backward compatibility
+export const NODE_ENV = nodeEnv;
+export const PORT = envVars.PORT;
+export const API_VERSION = envVars.API_VERSION;
 export const MONGODB_URI =
-  process.env.MONGODB_URI || "mongodb://localhost:27017/omeeba";
-export const MONGODB_URI_TEST =
-  process.env.MONGODB_URI_TEST || "mongodb://localhost:27017/omeeba_test";
-
-// JWT
-export const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
-export const JWT_EXPIRE = process.env.JWT_EXPIRE || "7d";
-export const JWT_REFRESH_SECRET =
-  process.env.JWT_REFRESH_SECRET || "your-refresh-secret";
-export const JWT_REFRESH_EXPIRE = process.env.JWT_REFRESH_EXPIRE || "30d";
-
-// Bcrypt
-export const BCRYPT_SALT_ROUNDS = parseInt(
-  process.env.BCRYPT_SALT_ROUNDS,
-  10
-) || 12;
-
-// File Upload
-export const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE, 10) || 10485760; // 10MB
-export const UPLOAD_PATH = process.env.UPLOAD_PATH || "./uploads";
-
-// Cloudinary
-export const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
-export const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
-export const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
-
-// Email
-export const SMTP_HOST = process.env.SMTP_HOST;
-export const SMTP_PORT = parseInt(process.env.SMTP_PORT, 10) || 587;
-export const SMTP_USER = process.env.SMTP_USER;
-export const SMTP_PASS = process.env.SMTP_PASS;
-export const FROM_EMAIL = process.env.FROM_EMAIL || "noreply@omeeba.com";
-
-// CORS
-export const CORS_ORIGINS = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",")
+  nodeEnv === enums.nodeEnvEnums.TEST
+    ? envVars.MONGODB_URI_TEST || envVars.MONGODB_URI
+    : envVars.MONGODB_URI;
+export const MONGODB_URI_TEST = envVars.MONGODB_URI_TEST;
+export const JWT_SECRET = envVars.JWT_SECRET;
+export const JWT_EXPIRE = envVars.JWT_EXPIRE;
+export const JWT_REFRESH_SECRET = envVars.JWT_REFRESH_SECRET;
+export const JWT_REFRESH_EXPIRE = envVars.JWT_REFRESH_EXPIRE;
+export const BCRYPT_SALT_ROUNDS = envVars.BCRYPT_SALT_ROUNDS;
+export const MAX_FILE_SIZE = envVars.MAX_FILE_SIZE;
+export const UPLOAD_PATH = envVars.UPLOAD_PATH;
+export const CLOUDINARY_CLOUD_NAME = envVars.CLOUDINARY_CLOUD_NAME;
+export const CLOUDINARY_API_KEY = envVars.CLOUDINARY_API_KEY;
+export const CLOUDINARY_API_SECRET = envVars.CLOUDINARY_API_SECRET;
+export const SMTP_HOST = envVars.SMTP_HOST;
+export const SMTP_PORT = envVars.SMTP_PORT;
+export const SMTP_USER = envVars.SMTP_USER;
+export const SMTP_PASS = envVars.SMTP_PASS;
+export const FROM_EMAIL = envVars.FROM_EMAIL;
+export const CORS_ORIGINS = envVars.ALLOWED_ORIGINS
+  ? envVars.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
   : ["http://localhost:3000"];
-
-// Logging
-export const LOG_LEVEL = process.env.LOG_LEVEL || "info";
-export const LOG_FILE = process.env.LOG_FILE || "./logs/app.log";
-
-// OTP
-export const OTP_EXPIRE_MINUTES = parseInt(
-  process.env.OTP_EXPIRE_MINUTES,
-  10
-) || 10;
-export const OTP_LENGTH = parseInt(process.env.OTP_LENGTH, 10) || 6;
-
-// Pagination
-export const DEFAULT_PAGE_SIZE = parseInt(
-  process.env.DEFAULT_PAGE_SIZE,
-  10
-) || 20;
-export const MAX_PAGE_SIZE = parseInt(process.env.MAX_PAGE_SIZE, 10) || 100;
-
+export const LOG_LEVEL = envVars.LOG_LEVEL;
+export const LOG_FILE = envVars.LOG_FILE;
+export const OTP_EXPIRE_MINUTES = envVars.OTP_EXPIRE_MINUTES;
+export const OTP_LENGTH = envVars.OTP_LENGTH;
+export const DEFAULT_PAGE_SIZE = envVars.DEFAULT_PAGE_SIZE;
+export const MAX_PAGE_SIZE = envVars.MAX_PAGE_SIZE;
