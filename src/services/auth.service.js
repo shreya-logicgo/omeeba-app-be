@@ -4,6 +4,7 @@
  */
 
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import User from "../models/users/User.js";
 import { sendOTPEmail } from "./email.service.js";
 import config from "../config/env.js";
@@ -202,8 +203,185 @@ export const registerUser = async (userData) => {
   }
 };
 
+/**
+ * Verify OTP
+ * @param {string} email - User email
+ * @param {number} otp - OTP code
+ * @returns {Promise<Object>} Verified user (without password and OTP)
+ */
+export const verifyOTP = async (email, otp) => {
+  try {
+    // Find user by email
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+      isDeleted: false,
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Check if user is already verified
+    if (user.isAccountVerified) {
+      throw new Error("Account is already verified");
+    }
+
+    // Check if OTP exists
+    if (!user.otp) {
+      throw new Error("OTP not found. Please request a new OTP");
+    }
+
+    // Check if OTP is expired
+    if (user.otpExpireAt && new Date() > user.otpExpireAt) {
+      throw new Error("OTP has expired. Please request a new OTP");
+    }
+
+    // Verify OTP
+    if (user.otp !== parseInt(otp, 10)) {
+      throw new Error("Invalid OTP");
+    }
+
+    // Mark account as verified and clear OTP
+    user.isAccountVerified = true;
+    user.otp = null;
+    user.otpExpireAt = null;
+    await user.save();
+
+    logger.info(`Account verified for ${user.email}`);
+
+    // Return user without password and OTP
+    const userObject = user.toObject();
+    delete userObject.password;
+    delete userObject.otp;
+
+    return userObject;
+  } catch (error) {
+    logger.error("Error in verifyOTP:", error);
+    throw error;
+  }
+};
+
+/**
+ * Resend OTP
+ * @param {string} email - User email
+ * @returns {Promise<Object>} User with new OTP sent
+ */
+export const resendOTP = async (email) => {
+  try {
+    // Find user by email
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+      isDeleted: false,
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Check if user is already verified
+    if (user.isAccountVerified) {
+      throw new Error("Account is already verified");
+    }
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const otpExpireAt = new Date();
+    otpExpireAt.setMinutes(otpExpireAt.getMinutes() + config.otp.expireMinutes);
+
+    // Update user with new OTP
+    user.otp = otp;
+    user.otpExpireAt = otpExpireAt;
+    await user.save();
+
+    // Send OTP email
+    try {
+      await sendOTPEmail(user.email, otp);
+      logger.info(`OTP resent to ${user.email}`);
+    } catch (emailError) {
+      logger.error(`Failed to send OTP email to ${user.email}:`, emailError);
+      throw new Error("Failed to send OTP email. Please try again later");
+    }
+
+    // Return user without password and OTP
+    const userObject = user.toObject();
+    delete userObject.password;
+    delete userObject.otp;
+
+    return userObject;
+  } catch (error) {
+    logger.error("Error in resendOTP:", error);
+    throw error;
+  }
+};
+
+/**
+ * Generate JWT token
+ * @param {string} userId - User ID
+ * @returns {string} JWT token
+ */
+export const generateToken = (userId) => {
+  return jwt.sign({ id: userId }, config.jwt.secretKey, {
+    expiresIn: config.jwt.expiresIn,
+  });
+};
+
+/**
+ * Login user
+ * @param {string} email - User email
+ * @param {string} password - User password
+ * @returns {Promise<Object>} User data with token
+ */
+export const loginUser = async (email, password) => {
+  try {
+    // Find user by email
+    const user = await User.findOne({
+      email: email.toLowerCase(),
+      isDeleted: false,
+    });
+
+    if (!user) {
+      throw new Error("Invalid email or password");
+    }
+
+    // Check if account is verified
+    if (!user.isAccountVerified) {
+      throw new Error("Account not verified. Please verify your email first");
+    }
+
+    // Verify password
+    const isPasswordValid = await comparePassword(password, user.password);
+
+    if (!isPasswordValid) {
+      throw new Error("Invalid email or password");
+    }
+
+    // Generate JWT token with only user _id in payload
+    const token = generateToken(user._id.toString());
+
+    logger.info(`User logged in: ${user.email}`);
+
+    // Return user data without password and OTP
+    const userObject = user.toObject();
+    delete userObject.password;
+    delete userObject.otp;
+    delete userObject.otpExpireAt;
+
+    return {
+      user: userObject,
+      token,
+    };
+  } catch (error) {
+    logger.error("Error in loginUser:", error);
+    throw error;
+  }
+};
+
 export default {
   registerUser,
+  verifyOTP,
+  resendOTP,
+  loginUser,
+  generateToken,
   generateOTP,
   hashPassword,
   comparePassword,

@@ -47,6 +47,45 @@ export const registerSchema = createSchema(
   ["email", "phoneNumber", "countryCode", "name", "username", "password"]
 );
 
+/**
+ * Verify OTP validation schema
+ */
+export const verifyOTPSchema = createSchema(
+  {
+    email: commonValidations.email,
+    otp: Joi.number().integer().positive().required().messages({
+      "number.base": "must be a valid OTP",
+      "number.positive": "must be a positive number",
+      "any.required": "is required",
+    }),
+  },
+  ["email", "otp"]
+);
+
+/**
+ * Resend OTP validation schema
+ */
+export const resendOTPSchema = createSchema(
+  {
+    email: commonValidations.email,
+  },
+  ["email"]
+);
+
+/**
+ * Login validation schema
+ */
+export const loginSchema = createSchema(
+  {
+    email: commonValidations.email,
+    password: commonValidations.password,
+  },
+  ["email", "password"]
+);
+
 export default {
   registerSchema,
+  verifyOTPSchema,
+  resendOTPSchema,
+  loginSchema,
 };
