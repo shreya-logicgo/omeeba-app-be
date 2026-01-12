@@ -1,238 +1,199 @@
-# Omeeba Database Models
+# Omeeba Backend API
 
-This directory contains all MongoDB models for the Omeeba social media platform, built with Mongoose.
+Enterprise-level backend API for Omeeba Social Media Platform built with Node.js, Express, and MongoDB.
 
 ## 📁 Project Structure
 
 ```
-models/
-├── enums.js                    # All enum definitions
-├── index.js                    # Export all models
-│
-├── users/                      # User related models
-│   ├── User.js                 # User model
-│   ├── UserFollower.js         # User followers relationship
-│   └── UserAudience.js         # User audience relationship
-│
-├── content/                    # Content models
-│   ├── Post.js                 # Regular posts model
-│   ├── WritePost.js            # Written posts model
-│   ├── ZealPost.js             # Zeal (video) posts model
-│   └── Poll.js                 # Polls model
-│
-├── comments/                   # Comment related models
-│   ├── Comment.js              # Comments model
-│   ├── CommentLike.js          # Comment likes
-│   ├── ReplyComment.js         # Reply comments
-│   └── ReplyCommentLike.js     # Reply comment likes
-│
-├── interactions/               # User interaction models
-│   ├── ContentLike.js          # Content likes (posts/zeal/write_posts)
-│   ├── ContentShare.js         # Content sharing
-│   ├── ContentReport.js        # Content reporting
-│   └── SavedContent.js         # Saved content
-│
-├── music/                      # Music models
-│   └── Music.js                # Music tracks model
-│
-├── subscriptions/              # Subscription models
-│   ├── SubscriptionPlan.js      # Subscription plans
-│   ├── UserSubscription.js     # User subscriptions
-│   └── SubscriptionPayment.js  # Payment transactions
-│
-├── notifications/              # Notification models
-│   └── Notification.js         # Notifications
-│
-└── chat/                       # Chat models
-    ├── ChatRoom.js             # Chat rooms
-    └── ChatMessage.js          # Chat messages
+omeeba-backend/
+├── src/
+│   ├── config/              # Configuration files
+│   │   ├── database.js      # MongoDB connection
+│   │   └── env.js           # Environment variables
+│   ├── controllers/         # Request handlers
+│   ├── services/            # Business logic
+│   ├── routes/              # API routes
+│   ├── middleware/          # Custom middleware
+│   │   ├── auth.js         # Authentication
+│   │   ├── errorHandler.js # Error handling
+│   │   └── validator.js    # Request validation
+│   ├── models/             # Mongoose models
+│   │   ├── users/
+│   │   ├── content/
+│   │   ├── comments/
+│   │   ├── interactions/
+│   │   ├── chat/
+│   │   ├── subscriptions/
+│   │   └── ...
+│   ├── utils/              # Utility functions
+│   │   ├── logger.js       # Winston logger
+│   │   ├── response.js     # Response helpers
+│   │   └── pagination.js  # Pagination helpers
+│   ├── constants/          # Constants
+│   ├── validators/         # Request validators
+│   ├── app.js              # Express app setup
+│   └── server.js           # Server entry point
+├── tests/                  # Test files
+│   ├── unit/               # Unit tests
+│   ├── integration/        # Integration tests
+│   └── setup.js           # Test setup
+├── docs/                   # Documentation
+├── logs/                   # Log files
+├── .env.example           # Environment variables template
+├── .gitignore             # Git ignore rules
+├── jest.config.js         # Jest configuration
+├── package.json           # Dependencies
+└── README.md             # This file
 ```
 
-## 🚀 Installation
+## 🚀 Getting Started
 
+### Prerequisites
+
+- Node.js >= 18.0.0
+- npm >= 9.0.0
+- MongoDB >= 5.0.0
+
+### Installation
+
+1. Clone the repository
+```bash
+git clone <repository-url>
+cd Omeeba
+```
+
+2. Install dependencies
 ```bash
 npm install
 ```
 
+3. Set up environment variables
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+4. Start the development server
+```bash
+npm run dev
+```
+
+## 📝 Available Scripts
+
+- `npm start` - Start production server
+- `npm run dev` - Start development server with nodemon
+- `npm test` - Run all tests
+- `npm run test:watch` - Run tests in watch mode
+- `npm run test:unit` - Run unit tests only
+- `npm run test:integration` - Run integration tests only
+- `npm run lint` - Run ESLint
+- `npm run lint:fix` - Fix ESLint errors
+- `npm run format` - Format code with Prettier
+
+## 🔧 Configuration
+
+### Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+- **Database**: MongoDB connection string
+- **JWT**: Secret keys for authentication
+- **File Upload**: Cloudinary or local storage
+- **Email**: SMTP configuration
+
+## 📚 API Documentation
+
+### Base URL
+```
+http://localhost:3000/api/v1
+```
+
+### Health Check
+```
+GET /health
+GET /api/health
+```
+
+## 🏗️ Architecture
+
+### MVC Pattern
+- **Models**: Database schemas (Mongoose)
+- **Controllers**: Request handlers
+- **Services**: Business logic layer
+- **Routes**: API endpoint definitions
+
+### Middleware Stack
+1. Security (Helmet, CORS)
+2. Body parsing
+3. Compression
+4. Logging (Morgan)
+5. Authentication
+6. Validation
+7. Error handling
+
+## 🧪 Testing
+
+```bash
+# Run all tests
+npm test
+
+# Run with coverage
+npm test -- --coverage
+
+# Run specific test file
+npm test -- tests/unit/user.test.js
+```
+
 ## 📦 Dependencies
 
-- **mongoose**: ^8.0.0 - MongoDB object modeling for Node.js
+### Production
+- **express** - Web framework
+- **mongoose** - MongoDB ODM
+- **jsonwebtoken** - JWT authentication
+- **bcryptjs** - Password hashing
+- **express-validator** - Request validation
+- **winston** - Logging
+- **helmet** - Security headers
+- **cors** - CORS middleware
 
-## 🔌 Database Connection
+### Development
+- **nodemon** - Auto-reload
+- **jest** - Testing framework
+- **eslint** - Code linting
+- **prettier** - Code formatting
 
-Create a database connection file:
+## 🔒 Security Features
 
-```javascript
-const { connectDB } = require("./config/database");
-const mongoose = require("mongoose");
+- Helmet.js for security headers
+- CORS configuration
+- JWT authentication
+- Password hashing with bcrypt
+- Input validation
+- SQL injection prevention (MongoDB)
+- XSS protection
 
-// Connect to MongoDB
-connectDB("mongodb://localhost:27017/omeeba")
-  .then(() => {
-    console.log("Database connected successfully");
-  })
-  .catch((error) => {
-    console.error("Database connection error:", error);
-  });
-```
+## 📊 Logging
 
-## 📝 Usage Examples
+Logs are stored in `logs/` directory:
+- `combined.log` - All logs
+- `error.log` - Error logs only
 
-### Import Models
+## 🤝 Contributing
 
-```javascript
-const { User, Post, Comment, ContentLike, Enums } = require("./models");
-```
-
-### Create a User
-
-```javascript
-const user = new User({
-  email: "user@example.com",
-  password: "hashedPassword",
-  name: "John Doe",
-  username: "johndoe",
-  phoneNumber: 1234567890,
-  countryCode: "+1",
-});
-
-await user.save();
-```
-
-### Create a Post
-
-```javascript
-const post = new Post({
-  userId: user._id,
-  caption: "My first post!",
-  images: ["https://example.com/image.jpg"],
-  musicId: music._id,
-  musicStartTime: 10,
-  musicEndTime: 30,
-});
-
-await post.save();
-```
-
-### Add a Comment
-
-```javascript
-const comment = new Comment({
-  contentType: Enums.ContentType.POST,
-  contentId: post._id,
-  userId: user._id,
-  comment: "Great post!",
-});
-
-await comment.save();
-```
-
-### Like Content
-
-```javascript
-const like = new ContentLike({
-  contentType: Enums.ContentType.POST,
-  contentId: post._id,
-  userId: user._id,
-});
-
-await like.save();
-```
-
-### Populate References
-
-```javascript
-// Get post with user details
-const post = await Post.findById(postId)
-  .populate("userId", "name username profileImage")
-  .populate("musicId")
-  .populate("mentionedUserIds", "name username");
-
-// Get comments with user details
-const comments = await Comment.find({ contentId: postId })
-  .populate("userId", "name username profileImage")
-  .sort({ createdAt: -1 });
-```
-
-## 🔗 Model Relationships
-
-### User Relationships
-
-- `User` → `UserFollower` (userId, followerId)
-- `User` → `UserAudience` (userId, audienceUserId)
-- `User` → `Post` (userId)
-- `User` → `ZealPost` (userId)
-- `User` → `Comment` (userId)
-- `User` → `ContentLike` (userId)
-- `User` → `Notification` (receiverId, senderId)
-- `User` → `ChatRoom` (userA, userB)
-- `User` → `ChatMessage` (senderId)
-
-### Content Relationships
-
-- `Post` → `Music` (musicId)
-- `ZealPost` → `Music` (musicId)
-- `Comment` → `Post/ZealPost/WritePost` (contentId via contentTypeRef)
-- `ContentLike` → `Post/ZealPost/WritePost` (contentId)
-- `ContentShare` → `Post/ZealPost/WritePost` (contentId)
-
-### Subscription Relationships
-
-- `UserSubscription` → `User` (userId)
-- `UserSubscription` → `SubscriptionPlan` (planId)
-- `SubscriptionPayment` → `User` (userId)
-- `SubscriptionPayment` → `UserSubscription` (subscriptionId)
-
-## 📊 Enums
-
-All enums are exported from `models/enums.js`:
-
-- `ContentType`: post, write_post, zeal
-- `ReportStatus`: pending, reviewed, resolved
-- `PollStatus`: active, expired
-- `SubscriptionStatus`: active, expired, cancelled, pending
-- `BillingCycle`: monthly, quarterly, yearly
-- `NotificationType`: post_comment, comment_reply, post_like, comment_like, follow
-- `NotificationStatus`: unread, read
-- `ChatType`: direct, request
-- `MessageType`: text, image, snap, post, write_post, zeal
-- `MessageStatus`: sent, delivered, seen
-
-## 🔍 Indexes
-
-All models include appropriate indexes for:
-
-- Unique constraints (emails, usernames, etc.)
-- Foreign key lookups
-- Sorting and filtering operations
-- Compound indexes for common query patterns
-
-## ⚠️ Important Notes
-
-1. **ObjectId References**: All foreign keys use `mongoose.Schema.Types.ObjectId` with proper `ref` attributes for population.
-
-2. **Timestamps**: Most models include `createdAt` and `updatedAt` fields. Some use Mongoose's `timestamps: true` option.
-
-3. **Unique Constraints**:
-
-   - User email, username, phoneNumber
-   - UserFollower (userId + followerId)
-   - ContentLike (contentType + contentId + userId)
-   - ChatRoom (userA + userB)
-
-4. **Dynamic References**: The `Comment` model uses `refPath` to dynamically reference different content types (Post, ZealPost, WritePost).
-
-5. **Array Fields**: Fields like `images`, `videos`, `mentionedUserIds` are stored as arrays.
-
-## 🛠️ Development
-
-To extend or modify models:
-
-1. Update the schema in the respective model file
-2. Update indexes if needed
-3. Test the changes with sample data
-4. Update this README if adding new models or relationships
+1. Create a feature branch
+2. Make your changes
+3. Write tests
+4. Run linting and tests
+5. Submit a pull request
 
 ## 📄 License
 
 ISC
+
+## 👥 Team
+
+Omeeba Development Team
+
+---
+
+**Built with ❤️ for Omeeba Social Media Platform**
