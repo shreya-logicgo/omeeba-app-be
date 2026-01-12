@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import logger from "../utils/logger.js";
-import { MONGODB_URI, NODE_ENV } from "./env.js";
+import { MONGODB_URI } from "./env.js";
 
 /**
  * Connect to MongoDB database
