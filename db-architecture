@@ -1,0 +1,415 @@
+// =======================
+// ENUMS
+// =======================
+Enum content_type {
+  post
+  write_post
+  zeal
+}
+Enum report_status {
+  pending
+  reviewed
+  resolved
+}
+Enum poll_status {
+  active
+  expired
+}
+Enum subscription_status {
+  active
+  expired
+  cancelled
+  pending
+}
+Enum billing_cycle {
+  monthly
+  quarterly
+  yearly
+}
+Enum notification_type {
+  post_comment
+  comment_reply
+  post_like
+  comment_like
+  follow
+}
+Enum notification_status {
+  unread
+  read
+}
+Enum chat_type {
+  direct
+  request
+}
+Enum message_type {
+  text
+  image
+  snap
+  post
+  write_post
+  zeal
+}
+Enum message_status {
+  sent
+  delivered
+  seen
+}
+
+
+// =======================
+// USERS / AUTH MODULE
+// =======================
+Table users {
+  id ObjectId [pk]
+  email string [unique]
+  password string
+  profileImage string
+  bio string
+  countryCode string
+  phoneNumber number [unique]
+  name string
+  username string [unique]
+  otp number
+  otpExpireAt datetime
+  isVerifiedBadge boolean
+  isVerified boolean
+  isDeleted boolean
+  createdAt datetime
+  updatedAt datetime
+}
+
+// =======================
+// USER FOLLOWERS
+// =======================
+Table user_followers {
+  id ObjectId [pk]
+  userId ObjectId  
+  followerId ObjectId
+  createdAt datetime
+}
+
+// =======================
+// USER AUDIENCE
+// =======================
+Table user_audience {
+  id ObjectId [pk]
+  userId ObjectId
+  audienceUserId ObjectId
+  createdAt datetime
+}
+
+// =======================
+// MUSIC MODULE
+// =======================
+Table music {
+  id ObjectId [pk]
+  title string
+  artist string
+  album string
+  audioUrl string
+  coverImage string
+  duration number
+  category string
+  language string
+  isTrending boolean
+  isActive boolean
+  createdAt datetime
+}
+
+// =======================
+// POSTS 
+// =======================
+Table posts {
+  id ObjectId [pk]
+  userId ObjectId
+  caption string
+  mentionedUserIds array
+  images array
+  musicId ObjectId
+  musicStartTime number
+  musicEndTime number
+  createdAt datetime
+  updatedAt datetime
+}
+
+// =======================
+// ZEAL POSTS 
+// =======================
+Table zeal_posts {
+  id ObjectId [pk]              
+  userId ObjectId              
+  videos array
+  musicId ObjectId            
+  musicStartTime number       
+  musicEndTime number         
+  caption string              
+  mentionedUserIds array         
+  isDevelopByAi boolean       
+  createdAt datetime          
+  updatedAt datetime          
+}
+
+// =======================
+// POLLS
+// =======================
+Table polls {
+  id ObjectId [pk]
+  createdBy ObjectId
+  caption string
+  options array
+  /*
+    [
+      {
+        optionId: string,
+        optionText: string,
+        voteCount: number,
+        votePercentage: number   // (voteCount / totalVotes) * 100
+      }
+    ]
+  */
+  totalVotes number
+  userVotes array
+  /*
+    [
+      {
+      userId: ObjectId
+      optionId: String
+      }
+    ]
+  */
+  status poll_status
+  duration datetime
+  createdAt datetime
+  updatedAt datetime
+}
+
+
+// =======================
+// COMMENTS (supports reply)
+// =======================
+Table comments {
+  id ObjectId [pk]
+  contentType content_type
+  contentId ObjectId          // postId / writePostId / zealId
+  userId ObjectId
+  comment string
+  createdAt datetime
+  updatedAt datetime
+}
+
+// =======================
+// COMMENT LIKES
+// =======================
+Table comment_likes {
+  id ObjectId [pk]
+  commentId ObjectId
+  userId ObjectId
+  createdAt datetime
+}
+
+// =======================
+// REPLY COMMENTS
+// =======================
+Table reply_comments {
+  id ObjectId [pk]
+  commentId ObjectId          // parent comment (ref: comments.id)
+  userId ObjectId
+  reply string
+  createdAt datetime
+  updatedAt datetime
+}
+
+// =======================
+// REPLY COMMENT LIKES
+// =======================
+Table reply_comment_likes {
+  id ObjectId [pk]
+  replyCommentId ObjectId     // ref: reply_comments.id
+  userId ObjectId
+  createdAt datetime
+}
+
+// =======================
+// CONTENT LIKES (Post / Write Post / Zeal)
+// =======================
+Table content_likes {
+  id ObjectId [pk]
+  contentType content_type
+  contentId ObjectId          // postId / writePostId / zealId
+  userId ObjectId
+  createdAt datetime
+}
+
+// =======================
+// CONTENT SHARES
+// =======================
+Table content_shares {
+  id ObjectId [pk]
+  contentType content_type
+  contentId ObjectId          // postId / writePostId / zealId
+  senderId ObjectId
+  reciverId ObjectId
+  createdAt datetime
+}
+
+// =======================
+// CONTENT REPORTS
+// =======================
+Table content_reports {
+  id ObjectId [pk]
+  contentType content_type
+  contentId ObjectId          // postId / writePostId / zealId
+  reportedBy ObjectId
+  reason json
+  /*
+    title
+    subtitle
+    description
+  */
+  status report_status
+  createdAt datetime
+}
+
+// =======================
+// SAVED CONTENT
+// =======================
+Table saved_contents {
+  id ObjectId [pk]
+  userId ObjectId              // user who saved the content
+  contentType content_type
+  contentId ObjectId           // postId / writePostId / zealId / pollId
+  createdAt datetime
+}
+
+// =======================
+// SUBSCRIPTION PLANS
+// =======================
+Table subscription_plans {
+  id ObjectId [pk]
+  name string                 // Monthly / Quarterly / Yearly
+  price number                // 9.99 / 24.99 / 79.99
+  currency string             // USD
+  billingCycle billing_cycle
+  isVerifiedBadge boolean     // true
+  prioritySupport boolean     // true
+  adFreeExperience boolean    // true
+  isActive boolean
+  createdAt datetime
+  updatedAt datetime
+}
+
+// =======================
+// USER SUBSCRIPTIONS
+// =======================
+Table user_subscriptions {
+  id ObjectId [pk]
+  userId ObjectId
+  planId ObjectId
+  status subscription_status
+  startDate datetime
+  endDate datetime
+  createdAt datetime
+  updatedAt datetime
+}
+
+// =======================
+// PAYMENT TRANSACTIONS
+// =======================
+Table subscription_payments {
+  id ObjectId [pk]
+  userId ObjectId
+  subscriptionId ObjectId
+  amount number
+  currency string
+  paymentProvider string      // stripe / razorpay / apple / google
+  transactionId string
+  status subscription_status
+  createdAt datetime
+}
+
+// =======================
+// NOTIFICATIONS
+// =======================
+Table notifications {
+  id ObjectId [pk]
+  receiverId ObjectId          // user who receives notification
+  senderId ObjectId            // user who triggered action
+  type notification_type
+  contentType string           // post / write_post / zeal / photo
+  contentId ObjectId           // related postId / commentId / etc.
+  message string               // "Amit commented on your post"
+  status notification_status
+  createdAt datetime
+  updatedAt datetime
+}
+
+// =======================
+// CHAT ROOMS
+// =======================
+Table chat_rooms {
+  id ObjectId [pk]
+  userA ObjectId
+  userB ObjectId
+  chatType chat_type
+  isBlocked boolean
+  lastMessage string
+  lastMessageType message_type
+  lastMessageAt datetime
+  createdAt datetime
+  updatedAt datetime
+}
+
+// =======================
+// CHAT MESSAGES
+// =======================
+Table chat_messages {
+  id ObjectId [pk]
+  roomId ObjectId
+  senderId ObjectId
+  messageType message_type
+  message string            // text message
+  mediaUrl string           // image / snap url
+  thumbnailUrl string
+  contentId ObjectId          // postId / writePostId / zealId (when shared)
+  contentType message_type    // post / write_post / zeal
+  status message_status
+  createdAt datetime
+}
+
+// =======================
+// RELATIONSHIPS
+// =======================
+
+Ref: user_followers.userId > users.id
+Ref: user_followers.followerId > users.id
+Ref: user_audience.userId > users.id
+Ref: user_audience.audienceUserId > users.id
+Ref: posts.userId > users.id
+Ref: posts.musicId > music.id
+Ref: posts.mentionedUserIds > users.id
+Ref: zeal_posts.userId > users.id
+Ref: zeal_posts.musicId > music.id
+Ref: zeal_posts.mentionedUserIds > users.id
+Ref: polls.createdBy > users.id
+Ref: comments.userId > users.id
+Ref: comment_likes.commentId > comments.id
+Ref: comment_likes.userId > users.id
+Ref: content_likes.userId > users.id
+Ref: content_shares.senderId > users.id
+Ref: content_shares.reciverId > users.id
+Ref: content_reports.reportedBy > users.id
+Ref: reply_comments.commentId > comments.id
+Ref: reply_comments.userId > users.id
+Ref: reply_comment_likes.replyCommentId > reply_comments.id
+Ref: reply_comment_likes.userId > users.id
+Ref: user_subscriptions.userId > users.id
+Ref: user_subscriptions.planId > subscription_plans.id
+Ref: subscription_payments.userId > users.id
+Ref: subscription_payments.subscriptionId > user_subscriptions.id
+Ref: notifications.receiverId > users.id
+Ref: notifications.senderId > users.id
+Ref: saved_contents.userId > users.id
+Ref: chat_rooms.userA > users.id
+Ref: chat_rooms.userB > users.id
+Ref: chat_messages.roomId > chat_rooms.id
+Ref: chat_messages.senderId > users.id
