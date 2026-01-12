@@ -1,5 +1,5 @@
 import express from "express";
-import { API_VERSION } from "../config/env.js";
+import config from "../config/env.js";
 
 const router = express.Router();
 
@@ -8,26 +8,14 @@ router.get("/health", (req, res) => {
   res.status(200).json({
     success: true,
     message: "API is running",
-    version: API_VERSION,
+    version: config.apiVersion,
   });
 });
 
 // Import route modules
-// TODO: Uncomment when routes are created
-// import authRoutes from "./auth.routes.js";
-// import userRoutes from "./user.routes.js";
-// import postRoutes from "./post.routes.js";
-// import commentRoutes from "./comment.routes.js";
-// import chatRoutes from "./chat.routes.js";
-// import notificationRoutes from "./notification.routes.js";
+import authRoutes from "./auth.routes.js";
 
 // Mount routes
-// router.use(`/${API_VERSION}/auth`, authRoutes);
-// router.use(`/${API_VERSION}/users`, userRoutes);
-// router.use(`/${API_VERSION}/posts`, postRoutes);
-// router.use(`/${API_VERSION}/comments`, commentRoutes);
-// router.use(`/${API_VERSION}/chat`, chatRoutes);
-// router.use(`/${API_VERSION}/notifications`, notificationRoutes);
+router.use(`/${config.apiVersion}/auth`, authRoutes);
 
 export default router;
-

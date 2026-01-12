@@ -3,16 +3,16 @@
 // =======================
 
 const ContentType = {
-  POST: "post",
-  WRITE_POST: "write_post",
-  ZEAL: "zeal",
+  POST: "Post",
+  WRITE_POST: "Write Post",
+  ZEAL: "Zeal Post",
 };
 
 // Content Model Names (for refPath in Mongoose)
 const ContentModelName = {
   POST: "Post",
-  WRITE_POST: "WritePost",
-  ZEAL: "ZealPost",
+  WRITE_POST: "Write Post",
+  ZEAL: "Zeal Post",
 };
 
 // Mapping from ContentType to Model Name
@@ -23,60 +23,60 @@ const ContentTypeToModelName = {
 };
 
 const ReportStatus = {
-  PENDING: "pending",
-  REVIEWED: "reviewed",
-  RESOLVED: "resolved",
+  PENDING: "Pending",
+  REVIEWED: "Reviewed",
+  RESOLVED: "Resolved",
 };
 
 const PollStatus = {
-  ACTIVE: "active",
-  EXPIRED: "expired",
+  ACTIVE: "Active",
+  EXPIRED: "Expired",
 };
 
 const SubscriptionStatus = {
-  ACTIVE: "active",
-  EXPIRED: "expired",
-  CANCELLED: "cancelled",
-  PENDING: "pending",
+  ACTIVE: "Active",
+  EXPIRED: "Expired",
+  CANCELLED: "Cancelled",
+  PENDING: "Pending",
 };
 
 const BillingCycle = {
-  MONTHLY: "monthly",
-  QUARTERLY: "quarterly",
-  YEARLY: "yearly",
+  MONTHLY: "Monthly",
+  QUARTERLY: "Quarterly",
+  YEARLY: "Yearly",
 };
 
 const NotificationType = {
-  POST_COMMENT: "post_comment",
-  COMMENT_REPLY: "comment_reply",
-  POST_LIKE: "post_like",
-  COMMENT_LIKE: "comment_like",
-  FOLLOW: "follow",
+  POST_COMMENT: "Post Comment",
+  COMMENT_REPLY: "Comment Reply",
+  POST_LIKE: "Post Like",
+  COMMENT_LIKE: "Comment Like",
+  FOLLOW: "Follow",
 };
 
 const NotificationStatus = {
-  UNREAD: "unread",
-  READ: "read",
+  UNREAD: "Unread",
+  READ: "Read",
 };
 
 const ChatType = {
-  DIRECT: "direct",
-  REQUEST: "request",
+  DIRECT: "Direct",
+  REQUEST: "Request",
 };
 
 const MessageType = {
-  TEXT: "text",
-  IMAGE: "image",
-  SNAP: "snap",
-  POST: "post",
-  WRITE_POST: "write_post",
-  ZEAL: "zeal",
+  TEXT: "Text",
+  IMAGE: "Image",
+  SNAP: "Snap",
+  POST: "Post",
+  WRITE_POST: "Write Post",
+  ZEAL: "Zeal",
 };
 
 const MessageStatus = {
-  SENT: "sent",
-  DELIVERED: "delivered",
-  SEEN: "seen",
+  SENT: "Sent",
+  DELIVERED: "Delivered",
+  SEEN: "Seen",
 };
 
 export {

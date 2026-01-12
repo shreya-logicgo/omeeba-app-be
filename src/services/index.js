@@ -1,10 +1,9 @@
 // Service exports
 // This file will export all services for easy importing
 
-// Example structure:
-// export { default as AuthService } from './auth.service.js';
-// export { default as UserService } from './user.service.js';
-// export { default as PostService } from './post.service.js';
+// Auth Services
+export { default as authService } from "./auth.service.js";
 
-export default {};
+// Email Services
+export { default as emailService } from "./email.service.js";
 

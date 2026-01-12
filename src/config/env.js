@@ -14,9 +14,28 @@ import enums from "../constants/enums.js";
 const nodeEnv = process.env.NODE_ENV || enums.nodeEnvEnums.DEVELOPMENT;
 
 // Load environment variables based on environment
-dotenv.config({
-  path: nodeEnv === enums.nodeEnvEnums.DEVELOPMENT ? ".env.dev" : ".env",
-});
+// Priority: .env.dev (development) or .env (other), with fallback to .env
+let dotenvResult;
+if (nodeEnv === enums.nodeEnvEnums.DEVELOPMENT) {
+  // Try .env.dev first, fallback to .env if not found
+  dotenvResult = dotenv.config({ path: ".env.dev" });
+  if (dotenvResult.error && dotenvResult.error.code === "ENOENT") {
+    // .env.dev doesn't exist, use .env
+    dotenvResult = dotenv.config({ path: ".env" });
+  }
+} else {
+  // Production, test, staging - use .env
+  dotenvResult = dotenv.config({ path: ".env" });
+}
+
+// Log which env file was loaded (only in development)
+if (nodeEnv === enums.nodeEnvEnums.DEVELOPMENT) {
+  console.log(
+    `Environment: ${nodeEnv}, Loaded from: ${
+      dotenvResult.error ? ".env (fallback)" : ".env.dev"
+    }`
+  );
+}
 
 // Joi schema for environment variables validation
 const envVarsSchema = Joi.object({
@@ -64,12 +83,10 @@ const envVarsSchema = Joi.object({
   CLOUDINARY_API_KEY: Joi.string().optional(),
   CLOUDINARY_API_SECRET: Joi.string().optional(),
 
-  // Email Configuration
-  SMTP_HOST: Joi.string().optional().description("SMTP server host"),
-  SMTP_PORT: Joi.number().default(587).description("SMTP server port"),
-  SMTP_USER: Joi.string().optional().description("SMTP username"),
-  SMTP_PASS: Joi.string().optional().description("SMTP password"),
+  // Email Configuration (Brevo)
+  BREVO_API_KEY: Joi.string().optional().allow("").description("Brevo API key"),
   FROM_EMAIL: Joi.string().default("noreply@omeeba.com"),
+  FROM_NAME: Joi.string().default("Omeeba"),
 
   // CORS Configuration
   ALLOWED_ORIGINS: Joi.string().default("http://localhost:3000"),
@@ -137,16 +154,12 @@ export default {
     apiKey: envVars.CLOUDINARY_API_KEY,
     apiSecret: envVars.CLOUDINARY_API_SECRET,
   },
-  nodemailer: {
-    host: envVars.SMTP_HOST,
-    port: envVars.SMTP_PORT,
-    auth: {
-      user: envVars.SMTP_USER,
-      pass: envVars.SMTP_PASS,
-    },
+  brevo: {
+    apiKey: envVars.BREVO_API_KEY,
   },
   email: {
     from: envVars.FROM_EMAIL,
+    fromName: envVars.FROM_NAME,
   },
   cors: {
     origins: envVars.ALLOWED_ORIGINS
@@ -186,11 +199,9 @@ export const UPLOAD_PATH = envVars.UPLOAD_PATH;
 export const CLOUDINARY_CLOUD_NAME = envVars.CLOUDINARY_CLOUD_NAME;
 export const CLOUDINARY_API_KEY = envVars.CLOUDINARY_API_KEY;
 export const CLOUDINARY_API_SECRET = envVars.CLOUDINARY_API_SECRET;
-export const SMTP_HOST = envVars.SMTP_HOST;
-export const SMTP_PORT = envVars.SMTP_PORT;
-export const SMTP_USER = envVars.SMTP_USER;
-export const SMTP_PASS = envVars.SMTP_PASS;
+export const BREVO_API_KEY = envVars.BREVO_API_KEY;
 export const FROM_EMAIL = envVars.FROM_EMAIL;
+export const FROM_NAME = envVars.FROM_NAME;
 export const CORS_ORIGINS = envVars.ALLOWED_ORIGINS
   ? envVars.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
   : ["http://localhost:3000"];
