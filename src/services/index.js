@@ -7,3 +7,6 @@ export { default as authService } from "./auth.service.js";
 // Email Services
 export { default as emailService } from "./email.service.js";
 
+// User Services
+export { default as userService } from "./user.service.js";
+
