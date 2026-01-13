@@ -16,10 +16,12 @@ router.get("/health", (req, res) => {
 import authRoutes from "./auth.routes.js";
 import userRoutes from "./user.routes.js";
 import writePostRoutes from "./writePost.routes.js";
+import postRoutes from "./post.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
 router.use(`/${config.apiVersion}/users`, userRoutes);
 router.use(`/${config.apiVersion}/write-posts`, writePostRoutes);
+router.use(`/${config.apiVersion}/posts`, postRoutes);
 
 export default router;

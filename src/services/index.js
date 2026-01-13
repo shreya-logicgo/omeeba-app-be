@@ -13,3 +13,5 @@ export { default as userService } from "./user.service.js";
 // Write Post Services
 export { default as writePostService } from "./writePost.service.js";
 
+// Post Services
+export { default as postService } from "./post.service.js";

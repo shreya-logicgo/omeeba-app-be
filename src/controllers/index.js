@@ -10,3 +10,5 @@ export { default as userController } from "./user.controller.js";
 // Write Post Controllers
 export { default as writePostController } from "./writePost.controller.js";
 
+// Post Controllers
+export { default as postController } from "./post.controller.js";

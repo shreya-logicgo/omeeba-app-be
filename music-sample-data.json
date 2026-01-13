@@ -1,0 +1,41 @@
+[
+    {
+        "title": "Shape of You",
+        "artist": "Ed Sheeran",
+        "album": "÷ (Divide)",
+        "audioUrl": "https://example.com/audio/shape-of-you.mp3",
+        "coverImage": "https://example.com/covers/shape-of-you.jpg",
+        "duration": 233,
+        "category": "Pop",
+        "language": "English",
+        "isTrending": true,
+        "isActive": true,
+        "createdAt": "2024-01-15T10:30:00.000Z"
+    },
+    {
+        "title": "Blinding Lights",
+        "artist": "The Weeknd",
+        "album": "After Hours",
+        "audioUrl": "https://example.com/audio/blinding-lights.mp3",
+        "coverImage": "https://example.com/covers/blinding-lights.jpg",
+        "duration": 200,
+        "category": "R&B",
+        "language": "English",
+        "isTrending": true,
+        "isActive": true,
+        "createdAt": "2024-01-20T14:45:00.000Z"
+    },
+    {
+        "title": "Despacito",
+        "artist": "Luis Fonsi",
+        "album": "Despacito",
+        "audioUrl": "https://example.com/audio/despacito.mp3",
+        "coverImage": "https://example.com/covers/despacito.jpg",
+        "duration": 229,
+        "category": "Latin Pop",
+        "language": "Spanish",
+        "isTrending": false,
+        "isActive": true,
+        "createdAt": "2024-02-01T09:15:00.000Z"
+    }
+]
