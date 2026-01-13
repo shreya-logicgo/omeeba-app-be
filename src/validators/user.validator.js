@@ -21,6 +21,19 @@ export const updateProfileSchema = createSchema(
   ["name", "username", "bio", "profileImage", "coverImage"]
 );
 
+/**
+ * Get User Profile validation schema (for params)
+ */
+export const getUserProfileParamsSchema = Joi.object({
+  userId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .optional()
+    .messages({
+      "string.pattern.base": "must be a valid user ID",
+    }),
+});
+
 export default {
   updateProfileSchema,
+  getUserProfileParamsSchema,
 };
