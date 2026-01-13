@@ -10,3 +10,6 @@ export { default as emailService } from "./email.service.js";
 // User Services
 export { default as userService } from "./user.service.js";
 
+// Write Post Services
+export { default as writePostService } from "./writePost.service.js";
+

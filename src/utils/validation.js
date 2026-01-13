@@ -87,8 +87,26 @@ export const formatJoiError = (error) => {
 
   const errors = error.details.map((detail) => {
     const field = detail.path.join(".");
-    const message = detail.message.replace(/"/g, "");
-    return `${field.charAt(0).toUpperCase() + field.slice(1)} ${message}`;
+    let message = detail.message.replace(/"/g, "").trim();
+
+    // Capitalize field name
+    const fieldCapitalized = field.charAt(0).toUpperCase() + field.slice(1);
+
+    // Check if message already starts with the field name (case-insensitive)
+    const fieldLower = field.toLowerCase();
+    const messageLower = message.toLowerCase();
+
+    if (
+      messageLower.startsWith(fieldLower + " ") ||
+      messageLower.startsWith(fieldLower + " is") ||
+      messageLower.startsWith(fieldLower + " must")
+    ) {
+      // Message already contains field name, just capitalize first letter
+      return message.charAt(0).toUpperCase() + message.slice(1);
+    }
+
+    // Message doesn't contain field name, prepend it
+    return `${fieldCapitalized} ${message}`;
   });
 
   // Return first error message (most important)
@@ -179,17 +197,25 @@ export const commonValidations = {
 
   // String validations
   stringRequired: (min = 1, max = 255) =>
-    Joi.string().min(min).max(max).required().messages({
-      "string.min": `must be at least ${min} characters`,
-      "string.max": `must be at most ${max} characters`,
-      "any.required": "is required",
-    }),
+    Joi.string()
+      .min(min)
+      .max(max)
+      .required()
+      .messages({
+        "string.min": `must be at least ${min} characters`,
+        "string.max": `must be at most ${max} characters`,
+        "any.required": "is required",
+      }),
 
   stringOptional: (min = 0, max = 255) =>
-    Joi.string().min(min).max(max).allow(null, "").messages({
-      "string.min": `must be at least ${min} characters`,
-      "string.max": `must be at most ${max} characters`,
-    }),
+    Joi.string()
+      .min(min)
+      .max(max)
+      .allow(null, "")
+      .messages({
+        "string.min": `must be at least ${min} characters`,
+        "string.max": `must be at most ${max} characters`,
+      }),
 
   // Number validations
   numberRequired: (min = null, max = null) => {
@@ -218,4 +244,3 @@ export const commonValidations = {
   date: Joi.date().iso(),
   dateRequired: Joi.date().iso().required(),
 };
-
