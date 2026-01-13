@@ -144,7 +144,63 @@ export const sendOTPEmail = async (email, otp) => {
   return sendEmail({ to: email, subject, html, text });
 };
 
+/**
+ * Send Forgot Password OTP email
+ * @param {string} email - Recipient email
+ * @param {number} otp - OTP code
+ * @returns {Promise<Object>} Email send result
+ */
+export const sendForgotPasswordOTPEmail = async (email, otp) => {
+  const subject = "Password Reset OTP";
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Password Reset OTP</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px;">
+        <h2 style="color: #333; text-align: center;">Password Reset</h2>
+        <p>Hello,</p>
+        <p>You have requested to reset your password. Please use the following OTP to reset your password:</p>
+        <div style="background-color: #fff; padding: 20px; border-radius: 5px; text-align: center; margin: 20px 0;">
+          <h1 style="color: #007bff; font-size: 32px; margin: 0; letter-spacing: 5px;">${otp}</h1>
+        </div>
+        <p>This OTP will expire in ${config.otp.expireMinutes} minutes.</p>
+        <p>If you didn't request this password reset, please ignore this email and your password will remain unchanged.</p>
+        <p style="margin-top: 30px; color: #666; font-size: 12px;">
+          Best regards,<br>
+          ${config.email.fromName}
+        </p>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `
+    Password Reset
+    
+    Hello,
+    
+    You have requested to reset your password. Please use the following OTP to reset your password:
+    
+    OTP: ${otp}
+    
+    This OTP will expire in ${config.otp.expireMinutes} minutes.
+    
+    If you didn't request this password reset, please ignore this email and your password will remain unchanged.
+    
+    Best regards,
+    ${config.email.fromName}
+  `;
+
+  return sendEmail({ to: email, subject, html, text });
+};
+
 export default {
   sendEmail,
   sendOTPEmail,
+  sendForgotPasswordOTPEmail,
 };

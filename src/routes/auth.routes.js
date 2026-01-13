@@ -9,6 +9,8 @@ import {
   verifyOTP,
   resendOTP,
   login,
+  forgotPassword,
+  resetPassword,
 } from "../controllers/auth.controller.js";
 import { validateBody } from "../utils/validation.js";
 import {
@@ -16,6 +18,8 @@ import {
   verifyOTPSchema,
   resendOTPSchema,
   loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 } from "../validators/auth.validator.js";
 
 const router = express.Router();
@@ -29,8 +33,9 @@ router.post("/register", validateBody(registerSchema), register);
 
 /**
  * @route   POST /api/v1/auth/verify-otp
- * @desc    Verify OTP for account verification
+ * @desc    Verify OTP for account verification or forgot password
  * @access  Public
+ * @body    { email, otp, type? } - type is optional: "account" or "password" (auto-detected if not provided)
  */
 router.post("/verify-otp", validateBody(verifyOTPSchema), verifyOTP);
 
@@ -47,5 +52,28 @@ router.post("/resend-otp", validateBody(resendOTPSchema), resendOTP);
  * @access  Public
  */
 router.post("/login", validateBody(loginSchema), login);
+
+/**
+ * @route   POST /api/v1/auth/forgot-password
+ * @desc    Send OTP for password reset
+ * @access  Public
+ */
+router.post(
+  "/forgot-password",
+  validateBody(forgotPasswordSchema),
+  forgotPassword
+);
+
+/**
+ * @route   POST /api/v1/auth/reset-password
+ * @desc    Reset password after OTP verification
+ * @access  Public
+ * @note    OTP must be verified first using /verify-otp with type="password"
+ */
+router.post(
+  "/reset-password",
+  validateBody(resetPasswordSchema),
+  resetPassword
+);
 
 export default router;

@@ -52,6 +52,22 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    forgotPasswordOTP: {
+      type: Number,
+      default: null,
+    },
+    forgotPasswordOTPExpireAt: {
+      type: Date,
+      default: null,
+    },
+    forgotPasswordOTPVerified: {
+      type: Boolean,
+      default: false,
+    },
+    forgotPasswordOTPVerifiedAt: {
+      type: Date,
+      default: null,
+    },
     isVerifiedBadge: {
       type: Boolean,
       default: false,

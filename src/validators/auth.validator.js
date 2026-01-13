@@ -49,6 +49,7 @@ export const registerSchema = createSchema(
 
 /**
  * Verify OTP validation schema
+ * Supports both account verification and forgot password OTP
  */
 export const verifyOTPSchema = createSchema(
   {
@@ -58,8 +59,11 @@ export const verifyOTPSchema = createSchema(
       "number.positive": "must be a positive number",
       "any.required": "is required",
     }),
+    type: Joi.string().valid("account", "password").optional().messages({
+      "any.only": "must be either 'account' or 'password'",
+    }),
   },
-  ["email", "otp"]
+  ["email", "otp", "type"]
 );
 
 /**
@@ -83,9 +87,33 @@ export const loginSchema = createSchema(
   ["email", "password"]
 );
 
+/**
+ * Forgot Password validation schema
+ */
+export const forgotPasswordSchema = createSchema(
+  {
+    email: commonValidations.email,
+  },
+  ["email"]
+);
+
+/**
+ * Reset Password validation schema
+ * Only requires newPassword (OTP is verified in verify-otp API)
+ */
+export const resetPasswordSchema = createSchema(
+  {
+    email: commonValidations.email,
+    newPassword: commonValidations.password,
+  },
+  ["email", "newPassword"]
+);
+
 export default {
   registerSchema,
   verifyOTPSchema,
   resendOTPSchema,
   loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 };

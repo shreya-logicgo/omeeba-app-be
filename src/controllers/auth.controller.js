@@ -8,6 +8,8 @@ import {
   verifyOTP as verifyOTPService,
   resendOTP as resendOTPService,
   loginUser,
+  forgotPassword as forgotPasswordService,
+  resetPassword as resetPasswordService,
 } from "../services/auth.service.js";
 import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
@@ -84,34 +86,45 @@ export const register = async (req, res) => {
 
 /**
  * Verify OTP
+ * Handles both account verification and forgot password OTP
  * @route POST /api/v1/auth/verify-otp
  * @access Public
  */
 export const verifyOTP = async (req, res) => {
   try {
-    const { email, otp } = req.body;
+    const { email, otp, type } = req.body;
 
     // Verify OTP
-    const user = await verifyOTPService(email, otp);
+    const result = await verifyOTPService(email, otp, type);
 
-    // Return success response
-    return sendSuccess(
-      res,
-      {
-        user: {
-          id: user._id,
-          email: user.email,
-          phoneNumber: user.phoneNumber,
-          countryCode: user.countryCode,
-          name: user.name,
-          username: user.username,
-          isAccountVerified: user.isAccountVerified,
-          createdAt: user.createdAt,
+    // Handle account verification response
+    if (result.type === "account") {
+      return sendSuccess(
+        res,
+        {
+          user: {
+            id: result.user._id,
+            email: result.user.email,
+            phoneNumber: result.user.phoneNumber,
+            countryCode: result.user.countryCode,
+            name: result.user.name,
+            username: result.user.username,
+            isAccountVerified: result.user.isAccountVerified,
+            createdAt: result.user.createdAt,
+          },
         },
-      },
-      "Account verified successfully",
-      StatusCodes.OK
-    );
+        "Account verified successfully",
+        StatusCodes.OK
+      );
+    }
+
+    // Handle forgot password OTP verification response
+    if (result.type === "password") {
+      return sendSuccess(res, null, result.message, StatusCodes.OK);
+    }
+
+    // Fallback
+    return sendSuccess(res, null, "OTP verified successfully", StatusCodes.OK);
   } catch (error) {
     logger.error("OTP verification error:", error);
 
@@ -229,9 +242,86 @@ export const login = async (req, res) => {
   }
 };
 
+/**
+ * Forgot Password
+ * @route POST /api/v1/auth/forgot-password
+ * @access Public
+ */
+export const forgotPasswordHandler = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Send forgot password OTP
+    const result = await forgotPasswordService(email);
+
+    // Return success response
+    return sendSuccess(res, null, result.message, StatusCodes.OK);
+  } catch (error) {
+    logger.error("Forgot password error:", error);
+
+    // Handle custom errors
+    if (error.message) {
+      return sendBadRequest(res, error.message);
+    }
+
+    // Generic error
+    return sendError(
+      res,
+      "Failed to process forgot password request",
+      "Forgot Password Error",
+      error.message || "An error occurred",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Reset Password
+ * @route POST /api/v1/auth/reset-password
+ * @access Public
+ */
+export const resetPasswordHandler = async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
+
+    // Reset password (OTP should be verified first via verify-otp API)
+    await resetPasswordService(email, newPassword);
+
+    // Return success response
+    return sendSuccess(
+      res,
+      null,
+      "Password reset successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Reset password error:", error);
+
+    // Handle custom errors
+    if (error.message) {
+      return sendBadRequest(res, error.message);
+    }
+
+    // Generic error
+    return sendError(
+      res,
+      "Failed to reset password",
+      "Reset Password Error",
+      error.message || "An error occurred during password reset",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+// Export named exports for routes
+export { forgotPasswordHandler as forgotPassword };
+export { resetPasswordHandler as resetPassword };
+
 export default {
   register,
   verifyOTP,
   resendOTP,
   login,
+  forgotPassword: forgotPasswordHandler,
+  resetPassword: resetPasswordHandler,
 };
