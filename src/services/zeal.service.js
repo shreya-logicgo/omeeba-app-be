@@ -171,12 +171,12 @@ export const startZealUpload = async (userId, fileData) => {
         `Multipart upload initiated: ${draft._id} for user: ${userId}, chunks: ${totalChunks}`
       );
 
+      // For multipart uploads, return same format as simple upload
+      // Note: This endpoint is for client-side uploads, multipart handled differently
       return {
         zealDraftId: draft._id.toString(),
-        uploadId,
-        isMultipart: true,
-        chunkSize: CHUNK_SIZE,
-        totalChunks,
+        uploadUrl: "", // Not applicable for multipart via this endpoint
+        headers: {},
         expiresIn,
       };
     } else {
@@ -212,9 +212,8 @@ export const startZealUpload = async (userId, fileData) => {
       return {
         zealDraftId: draft._id.toString(),
         uploadUrl,
-        headers,
+        headers: headers || {},
         expiresIn,
-        isMultipart: false,
       };
     }
   } catch (error) {

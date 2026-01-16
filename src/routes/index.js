@@ -15,9 +15,13 @@ router.get("/health", (req, res) => {
 // Import route modules
 import authRoutes from "./auth.routes.js";
 import zealRoutes from "./zeal.routes.js";
+import followRoutes from "./follow.routes.js";
+import userRoutes from "./user.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
 router.use(`/${config.apiVersion}/zeals`, zealRoutes);
+router.use(`/${config.apiVersion}/follow`, followRoutes);
+router.use(`/${config.apiVersion}/users`, userRoutes);
 
 export default router;

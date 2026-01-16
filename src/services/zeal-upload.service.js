@@ -203,12 +203,13 @@ const uploadFileInChunks = async (
       }
     });
 
+    // Return response in same format as /zeals/start endpoint
+    const expiresIn = 3600; // 1 hour for multipart
     return {
       zealDraftId: draft._id.toString(),
-      status: "uploading",
-      message: "File upload started. Processing in background.",
-      isMultipart: true,
-      totalChunks,
+      uploadUrl: getPublicUrl(storageKey), // Public URL (will be available after upload completes)
+      headers: {},
+      expiresIn,
     };
   } catch (error) {
     // Cleanup: abort multipart upload if initiated
@@ -360,39 +361,96 @@ const uploadChunksInBackground = async (
 };
 
 /**
- * Upload a single chunk
+ * Upload a single chunk with retry logic
  * @param {string} uploadUrl - Pre-signed upload URL
  * @param {Buffer} chunkData - Chunk data
  * @param {number} partNumber - Part number
+ * @param {number} maxRetries - Maximum number of retries (default: 3)
+ * @param {number} retryDelay - Initial retry delay in ms (default: 1000)
  * @returns {Promise<string>} ETag
  */
-const uploadChunk = async (uploadUrl, chunkData, partNumber) => {
-  try {
-    const response = await fetch(uploadUrl, {
-      method: "PUT",
-      body: chunkData,
-      headers: {
-        "Content-Type": "application/octet-stream",
-      },
-    });
+const uploadChunk = async (
+  uploadUrl,
+  chunkData,
+  partNumber,
+  maxRetries = 3,
+  retryDelay = 1000
+) => {
+  let lastError;
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to upload chunk ${partNumber}: ${response.statusText}`
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+      const response = await fetch(uploadUrl, {
+        method: "PUT",
+        body: chunkData,
+        headers: {
+          "Content-Type": "application/octet-stream",
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to upload chunk ${partNumber}: ${response.status} ${response.statusText}`
+        );
+      }
+
+      // Extract ETag from response headers
+      const etag = response.headers.get("ETag") || response.headers.get("etag");
+      if (!etag) {
+        throw new Error(`No ETag received for chunk ${partNumber}`);
+      }
+
+      if (attempt > 1) {
+        logger.info(
+          `Chunk ${partNumber} uploaded successfully on attempt ${attempt}`
+        );
+      }
+
+      return etag;
+    } catch (error) {
+      lastError = error;
+
+      // Check if error is retryable
+      const isRetryable =
+        error.code === "ECONNRESET" ||
+        error.code === "ETIMEDOUT" ||
+        error.code === "ENOTFOUND" ||
+        error.name === "AbortError" ||
+        error.message.includes("fetch failed") ||
+        error.message.includes("network") ||
+        (error.response && error.response.status >= 500);
+
+      if (!isRetryable || attempt === maxRetries) {
+        logger.error(
+          `Error uploading chunk ${partNumber} (attempt ${attempt}/${maxRetries}):`,
+          error
+        );
+        throw error;
+      }
+
+      // Calculate exponential backoff delay
+      const delay = retryDelay * Math.pow(2, attempt - 1);
+      logger.warn(
+        `Retrying chunk ${partNumber} upload (attempt ${attempt}/${maxRetries}) after ${delay}ms...`
       );
-    }
 
-    // Extract ETag from response headers
-    const etag = response.headers.get("ETag") || response.headers.get("etag");
-    if (!etag) {
-      throw new Error(`No ETag received for chunk ${partNumber}`);
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-
-    return etag;
-  } catch (error) {
-    logger.error(`Error uploading chunk ${partNumber}:`, error);
-    throw error;
   }
+
+  // If we get here, all retries failed
+  logger.error(
+    `Failed to upload chunk ${partNumber} after ${maxRetries} attempts:`,
+    lastError
+  );
+  throw lastError;
 };
 
 /**
@@ -437,6 +495,7 @@ const uploadFileSimple = async (
       Key: storageKey,
       Body: fileBuffer,
       ContentType: mimeType,
+      ACL: "public-read", // Make file publicly accessible
     });
 
     await client.send(command);
@@ -466,11 +525,13 @@ const uploadFileSimple = async (
 
     logger.info(`File uploaded successfully: ${draft._id} for user: ${userId}`);
 
+    // Return response in same format as /zeals/start endpoint
+    const expiresIn = 300; // 5 minutes
     return {
       zealDraftId: draft._id.toString(),
-      status: "uploaded",
-      message: "File uploaded successfully",
-      isMultipart: false,
+      uploadUrl: getPublicUrl(storageKey),
+      headers: {},
+      expiresIn,
     };
   } catch (error) {
     // Delete temporary file on error

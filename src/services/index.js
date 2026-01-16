@@ -13,3 +13,9 @@ export { default as storageService } from "./storage.service.js";
 // Zeal Services
 export { default as zealService } from "./zeal.service.js";
 
+// Follow Services
+export { default as followService } from "./follow.service.js";
+
+// User Services
+export { default as userService } from "./user.service.js";
+

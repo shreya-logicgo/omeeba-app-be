@@ -7,3 +7,9 @@ export { default as authController } from "./auth.controller.js";
 // Zeal Controllers
 export { default as zealController } from "./zeal.controller.js";
 
+// Follow Controllers
+export { default as followController } from "./follow.controller.js";
+
+// User Controllers
+export { default as userController } from "./user.controller.js";
+

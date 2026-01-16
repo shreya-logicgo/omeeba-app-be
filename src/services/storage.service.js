@@ -129,6 +129,7 @@ export const generatePresignedUploadUrl = async (
       Bucket: bucketName,
       Key: storageKey,
       ContentType: mimeType,
+      ACL: "public-read", // Make file publicly accessible
     });
 
     const uploadUrl = await getSignedUrl(client, command, { expiresIn });
@@ -236,6 +237,7 @@ export const initiateMultipartUpload = async (storageKey, mimeType) => {
       Bucket: bucketName,
       Key: storageKey,
       ContentType: mimeType,
+      ACL: "public-read", // Make file publicly accessible
     });
 
     const response = await client.send(command);
