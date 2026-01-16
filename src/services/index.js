@@ -7,3 +7,9 @@ export { default as authService } from "./auth.service.js";
 // Email Services
 export { default as emailService } from "./email.service.js";
 
+// Storage Services
+export { default as storageService } from "./storage.service.js";
+
+// Zeal Services
+export { default as zealService } from "./zeal.service.js";
+

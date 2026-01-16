@@ -79,6 +79,14 @@ const MessageStatus = {
   SEEN: "Seen",
 };
 
+const ZealStatus = {
+  DRAFT: "draft",
+  PROCESSING: "processing",
+  READY: "ready",
+  PUBLISHED: "published",
+  FAILED: "failed",
+};
+
 export {
   ContentType,
   ContentModelName,
@@ -92,4 +100,5 @@ export {
   ChatType,
   MessageType,
   MessageStatus,
+  ZealStatus,
 };

@@ -4,3 +4,6 @@
 // Auth Controllers
 export { default as authController } from "./auth.controller.js";
 
+// Zeal Controllers
+export { default as zealController } from "./zeal.controller.js";
+
