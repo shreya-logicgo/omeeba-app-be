@@ -212,7 +212,7 @@ export const commonValidations = {
 
   // Array
   arrayRequired: (itemSchema) => Joi.array().items(itemSchema).required(),
-  arrayOptional: (itemSchema) => Joi.array().items(itemSchema).optional().default([]),
+  arrayOptional: (itemSchema) => Joi.array().items(itemSchema).min(0).optional().default([]),
 
   // Date
   date: Joi.date().iso(),

@@ -42,9 +42,18 @@ export const createZealSchema = createSchema(
   {
     zealDraftId: commonValidations.objectId.label("Zeal Draft ID"),
     caption: commonValidations.stringOptional(0, 2000).label("Caption"),
-    mentionedUserIds: commonValidations.arrayOptional(
-      commonValidations.objectId
-    ).label("Mentioned User IDs"),
+    mentionedUserIds: Joi.array()
+      .items(
+        Joi.string()
+          .pattern(/^[0-9a-fA-F]{24}$/)
+          .messages({
+            "string.pattern.base": "must be a valid ObjectId",
+          })
+      )
+      .min(0)
+      .optional()
+      .default([])
+      .label("Mentioned User IDs"),
     musicId: commonValidations.objectIdOptional.label("Music ID"),
     musicStartTime: Joi.number()
       .min(0)
