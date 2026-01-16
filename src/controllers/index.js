@@ -12,3 +12,6 @@ export { default as writePostController } from "./writePost.controller.js";
 
 // Post Controllers
 export { default as postController } from "./post.controller.js";
+
+// Subscription Controllers
+export { default as subscriptionController } from "./subscription.controller.js";

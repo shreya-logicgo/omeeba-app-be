@@ -13,6 +13,12 @@ process.on("uncaughtException", (err) => {
 // Connect to database
 connectDB();
 
+// Start cron jobs
+if (config.nodeEnv !== "test") {
+  const { startSubscriptionExpiryJob } = await import("./jobs/subscriptionExpiry.job.js");
+  startSubscriptionExpiryJob();
+}
+
 // Start server
 const server = app.listen(config.port, () => {
   logger.info(

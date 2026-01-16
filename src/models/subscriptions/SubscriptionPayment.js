@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { SubscriptionStatus } from "../enums.js";
-import { PAYMENT_PROVIDERS } from "../../constants/index.js";
+import { PAYMENT_PROVIDERS, PAYMENT_STATUS } from "../../constants/index.js";
 
 const subscriptionPaymentSchema = new mongoose.Schema(
   {
@@ -37,7 +37,7 @@ const subscriptionPaymentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: Object.values(SubscriptionStatus),
+      enum: Object.values(PAYMENT_STATUS),
       required: true,
     },
     createdAt: {

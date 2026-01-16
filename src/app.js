@@ -23,9 +23,22 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Body parser middleware
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+// Body parser middleware - skip webhook routes (they need raw body)
+app.use((req, res, next) => {
+  // Skip body parsing for webhook routes
+  if (req.path.includes("/webhooks/")) {
+    return next();
+  }
+  express.json({ limit: "10mb" })(req, res, next);
+});
+
+app.use((req, res, next) => {
+  // Skip body parsing for webhook routes
+  if (req.path.includes("/webhooks/")) {
+    return next();
+  }
+  express.urlencoded({ extended: true, limit: "10mb" })(req, res, next);
+});
 
 // Compression middleware
 app.use(compression());

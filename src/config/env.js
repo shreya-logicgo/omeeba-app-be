@@ -104,6 +104,16 @@ const envVarsSchema = Joi.object({
   // Pagination Configuration
   DEFAULT_PAGE_SIZE: Joi.number().default(20),
   MAX_PAGE_SIZE: Joi.number().default(100),
+
+  // Payment Gateway Configuration - Razorpay
+  RAZORPAY_KEY_ID: Joi.string().optional().allow("").description("Razorpay Key ID"),
+  RAZORPAY_KEY_SECRET: Joi.string().optional().allow("").description("Razorpay Key Secret"),
+  RAZORPAY_WEBHOOK_SECRET: Joi.string().optional().allow("").description("Razorpay Webhook Secret"),
+
+  // Payment Gateway Configuration - Stripe
+  STRIPE_SECRET_KEY: Joi.string().optional().allow("").description("Stripe Secret Key"),
+  STRIPE_PUBLISHABLE_KEY: Joi.string().optional().allow("").description("Stripe Publishable Key"),
+  STRIPE_WEBHOOK_SECRET: Joi.string().optional().allow("").description("Stripe Webhook Secret"),
 })
   .unknown()
   .prefs({ errors: { label: "key" } });
@@ -177,6 +187,18 @@ export default {
   pagination: {
     defaultPageSize: envVars.DEFAULT_PAGE_SIZE,
     maxPageSize: envVars.MAX_PAGE_SIZE,
+  },
+  payment: {
+    razorpay: {
+      keyId: envVars.RAZORPAY_KEY_ID,
+      keySecret: envVars.RAZORPAY_KEY_SECRET,
+      webhookSecret: envVars.RAZORPAY_WEBHOOK_SECRET,
+    },
+    stripe: {
+      secretKey: envVars.STRIPE_SECRET_KEY,
+      publishableKey: envVars.STRIPE_PUBLISHABLE_KEY,
+      webhookSecret: envVars.STRIPE_WEBHOOK_SECRET,
+    },
   },
 };
 
