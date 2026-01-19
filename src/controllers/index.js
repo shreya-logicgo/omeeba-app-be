@@ -18,3 +18,6 @@ export { default as zealController } from "./zeal.controller.js";
 
 // Follow Controllers
 export { default as followController } from "./follow.controller.js";
+
+// Poll Controllers
+export { default as pollController } from "./poll.controller.js";

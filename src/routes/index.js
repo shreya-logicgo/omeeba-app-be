@@ -19,6 +19,7 @@ import writePostRoutes from "./writePost.routes.js";
 import postRoutes from "./post.routes.js";
 import zealRoutes from "./zeal.routes.js";
 import followRoutes from "./follow.routes.js";
+import pollRoutes from "./poll.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
@@ -28,5 +29,6 @@ router.use(`/${config.apiVersion}/posts`, postRoutes);
 router.use(`/${config.apiVersion}/auth`, authRoutes);
 router.use(`/${config.apiVersion}/zeals`, zealRoutes);
 router.use(`/${config.apiVersion}/follow`, followRoutes);
+router.use(`/${config.apiVersion}/polls`, pollRoutes);
 
 export default router;

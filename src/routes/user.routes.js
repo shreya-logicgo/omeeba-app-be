@@ -3,10 +3,14 @@ import { validateBody, validateParams } from "../utils/validation.js";
 import {
   updateProfileSchema,
   getUserProfileParamsSchema,
+  getUserPostQueries,
 } from "../validators/user.validator.js";
 import {
   updateProfile,
   getUserProfile,
+  getUserPost,
+  getUserWritePosts,
+  getUserPolls,
 } from "../controllers/user.controller.js";
 import { protect } from "../middleware/auth.js";
 import { searchUsers } from "../controllers/user.controller.js";
@@ -57,5 +61,31 @@ router.get(
   validateQuery(searchUsersQuerySchema),
   searchUsers
 );
+
+/*
+ * @route   GET / api / v1 / users / post
+ * @desc    Search users by userId
+ * @access  Private
+ */
+router.get("/posts", protect, validateQuery(getUserPostQueries), getUserPost);
+
+/*
+ * @route   GET / api / v1 / users / write-posts
+ * @desc    Search users by userId
+ * @access  Private
+ */
+router.get(
+  "/write-posts",
+  protect,
+  validateQuery(getUserPostQueries),
+  getUserWritePosts
+);
+
+/*
+ * @route   GET / api / v1 / users / polls
+ * @desc    Search users by userId
+ * @access  Private
+ */
+router.get("/polls", protect, validateQuery(getUserPostQueries), getUserPolls);
 
 export default router;

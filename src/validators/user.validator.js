@@ -64,6 +64,16 @@ export const searchUsersQuerySchema = createSchema(
   ["username", "search", "page", "limit"]
 );
 
+/**
+ * Get user posts
+ */
+export const getUserPostQueries = createSchema({
+  userId: Joi.string(),
+  date: Joi.string(),
+  page: commonValidations.page,
+  limit: commonValidations.limit,
+});
+
 export default {
   searchUsersQuerySchema,
   updateProfileSchema,

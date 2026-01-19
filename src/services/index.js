@@ -24,3 +24,7 @@ export { default as zealService } from "./zeal.service.js";
 
 // Follow Services
 export { default as followService } from "./follow.service.js";
+
+// Poll Services
+export { default as pollService } from "./poll.service.js";
+export { default as pollCronService } from "./poll-cron.service.js";

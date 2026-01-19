@@ -2,6 +2,7 @@ import app from "./app.js";
 import { connectDB } from "./config/database.js";
 import logger from "./utils/logger.js";
 import config from "./config/env.js";
+import { startPollCronJob } from "./services/poll-cron.service.js";
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (err) => {
@@ -12,6 +13,9 @@ process.on("uncaughtException", (err) => {
 
 // Connect to database
 connectDB();
+
+// Start poll cron job for auto-calculating poll results
+startPollCronJob();
 
 // Start server
 const server = app.listen(config.port, () => {

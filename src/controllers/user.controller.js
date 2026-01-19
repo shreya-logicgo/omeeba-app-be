@@ -7,15 +7,16 @@ import {
   sendError,
   sendBadRequest,
   sendNotFound,
+  sendPaginated,
 } from "../utils/response.js";
 import { searchUsersByUsername } from "../services/user.service.js";
 import { StatusCodes } from "http-status-codes";
-/**
- * User Controller
- * HTTP request handlers for user operations
- */
-
 import logger from "../utils/logger.js";
+import Post from "../models/content/Post.js";
+import mongoose from "mongoose";
+import WritePost from "../models/content/WritePost.js";
+import { getPagination, getPaginationMeta } from "../utils/pagination.js";
+import Poll from "../models/content/Poll.js";
 
 /**
  * Update Profile
@@ -154,8 +155,201 @@ export const getUserProfile = async (req, res) => {
   }
 };
 
+/**
+ * Get user posts
+ */
+export const getUserPost = async (req, res) => {
+  try {
+    const filter = {};
+    const { date, userId } = req.query;
+
+    filter.userId = userId ? new mongoose.Types.ObjectId(userId) : req.user._id;
+
+    if (date) {
+      // date format: YYYY-MM-DD
+      const startDate = new Date(`${date}T00:00:00.000Z`);
+      const endDate = new Date(`${date}T23:59:59.999Z`);
+
+      filter.createdAt = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+
+    // Get pagination parameters
+    const { page, limit, skip } = getPagination(req);
+
+    // Get total count for pagination
+    const total = await Post.countDocuments(filter);
+
+    // Get paginated posts
+    const userPosts = await Post.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate(
+        "userId",
+        "name username profileImage isAccountVerified isVerifiedBadge"
+      )
+      .populate(
+        "mentionedUserIds",
+        "name username profileImage isAccountVerified isVerifiedBadge"
+      );
+
+    // Get pagination metadata
+    const pagination = getPaginationMeta(total, page, limit);
+
+    return sendPaginated(
+      res,
+      userPosts,
+      pagination,
+      "User post fetch successfully.",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      "Failed to get user posts",
+      "Get user posts",
+      error.message || "An error occurred while retrieving user posts.",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Get user's write posts
+ */
+export const getUserWritePosts = async (req, res) => {
+  try {
+    const filter = {};
+    const { date, userId } = req.query;
+
+    filter.userId = userId ? new mongoose.Types.ObjectId(userId) : req.user._id;
+
+    if (date) {
+      // date format: YYYY-MM-DD
+      const startDate = new Date(`${date}T00:00:00.000Z`);
+      const endDate = new Date(`${date}T23:59:59.999Z`);
+
+      filter.createdAt = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+
+    // Get pagination parameters
+    const { page, limit, skip } = getPagination(req);
+
+    // Get total count for pagination
+    const total = await WritePost.countDocuments(filter);
+
+    // Get paginated posts
+    const userPosts = await WritePost.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate(
+        "userId",
+        "name username profileImage isAccountVerified isVerifiedBadge"
+      )
+      .populate(
+        "mentionedUserIds",
+        "name username profileImage isAccountVerified isVerifiedBadge"
+      );
+
+    // Get pagination metadata
+    const pagination = getPaginationMeta(total, page, limit);
+
+    return sendPaginated(
+      res,
+      userPosts,
+      pagination,
+      "User post fetch successfully.",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      "Failed to get user posts",
+      "Get user posts",
+      error.message || "An error occurred while retrieving user posts.",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Get user's polls
+ */
+export const getUserPolls = async (req, res) => {
+  try {
+    const filter = {};
+    const { date, createdBy } = req.query;
+
+    filter.createdBy = createdBy
+      ? new mongoose.Types.ObjectId(createdBy)
+      : req.user._id;
+
+    if (date) {
+      // date format: YYYY-MM-DD
+      const startDate = new Date(`${date}T00:00:00.000Z`);
+      const endDate = new Date(`${date}T23:59:59.999Z`);
+
+      filter.createdAt = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+
+    console.log(filter);
+
+    // Get pagination parameters
+    const { page, limit, skip } = getPagination(req);
+
+    // Get total count for pagination
+    const total = await Poll.countDocuments(filter);
+
+    // Get paginated polls
+    const userPosts = await Poll.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate(
+        "createdBy",
+        "name username profileImage isAccountVerified isVerifiedBadge"
+      )
+      .populate(
+        "userVotes.userId",
+        "name username profileImage isAccountVerified isVerifiedBadge"
+      );
+
+    // Get pagination metadata
+    const pagination = getPaginationMeta(total, page, limit);
+
+    return sendPaginated(
+      res,
+      userPosts,
+      pagination,
+      "User polls fetch successfully.",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    return sendError(
+      res,
+      "Failed to get user posts",
+      "Get user posts",
+      error.message || "An error occurred while retrieving user posts.",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   updateProfile,
   getUserProfile,
   searchUsers,
+  getUserPost,
+  getUserWritePosts,
+  getUserPolls,
 };
