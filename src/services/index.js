@@ -21,3 +21,12 @@ export { default as paymentService } from "./payment.service.js";
 
 // Subscription Services
 export { default as subscriptionService } from "./subscription.service.js";
+
+// Storage Services
+export { default as storageService } from "./storage.service.js";
+
+// Zeal Services
+export { default as zealService } from "./zeal.service.js";
+
+// Follow Services
+export { default as followService } from "./follow.service.js";

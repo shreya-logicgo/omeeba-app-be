@@ -1,5 +1,4 @@
 import express from "express";
-import { protect } from "../middleware/auth.js";
 import { validateBody, validateParams } from "../utils/validation.js";
 import {
   updateProfileSchema,
@@ -9,6 +8,10 @@ import {
   updateProfile,
   getUserProfile,
 } from "../controllers/user.controller.js";
+import { protect } from "../middleware/auth.js";
+import { searchUsers } from "../controllers/user.controller.js";
+import { validateQuery } from "../utils/validation.js";
+import { searchUsersQuerySchema } from "../validators/user.validator.js";
 
 const router = express.Router();
 
@@ -41,6 +44,18 @@ router.get(
   protect,
   validateParams(getUserProfileParamsSchema),
   getUserProfile
+);
+
+/*
+ * @route   GET / api / v1 / users / search
+ * @desc    Search users by username
+ * @access  Private
+ */
+router.get(
+  "/search",
+  protect,
+  validateQuery(searchUsersQuerySchema),
+  searchUsers
 );
 
 export default router;

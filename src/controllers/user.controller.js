@@ -2,8 +2,19 @@ import {
   updateProfile as updateProfileService,
   getUserProfile as getUserProfileService,
 } from "../services/user.service.js";
-import { sendSuccess, sendError, sendBadRequest, sendNotFound } from "../utils/response.js";
+import {
+  sendSuccess,
+  sendError,
+  sendBadRequest,
+  sendNotFound,
+} from "../utils/response.js";
+import { searchUsersByUsername } from "../services/user.service.js";
 import { StatusCodes } from "http-status-codes";
+/**
+ * User Controller
+ * HTTP request handlers for user operations
+ */
+
 import logger from "../utils/logger.js";
 
 /**
@@ -42,6 +53,37 @@ export const updateProfile = async (req, res) => {
     );
   } catch (error) {
     logger.error("Update profile error:", error);
+  }
+};
+
+/*
+ * Search users by username
+ * @route GET /api/v1/users/search
+ * @access Private
+ */
+export const searchUsers = async (req, res) => {
+  try {
+    const searchTerm = req.query.username || req.query.search || "";
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const currentUserId = req.user._id.toString();
+
+    // Get search results
+    const result = await searchUsersByUsername(
+      searchTerm,
+      currentUserId,
+      page,
+      limit
+    );
+
+    return sendSuccess(
+      res,
+      result,
+      "Users retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Search users error:", error);
 
     // Handle custom errors
     if (error.message) {
@@ -87,7 +129,10 @@ export const getUserProfile = async (req, res) => {
     logger.error("Get user profile error:", error);
 
     // Handle custom errors
-    if (error.message === "User not found" || error.message === "User account has been deleted") {
+    if (
+      error.message === "User not found" ||
+      error.message === "User account has been deleted"
+    ) {
       return sendNotFound(res, error.message);
     }
 
@@ -101,6 +146,9 @@ export const getUserProfile = async (req, res) => {
       "Failed to get profile",
       "Get Profile Error",
       error.message || "An error occurred while retrieving profile",
+      "Failed to search users",
+      "User Search Error",
+      error.message || "An error occurred while searching users",
       StatusCodes.INTERNAL_SERVER_ERROR
     );
   }
@@ -109,4 +157,5 @@ export const getUserProfile = async (req, res) => {
 export default {
   updateProfile,
   getUserProfile,
+  searchUsers,
 };

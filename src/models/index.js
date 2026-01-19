@@ -12,6 +12,7 @@ import UserAudience from "./users/UserAudience.js";
 import Post from "./content/Post.js";
 import WritePost from "./content/WritePost.js";
 import ZealPost from "./content/ZealPost.js";
+import ZealDraft from "./content/ZealDraft.js";
 import Poll from "./content/Poll.js";
 
 // Comments
@@ -54,6 +55,7 @@ export {
   Post,
   WritePost,
   ZealPost,
+  ZealDraft,
   Poll,
 
   // Comments

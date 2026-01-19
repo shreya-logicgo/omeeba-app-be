@@ -15,3 +15,9 @@ export { default as postController } from "./post.controller.js";
 
 // Subscription Controllers
 export { default as subscriptionController } from "./subscription.controller.js";
+
+// Zeal Controllers
+export { default as zealController } from "./zeal.controller.js";
+
+// Follow Controllers
+export { default as followController } from "./follow.controller.js";

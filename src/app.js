@@ -39,6 +39,9 @@ app.use((req, res, next) => {
   }
   express.urlencoded({ extended: true, limit: "10mb" })(req, res, next);
 });
+// Body parser middleware (file uploads handled by multer)
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Compression middleware
 app.use(compression());

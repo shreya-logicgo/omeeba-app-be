@@ -10,6 +10,7 @@ import {
   loginUser,
   forgotPassword as forgotPasswordService,
   resetPassword as resetPasswordService,
+  generateToken,
 } from "../services/auth.service.js";
 import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
@@ -99,9 +100,13 @@ export const verifyOTP = async (req, res) => {
 
     // Handle account verification response
     if (result.type === "account") {
+      // Generate JWT token after successful account verification
+      const token = generateToken(result.user._id.toString());
+
       return sendSuccess(
         res,
         {
+          token,
           user: {
             id: result.user._id,
             email: result.user.email,
