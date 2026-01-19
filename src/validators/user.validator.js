@@ -1,5 +1,5 @@
 import Joi from "joi";
-import { createSchema } from "../utils/validation.js";
+import { createSchema, commonValidations } from "../utils/validation.js";
 
 /**
  * Update Profile validation schema
@@ -33,7 +33,39 @@ export const getUserProfileParamsSchema = Joi.object({
     }),
 });
 
+/**
+ * Search users validation schema (query)
+ */
+export const searchUsersQuerySchema = createSchema(
+  {
+    username: Joi.string()
+      .min(1)
+      .max(100)
+      .optional()
+      .allow("")
+      .messages({
+        "string.min": "Search term must be at least 1 character",
+        "string.max": "Search term must be at most 100 characters",
+      })
+      .label("Username"),
+    search: Joi.string()
+      .min(1)
+      .max(100)
+      .optional()
+      .allow("")
+      .messages({
+        "string.min": "Search term must be at least 1 character",
+        "string.max": "Search term must be at most 100 characters",
+      })
+      .label("Search"),
+    page: commonValidations.page,
+    limit: commonValidations.limit,
+  },
+  ["username", "search", "page", "limit"]
+);
+
 export default {
+  searchUsersQuerySchema,
   updateProfileSchema,
   getUserProfileParamsSchema,
 };

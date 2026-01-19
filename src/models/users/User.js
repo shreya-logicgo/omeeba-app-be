@@ -89,6 +89,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    followerCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    followingCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,

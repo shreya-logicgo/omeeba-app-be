@@ -83,6 +83,22 @@ const envVarsSchema = Joi.object({
   CLOUDINARY_API_KEY: Joi.string().optional(),
   CLOUDINARY_API_SECRET: Joi.string().optional(),
 
+  // AWS S3 Configuration
+  AWS_ACCESS_KEY_ID: Joi.string().optional(),
+  AWS_SECRET_ACCESS_KEY: Joi.string().optional(),
+  AWS_REGION: Joi.string().default("us-east-1"),
+  AWS_S3_BUCKET: Joi.string().optional(),
+  AWS_S3_ENDPOINT: Joi.string().optional(),
+
+  // DigitalOcean Spaces Configuration
+  DIGITAL_OCEAN_DIRNAME: Joi.string().optional(),
+  DIGITAL_OCEAN_SPACES_SECRET_KEY: Joi.string().optional(),
+  DIGITAL_OCEAN_SPACES_ACCESS_KEY: Joi.string().optional(),
+  DIGITAL_OCEAN_ENDPOINT: Joi.string().optional(),
+  DIGITAL_OCEAN_SPACES_BASE_URL: Joi.string().optional(),
+  DIGITAL_OCEAN_SPACES_REGION: Joi.string().optional(),
+  DIGITAL_OCEAN_BUCKET_NAME: Joi.string().optional(),
+
   // Email Configuration (Brevo)
   BREVO_API_KEY: Joi.string().optional().allow("").description("Brevo API key"),
   FROM_EMAIL: Joi.string().default("noreply@omeeba.com"),
@@ -153,6 +169,22 @@ export default {
     cloudName: envVars.CLOUDINARY_CLOUD_NAME,
     apiKey: envVars.CLOUDINARY_API_KEY,
     apiSecret: envVars.CLOUDINARY_API_SECRET,
+  },
+  aws: {
+    accessKeyId: envVars.AWS_ACCESS_KEY_ID,
+    secretAccessKey: envVars.AWS_SECRET_ACCESS_KEY,
+    region: envVars.AWS_REGION,
+    s3Bucket: envVars.AWS_S3_BUCKET,
+    s3Endpoint: envVars.AWS_S3_ENDPOINT,
+  },
+  digitalOcean: {
+    dirname: envVars.DIGITAL_OCEAN_DIRNAME,
+    accessKey: envVars.DIGITAL_OCEAN_SPACES_ACCESS_KEY,
+    secretKey: envVars.DIGITAL_OCEAN_SPACES_SECRET_KEY,
+    endpoint: envVars.DIGITAL_OCEAN_ENDPOINT,
+    baseUrl: envVars.DIGITAL_OCEAN_SPACES_BASE_URL,
+    region: envVars.DIGITAL_OCEAN_SPACES_REGION,
+    bucketName: envVars.DIGITAL_OCEAN_BUCKET_NAME,
   },
   brevo: {
     apiKey: envVars.BREVO_API_KEY,

@@ -15,3 +15,12 @@ export { default as writePostService } from "./writePost.service.js";
 
 // Post Services
 export { default as postService } from "./post.service.js";
+
+// Storage Services
+export { default as storageService } from "./storage.service.js";
+
+// Zeal Services
+export { default as zealService } from "./zeal.service.js";
+
+// Follow Services
+export { default as followService } from "./follow.service.js";
