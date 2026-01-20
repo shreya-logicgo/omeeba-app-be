@@ -4,6 +4,7 @@ import {
   updateProfileSchema,
   getUserProfileParamsSchema,
   getUserPostQueries,
+  getMentionedPostsQuerySchema,
 } from "../validators/user.validator.js";
 import {
   updateProfile,
@@ -11,6 +12,7 @@ import {
   getUserPost,
   getUserWritePosts,
   getUserPolls,
+  getMentionedPosts,
 } from "../controllers/user.controller.js";
 import { protect } from "../middleware/auth.js";
 import { searchUsers } from "../controllers/user.controller.js";
@@ -87,5 +89,17 @@ router.get(
  * @access  Private
  */
 router.get("/polls", protect, validateQuery(getUserPostQueries), getUserPolls);
+
+/*
+ * @route   GET /api/v1/users/mentioned-posts
+ * @desc    Get posts where user is mentioned (from Post and WritePost)
+ * @access  Private
+ */
+router.get(
+  "/mentioned-posts",
+  protect,
+  validateQuery(getMentionedPostsQuerySchema),
+  getMentionedPosts
+);
 
 export default router;
