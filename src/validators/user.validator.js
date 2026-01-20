@@ -74,6 +74,20 @@ export const getUserPostQueries = createSchema({
   limit: commonValidations.limit,
 });
 
+/**
+ * Get mentioned posts query schema
+ */
+export const getMentionedPostsQuerySchema = createSchema({
+  userId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .optional()
+    .messages({
+      "string.pattern.base": "must be a valid user ID",
+    }),
+  page: commonValidations.page,
+  limit: commonValidations.limit,
+});
+
 export default {
   searchUsersQuerySchema,
   updateProfileSchema,
