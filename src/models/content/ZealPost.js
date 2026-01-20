@@ -63,6 +63,11 @@ const zealPostSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    shareCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -83,6 +88,7 @@ zealPostSchema.index({ createdAt: -1 });
 zealPostSchema.index({ mentionedUserIds: 1 });
 zealPostSchema.index({ status: 1 });
 zealPostSchema.index({ userId: 1, status: 1 });
+zealPostSchema.index({ shareCount: -1 }); // For analytics and virality tracking
 
 const ZealPost = mongoose.model("ZealPost", zealPostSchema);
 
