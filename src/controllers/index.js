@@ -21,3 +21,6 @@ export { default as followController } from "./follow.controller.js";
 
 // Poll Controllers
 export { default as pollController } from "./poll.controller.js";
+
+// Report Controllers
+export { default as reportController } from "./report.controller.js";

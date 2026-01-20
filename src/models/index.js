@@ -42,6 +42,10 @@ import Notification from "./notifications/Notification.js";
 import ChatRoom from "./chat/ChatRoom.js";
 import ChatMessage from "./chat/ChatMessage.js";
 
+// Reports
+import ReportCategory from "./reports/ReportCategory.js";
+import ReportSubCategory from "./reports/ReportSubCategory.js";
+
 // Export enums
 import * as Enums from "./enums.js";
 
@@ -84,6 +88,10 @@ export {
   // Chat
   ChatRoom,
   ChatMessage,
+
+  // Reports
+  ReportCategory,
+  ReportSubCategory,
 
   // Enums
   Enums,

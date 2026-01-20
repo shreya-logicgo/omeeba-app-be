@@ -3,7 +3,6 @@ import {
   ContentType,
   ContentModelName,
   ContentTypeToModelName,
-  ReportStatus,
 } from "../enums.js";
 
 const contentReportSchema = new mongoose.Schema(
@@ -16,7 +15,6 @@ const contentReportSchema = new mongoose.Schema(
     contentId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true,
-      refPath: "contentTypeRef",
     },
     contentTypeRef: {
       type: String,
@@ -25,27 +23,21 @@ const contentReportSchema = new mongoose.Schema(
     },
     reportedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
       required: true,
     },
-    reason: {
-      title: {
-        type: String,
-        required: true,
-      },
-      subtitle: {
-        type: String,
-        default: "",
-      },
-      description: {
-        type: String,
-        default: "",
-      },
+    categoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
     },
-    status: {
+    subCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+    },
+    details: {
       type: String,
-      enum: Object.values(ReportStatus),
-      default: ReportStatus.PENDING,
+      default: "",
+      maxlength: 280,
+      trim: true,
     },
     createdAt: {
       type: Date,
@@ -60,7 +52,11 @@ const contentReportSchema = new mongoose.Schema(
 // Indexes
 contentReportSchema.index({ contentType: 1, contentId: 1 });
 contentReportSchema.index({ reportedBy: 1 });
-contentReportSchema.index({ status: 1, createdAt: -1 });
+contentReportSchema.index({ createdAt: -1 });
+contentReportSchema.index({ categoryId: 1 });
+contentReportSchema.index({ subCategoryId: 1 });
+// Prevent duplicate reports from same user for same content
+contentReportSchema.index({ contentType: 1, contentId: 1, reportedBy: 1 }, { unique: true });
 
 // Pre-save hook to set contentTypeRef based on contentType
 contentReportSchema.pre("save", function (next) {

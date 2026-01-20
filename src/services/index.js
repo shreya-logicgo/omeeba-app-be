@@ -28,3 +28,6 @@ export { default as followService } from "./follow.service.js";
 // Poll Services
 export { default as pollService } from "./poll.service.js";
 export { default as pollCronService } from "./poll-cron.service.js";
+
+// Report Services
+export { default as reportService } from "./report.service.js";
