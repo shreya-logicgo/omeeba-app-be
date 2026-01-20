@@ -35,6 +35,11 @@ const postSchema = new mongoose.Schema(
       type: Number,
       default: null, // in seconds
     },
+    shareCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -53,6 +58,7 @@ const postSchema = new mongoose.Schema(
 postSchema.index({ userId: 1, createdAt: -1 });
 postSchema.index({ createdAt: -1 });
 postSchema.index({ mentionedUserIds: 1 });
+postSchema.index({ shareCount: -1 }); // For analytics and virality tracking
 
 const Post = mongoose.model("Post", postSchema);
 

@@ -149,13 +149,64 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
     // Insert all share records
     const createdShares = await ContentShare.insertMany(shareRecords);
 
+    // Increment share count on the content document (atomic operation)
+    // This tracks share count for analytics and virality tracking
+    let updatedContent = null;
+    try {
+      switch (contentType) {
+        case ContentType.POST:
+          updatedContent = await Post.findByIdAndUpdate(
+            contentId,
+            { $inc: { shareCount: createdShares.length } },
+            { new: true }
+          ).select("shareCount");
+          break;
+        case ContentType.WRITE_POST:
+          updatedContent = await WritePost.findByIdAndUpdate(
+            contentId,
+            { $inc: { shareCount: createdShares.length } },
+            { new: true }
+          ).select("shareCount");
+          break;
+        case ContentType.ZEAL:
+          updatedContent = await ZealPost.findByIdAndUpdate(
+            contentId,
+            { $inc: { shareCount: createdShares.length } },
+            { new: true }
+          ).select("shareCount");
+          break;
+      }
+    } catch (updateError) {
+      // Log error but don't fail the share operation
+      logger.error(
+        `Error incrementing share count for ${contentType} ${contentId}:`,
+        updateError
+      );
+    }
+
+    // Enhanced analytics logging for share events
     logger.info(
-      `Content shared: ${contentType} ${contentId} by user ${senderId} with ${receiverObjectIds.length} receiver(s)`
+      `[SHARE_EVENT] Content shared: ${contentType} ${contentId} by user ${senderId} with ${receiverObjectIds.length} receiver(s). Total shares: ${updatedContent?.shareCount || "unknown"}`
+    );
+
+    // Log detailed analytics for moderation and virality tracking
+    logger.info(
+      JSON.stringify({
+        event: "content_shared",
+        contentType,
+        contentId: contentId.toString(),
+        senderId: senderId.toString(),
+        receiverCount: receiverObjectIds.length,
+        receiverIds: receiverObjectIds.map((id) => id.toString()),
+        shareCount: updatedContent?.shareCount || 0,
+        timestamp: new Date().toISOString(),
+      })
     );
 
     return {
       success: true,
       shareCount: createdShares.length,
+      totalShareCount: updatedContent?.shareCount || 0,
       receiverIds: receiverObjectIds.map((id) => id.toString()),
       shares: createdShares.map((share) => ({
         id: share._id,
@@ -266,12 +317,36 @@ export const getSharesReceivedByUser = async (userId, options = {}) => {
 
 /**
  * Get share count for specific content
+ * Returns count from ContentShare collection (source of truth for accuracy)
+ * For faster reads, can also check content.shareCount field
  * @param {string} contentType - Content type
  * @param {mongoose.Types.ObjectId} contentId - Content ID
+ * @param {boolean} useCached - If true, returns cached shareCount from content document (faster but may be slightly outdated)
  * @returns {Promise<number>} - Total share count
  */
-export const getContentShareCount = async (contentType, contentId) => {
+export const getContentShareCount = async (contentType, contentId, useCached = false) => {
   try {
+    // If useCached is true, try to get from content document first (faster)
+    if (useCached) {
+      let content = null;
+      switch (contentType) {
+        case ContentType.POST:
+          content = await Post.findById(contentId).select("shareCount").lean();
+          break;
+        case ContentType.WRITE_POST:
+          content = await WritePost.findById(contentId).select("shareCount").lean();
+          break;
+        case ContentType.ZEAL:
+          content = await ZealPost.findById(contentId).select("shareCount").lean();
+          break;
+      }
+      
+      if (content && content.shareCount !== undefined) {
+        return content.shareCount;
+      }
+    }
+
+    // Always use ContentShare collection as source of truth for accuracy
     return await ContentShare.countDocuments({
       contentType,
       contentId,

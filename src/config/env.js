@@ -120,6 +120,12 @@ const envVarsSchema = Joi.object({
   // Pagination Configuration
   DEFAULT_PAGE_SIZE: Joi.number().default(20),
   MAX_PAGE_SIZE: Joi.number().default(100),
+
+  // Share Configuration
+  SHARE_BASE_URL: Joi.string()
+    .uri()
+    .default("https://omeeba.app/share")
+    .description("Base URL for shareable content links"),
 })
   .unknown()
   .prefs({ errors: { label: "key" } });
@@ -210,6 +216,9 @@ export default {
     defaultPageSize: envVars.DEFAULT_PAGE_SIZE,
     maxPageSize: envVars.MAX_PAGE_SIZE,
   },
+  share: {
+    baseUrl: envVars.SHARE_BASE_URL,
+  },
 };
 
 // Export individual variables for backward compatibility
@@ -243,3 +252,4 @@ export const OTP_EXPIRE_MINUTES = envVars.OTP_EXPIRE_MINUTES;
 export const OTP_LENGTH = envVars.OTP_LENGTH;
 export const DEFAULT_PAGE_SIZE = envVars.DEFAULT_PAGE_SIZE;
 export const MAX_PAGE_SIZE = envVars.MAX_PAGE_SIZE;
+export const SHARE_BASE_URL = envVars.SHARE_BASE_URL;

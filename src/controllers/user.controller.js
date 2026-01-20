@@ -20,6 +20,7 @@ import Poll from "../models/content/Poll.js";
 import ContentLike from "../models/interactions/ContentLike.js";
 import Comment from "../models/comments/Comment.js";
 import { ContentType } from "../models/enums.js";
+import { generateShareableLink } from "../utils/shareableLink.js";
 
 /**
  * Update Profile
@@ -197,14 +198,21 @@ export const getUserPost = async (req, res) => {
       .populate(
         "mentionedUserIds",
         "name username profileImage isAccountVerified isVerifiedBadge"
-      );
+      )
+      .lean();
+
+    // Add shareable link to each post
+    const postsWithShareableLink = userPosts.map((post) => ({
+      ...post,
+      shareableLink: generateShareableLink(ContentType.POST, post._id),
+    }));
 
     // Get pagination metadata
     const pagination = getPaginationMeta(total, page, limit);
 
     return sendPaginated(
       res,
-      userPosts,
+      postsWithShareableLink,
       pagination,
       "User post fetch successfully.",
       StatusCodes.OK
@@ -259,14 +267,21 @@ export const getUserWritePosts = async (req, res) => {
       .populate(
         "mentionedUserIds",
         "name username profileImage isAccountVerified isVerifiedBadge"
-      );
+      )
+      .lean();
+
+    // Add shareable link to each write post
+    const postsWithShareableLink = userPosts.map((post) => ({
+      ...post,
+      shareableLink: generateShareableLink(ContentType.WRITE_POST, post._id),
+    }));
 
     // Get pagination metadata
     const pagination = getPaginationMeta(total, page, limit);
 
     return sendPaginated(
       res,
-      userPosts,
+      postsWithShareableLink,
       pagination,
       "User post fetch successfully.",
       StatusCodes.OK
@@ -430,7 +445,7 @@ export const getMentionedPosts = async (req, res) => {
     // Apply pagination
     const paginatedPosts = combinedPosts.slice(skip, skip + limit);
 
-    // Get like and comment counts for all posts
+    // Get like and comment counts for all posts, and add shareable links
     const postsWithCounts = await Promise.all(
       paginatedPosts.map(async (post) => {
         const [likeCount, commentCount] = await Promise.all([
@@ -448,6 +463,7 @@ export const getMentionedPosts = async (req, res) => {
           ...post,
           likeCount,
           commentCount,
+          shareableLink: generateShareableLink(post.contentType, post._id),
         };
       })
     );
