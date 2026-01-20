@@ -27,11 +27,13 @@ const contentShareSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    reciverId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
+    receiverIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+      },
+    ],
     createdAt: {
       type: Date,
       default: Date.now,
@@ -44,8 +46,9 @@ const contentShareSchema = new mongoose.Schema(
 
 // Indexes
 contentShareSchema.index({ senderId: 1, createdAt: -1 });
-contentShareSchema.index({ reciverId: 1, createdAt: -1 });
+contentShareSchema.index({ receiverIds: 1, createdAt: -1 });
 contentShareSchema.index({ contentType: 1, contentId: 1 });
+contentShareSchema.index({ contentType: 1, contentId: 1, senderId: 1 });
 
 // Pre-save hook to set contentTypeRef based on contentType
 contentShareSchema.pre("save", function (next) {

@@ -31,3 +31,6 @@ export { default as pollCronService } from "./poll-cron.service.js";
 
 // Content Like Services
 export { default as contentLikeService } from "./content-like.service.js";
+
+// Content Share Services
+export { default as contentShareService } from "./content-share.service.js";
