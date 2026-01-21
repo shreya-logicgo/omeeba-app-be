@@ -24,3 +24,11 @@ export { default as pollController } from "./poll.controller.js";
 
 // Report Controllers
 export { default as reportController } from "./report.controller.js";
+
+// Comment Controllers
+export { default as commentController } from "./comment.controller.js";
+export { default as commentLikeController } from "./commentLike.controller.js";
+export { default as commentReplyController } from "./commentReply.controller.js";
+export { default as commentDeletionController } from "./commentDeletion.controller.js";
+export { default as commentReportController } from "./commentReport.controller.js";
+export { default as commentListingController } from "./commentListing.controller.js";

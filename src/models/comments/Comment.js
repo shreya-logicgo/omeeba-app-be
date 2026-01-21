@@ -32,6 +32,21 @@ const commentSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 1000,
+    },
+    mentionedUserIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
     },
     createdAt: {
       type: Date,
@@ -69,6 +84,8 @@ commentSchema.virtual("content", {
 commentSchema.index({ contentType: 1, contentId: 1, createdAt: -1 });
 commentSchema.index({ userId: 1 });
 commentSchema.index({ createdAt: -1 });
+commentSchema.index({ mentionedUserIds: 1 });
+commentSchema.index({ isDeleted: 1 });
 
 const Comment = mongoose.model("Comment", commentSchema);
 

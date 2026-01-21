@@ -15,9 +15,9 @@ import {
   getMentionedPosts,
 } from "../controllers/user.controller.js";
 import { protect } from "../middleware/auth.js";
-import { searchUsers } from "../controllers/user.controller.js";
+import { searchUsers, searchUsersForMentionsHandler } from "../controllers/user.controller.js";
 import { validateQuery } from "../utils/validation.js";
-import { searchUsersQuerySchema } from "../validators/user.validator.js";
+import { searchUsersQuerySchema, searchMentionsQuerySchema } from "../validators/user.validator.js";
 
 const router = express.Router();
 
@@ -53,7 +53,7 @@ router.get(
 );
 
 /*
- * @route   GET / api / v1 / users / search
+ * @route   GET /api/v1/users/search
  * @desc    Search users by username
  * @access  Private
  */
@@ -62,6 +62,18 @@ router.get(
   protect,
   validateQuery(searchUsersQuerySchema),
   searchUsers
+);
+
+/**
+ * @route   GET /api/v1/users/mentions/search
+ * @desc    Search users for mention autocomplete (@username suggestions)
+ * @access  Private
+ */
+router.get(
+  "/mentions/search",
+  protect,
+  validateQuery(searchMentionsQuerySchema),
+  searchUsersForMentionsHandler
 );
 
 /*

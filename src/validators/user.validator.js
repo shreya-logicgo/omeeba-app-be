@@ -88,8 +88,48 @@ export const getMentionedPostsQuerySchema = createSchema({
   limit: commonValidations.limit,
 });
 
+/**
+ * Search users for mention autocomplete validation schema (query)
+ */
+export const searchMentionsQuerySchema = createSchema(
+  {
+    q: Joi.string()
+      .min(1)
+      .max(50)
+      .optional()
+      .allow("")
+      .messages({
+        "string.min": "Search term must be at least 1 character",
+        "string.max": "Search term must be at most 50 characters",
+      })
+      .label("Query"),
+    query: Joi.string()
+      .min(1)
+      .max(50)
+      .optional()
+      .allow("")
+      .messages({
+        "string.min": "Search term must be at least 1 character",
+        "string.max": "Search term must be at most 50 characters",
+      })
+      .label("Query"),
+    limit: Joi.number()
+      .integer()
+      .min(1)
+      .max(20)
+      .default(10)
+      .messages({
+        "number.min": "Limit must be at least 1",
+        "number.max": "Limit must be at most 20",
+      })
+      .label("Limit"),
+  },
+  ["q", "query", "limit"]
+);
+
 export default {
   searchUsersQuerySchema,
   updateProfileSchema,
   getUserProfileParamsSchema,
+  searchMentionsQuerySchema,
 };

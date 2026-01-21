@@ -9,7 +9,7 @@ import {
   sendNotFound,
   sendPaginated,
 } from "../utils/response.js";
-import { searchUsersByUsername } from "../services/user.service.js";
+import { searchUsersByUsername, searchUsersForMentions } from "../services/user.service.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 import Post from "../models/content/Post.js";
@@ -474,6 +474,45 @@ export const getMentionedPosts = async (req, res) => {
   }
 };
 
+/**
+ * Search users for mention autocomplete
+ * @route GET /api/v1/users/mentions/search
+ * @access Private
+ */
+export const searchUsersForMentionsHandler = async (req, res) => {
+  try {
+    const searchTerm = req.query.q || req.query.query || "";
+    const limit = parseInt(req.query.limit) || 10;
+    const currentUserId = req.user._id.toString();
+
+    // Get mention suggestions
+    const users = await searchUsersForMentions(searchTerm, currentUserId, limit);
+
+    return sendSuccess(
+      res,
+      { users },
+      "Mention suggestions retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Search users for mentions error:", error);
+
+    // Handle custom errors
+    if (error.message) {
+      return sendBadRequest(res, error.message);
+    }
+
+    // Generic error
+    return sendError(
+      res,
+      "Failed to search users for mentions",
+      "Mention Search Error",
+      error.message || "An error occurred while searching users",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   updateProfile,
   getUserProfile,
@@ -482,4 +521,5 @@ export default {
   getUserWritePosts,
   getUserPolls,
   getMentionedPosts,
+  searchUsersForMentionsHandler,
 };

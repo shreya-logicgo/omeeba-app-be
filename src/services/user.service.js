@@ -279,8 +279,64 @@ export const searchUsersByUsername = async (
   }
 };
 
+/**
+ * Search users for mention autocomplete
+ * Optimized for @username autocomplete suggestions
+ * @param {string} searchTerm - Username search term (without @)
+ * @param {string} currentUserId - Current authenticated user ID (to exclude from results)
+ * @param {number} limit - Maximum results (default: 10, max: 20)
+ * @returns {Promise<Array>} Array of user objects with minimal data
+ */
+export const searchUsersForMentions = async (
+  searchTerm,
+  currentUserId,
+  limit = 10
+) => {
+  try {
+    // Limit max results to 20 for performance
+    const maxLimit = Math.min(limit, 20);
+    
+    if (!searchTerm || !searchTerm.trim()) {
+      return [];
+    }
+
+    const searchQuery = searchTerm.trim().toLowerCase();
+    
+    // Build query - search from beginning of username for better autocomplete
+    const query = {
+      username: new RegExp(`^${searchQuery}`, "i"), // Starts with search term (case-insensitive)
+      isDeleted: false,
+    };
+
+    // Exclude current user from results
+    if (currentUserId) {
+      query._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+    }
+
+    // Search users - optimized query with minimal fields
+    const users = await User.find(query)
+      .select("username name profileImage isVerifiedBadge")
+      .sort({ username: 1 }) // Sort alphabetically
+      .limit(maxLimit)
+      .lean();
+
+    // Format response with minimal data needed for autocomplete
+    return users.map((user) => ({
+      id: user._id.toString(),
+      username: user.username,
+      name: user.name,
+      profileImage: user.profileImage,
+      isVerifiedBadge: user.isVerifiedBadge,
+    }));
+  } catch (error) {
+    logger.error("Error in searchUsersForMentions:", error);
+    throw error;
+  }
+};
+
 export default {
   updateProfile,
   getUserProfile,
   searchUsersByUsername,
+  searchUsersForMentions,
 };

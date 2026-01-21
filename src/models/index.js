@@ -20,6 +20,7 @@ import Comment from "./comments/Comment.js";
 import CommentLike from "./comments/CommentLike.js";
 import ReplyComment from "./comments/ReplyComment.js";
 import ReplyCommentLike from "./comments/ReplyCommentLike.js";
+import CommentReport from "./comments/CommentReport.js";
 
 // Interactions
 import ContentLike from "./interactions/ContentLike.js";
@@ -67,6 +68,7 @@ export {
   CommentLike,
   ReplyComment,
   ReplyCommentLike,
+  CommentReport,
 
   // Interactions
   ContentLike,

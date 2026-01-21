@@ -31,3 +31,12 @@ export { default as pollCronService } from "./poll-cron.service.js";
 
 // Report Services
 export { default as reportService } from "./report.service.js";
+
+// Comment Services
+export { default as commentService } from "./comment.service.js";
+export { default as commentLikeService } from "./commentLike.service.js";
+export { default as commentReplyService } from "./commentReply.service.js";
+export { default as commentDeletionService } from "./commentDeletion.service.js";
+export { default as commentReportService } from "./commentReport.service.js";
+export { default as commentListingService } from "./commentListing.service.js";
+export { default as replyCommentLikeService } from "./replyCommentLike.service.js";

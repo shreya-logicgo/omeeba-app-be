@@ -16,6 +16,21 @@ const replyCommentSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 1000,
+    },
+    mentionedUserIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
     },
     createdAt: {
       type: Date,
