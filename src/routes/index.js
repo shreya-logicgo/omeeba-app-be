@@ -24,6 +24,7 @@ import reportRoutes from "./report.routes.js";
 import contentLikeRoutes from "./content-like.routes.js";
 import contentShareRoutes from "./content-share.routes.js";
 import purchaseVerificationRoutes from "./purchase-verification.routes.js";
+import savedContentRoutes from "./saved-content.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
@@ -37,5 +38,6 @@ router.use(`/${config.apiVersion}/reports`, reportRoutes);
 router.use(`/${config.apiVersion}/content-likes`, contentLikeRoutes);
 router.use(`/${config.apiVersion}/content-shares`, contentShareRoutes);
 router.use(`/${config.apiVersion}/purchases`, purchaseVerificationRoutes);
+router.use(`/${config.apiVersion}/saved-content`, savedContentRoutes);
 
 export default router;

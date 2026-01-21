@@ -41,3 +41,6 @@ export { default as contentShareService } from "./content-share.service.js";
 // Purchase Verification Services
 export { default as purchaseVerificationService } from "./purchase-verification.service.js";
 export { default as verifiedBadgeCronService } from "./verified-badge-cron.service.js";
+
+// Saved Content Services
+export { default as savedContentService } from "./saved-content.service.js";
