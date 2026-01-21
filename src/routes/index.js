@@ -23,6 +23,7 @@ import pollRoutes from "./poll.routes.js";
 import reportRoutes from "./report.routes.js";
 import contentLikeRoutes from "./content-like.routes.js";
 import contentShareRoutes from "./content-share.routes.js";
+import purchaseVerificationRoutes from "./purchase-verification.routes.js";
 import commentRoutes from "./comment.routes.js";
 
 // Mount routes
@@ -36,6 +37,7 @@ router.use(`/${config.apiVersion}/polls`, pollRoutes);
 router.use(`/${config.apiVersion}/reports`, reportRoutes);
 router.use(`/${config.apiVersion}/content-likes`, contentLikeRoutes);
 router.use(`/${config.apiVersion}/content-shares`, contentShareRoutes);
+router.use(`/${config.apiVersion}/purchases`, purchaseVerificationRoutes);
 router.use(`/${config.apiVersion}/comments`, commentRoutes);
 
 export default router;

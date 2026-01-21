@@ -101,8 +101,8 @@ const zealDraftSchema = new mongoose.Schema(
 );
 
 // Indexes
+// Note: storageKey index is automatically created by unique: true
 zealDraftSchema.index({ userId: 1, createdAt: -1 });
-zealDraftSchema.index({ storageKey: 1 });
 // TTL index for automatic cleanup of expired drafts (after 24 hours)
 zealDraftSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 86400 });
 

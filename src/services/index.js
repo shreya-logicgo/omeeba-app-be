@@ -40,3 +40,7 @@ export { default as commentDeletionService } from "./commentDeletion.service.js"
 export { default as commentReportService } from "./commentReport.service.js";
 export { default as commentListingService } from "./commentListing.service.js";
 export { default as replyCommentLikeService } from "./replyCommentLike.service.js";
+
+// Purchase Verification Services
+export { default as purchaseVerificationService } from "./purchase-verification.service.js";
+export { default as verifiedBadgeCronService } from "./verified-badge-cron.service.js";
