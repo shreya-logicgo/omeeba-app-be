@@ -44,3 +44,9 @@ export { default as replyCommentLikeService } from "./replyCommentLike.service.j
 // Purchase Verification Services
 export { default as purchaseVerificationService } from "./purchase-verification.service.js";
 export { default as verifiedBadgeCronService } from "./verified-badge-cron.service.js";
+
+// Chat Services
+export { default as chatRoomService } from "./chatRoom.service.js";
+export { default as chatMessageService } from "./chatMessage.service.js";
+export { default as chatReadService } from "./chatRead.service.js";
+export { default as supportRequestService } from "./supportRequest.service.js";

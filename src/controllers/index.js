@@ -32,3 +32,9 @@ export { default as commentReplyController } from "./commentReply.controller.js"
 export { default as commentDeletionController } from "./commentDeletion.controller.js";
 export { default as commentReportController } from "./commentReport.controller.js";
 export { default as commentListingController } from "./commentListing.controller.js";
+
+// Chat Controllers
+export { default as chatRoomController } from "./chatRoom.controller.js";
+export { default as chatMessageController } from "./chatMessage.controller.js";
+export { default as chatReadController } from "./chatRead.controller.js";
+export { default as supportRequestController } from "./supportRequest.controller.js";

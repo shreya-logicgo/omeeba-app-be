@@ -25,6 +25,8 @@ import contentLikeRoutes from "./content-like.routes.js";
 import contentShareRoutes from "./content-share.routes.js";
 import purchaseVerificationRoutes from "./purchase-verification.routes.js";
 import commentRoutes from "./comment.routes.js";
+import chatRoutes from "./chat.routes.js";
+import supportRoutes from "./support.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
@@ -39,5 +41,7 @@ router.use(`/${config.apiVersion}/content-likes`, contentLikeRoutes);
 router.use(`/${config.apiVersion}/content-shares`, contentShareRoutes);
 router.use(`/${config.apiVersion}/purchases`, purchaseVerificationRoutes);
 router.use(`/${config.apiVersion}/comments`, commentRoutes);
+router.use(`/${config.apiVersion}/chat`, chatRoutes);
+router.use(`/${config.apiVersion}/support`, supportRoutes);
 
 export default router;

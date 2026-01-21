@@ -4,6 +4,7 @@ import logger from "./utils/logger.js";
 import config from "./config/env.js";
 import { startPollCronJob } from "./services/poll-cron.service.js";
 import { startVerifiedBadgeCronJob } from "./services/verified-badge-cron.service.js";
+import { initializeSocket } from "./socket/socket.js";
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (err) => {
@@ -27,6 +28,13 @@ const server = app.listen(config.port, () => {
     `Server running in ${config.nodeEnv} mode on port ${config.port}`
   );
 });
+
+// Initialize Socket.IO
+const io = initializeSocket(server);
+logger.info("Socket.IO server initialized");
+
+// Export io for use in other modules if needed
+export { io };
 
 // Handle unhandled promise rejections
 process.on("unhandledRejection", (err) => {

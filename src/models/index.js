@@ -42,6 +42,10 @@ import Notification from "./notifications/Notification.js";
 // Chat
 import ChatRoom from "./chat/ChatRoom.js";
 import ChatMessage from "./chat/ChatMessage.js";
+import ChatParticipant from "./chat/ChatParticipant.js";
+
+// Support
+import SupportRequest from "./support/SupportRequest.js";
 
 // Reports
 import ReportCategory from "./reports/ReportCategory.js";
@@ -90,6 +94,10 @@ export {
   // Chat
   ChatRoom,
   ChatMessage,
+  ChatParticipant,
+
+  // Support
+  SupportRequest,
 
   // Reports
   ReportCategory,

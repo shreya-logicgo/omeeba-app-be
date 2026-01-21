@@ -25,7 +25,16 @@ export const errorHandler = (err, req, res, _next) => {
 
   // Mongoose bad ObjectId
   if (err.name === "CastError") {
-    message = "Resource not found";
+    // Check if it's a room ID or message ID
+    if (err.path && (err.path.includes("roomId") || err.path.includes("_id"))) {
+      if (err.path.includes("roomId")) {
+        message = "Chat room not found. Please check the room ID and try again";
+      } else {
+        message = "Resource not found. Please check the ID and try again";
+      }
+    } else {
+      message = "Invalid ID format. Please check and try again";
+    }
     errorType = "Not Found";
     statusCode = StatusCodes.NOT_FOUND;
   }

@@ -66,6 +66,33 @@ export const validateParams = (schema, options = {}) => {
     });
 
     if (error) {
+      // Check if it's an ObjectId validation error
+      const errorDetails = error.details || [];
+      const objectIdError = errorDetails.find(detail => 
+        detail.message.includes('ObjectId') || detail.message.includes('pattern')
+      );
+      
+      if (objectIdError) {
+        const field = objectIdError.path.join(".");
+        let fieldName;
+        if (field.includes('roomId')) {
+          fieldName = 'Room ID';
+        } else if (field.includes('messageId')) {
+          fieldName = 'Message ID';
+        } else {
+          // Convert camelCase to Title Case
+          fieldName = field
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/^./, str => str.toUpperCase())
+            .trim();
+        }
+        return sendValidationError(
+          res, 
+          `${fieldName} is invalid. Please check and try again`, 
+          StatusCodes.BAD_REQUEST
+        );
+      }
+      
       const errorMessage = formatJoiError(error);
       return sendValidationError(res, errorMessage, StatusCodes.BAD_REQUEST);
     }
@@ -82,35 +109,59 @@ export const validateParams = (schema, options = {}) => {
  */
 export const formatJoiError = (error) => {
   if (!error || !error.details) {
-    return "Validation error";
+    return "Please check your input and try again";
   }
 
   const errors = error.details.map((detail) => {
     const field = detail.path.join(".");
     let message = detail.message.replace(/"/g, "").trim();
 
-    // Capitalize field name
-    const fieldCapitalized = field.charAt(0).toUpperCase() + field.slice(1);
+    // Handle roomId and messageId specially
+    let fieldDisplayName;
+    if (field.toLowerCase() === 'roomid') {
+      fieldDisplayName = 'Room ID';
+    } else if (field.toLowerCase() === 'messageid') {
+      fieldDisplayName = 'Message ID';
+    } else {
+      // Capitalize field name
+      fieldDisplayName = field.charAt(0).toUpperCase() + field.slice(1);
+    }
 
-    // Check if message already starts with the field name (case-insensitive)
+    // Make messages more user-friendly
+    if (message.includes("is required")) {
+      return `${fieldDisplayName} is required`;
+    } else if (message.includes("must be one of")) {
+      const validValues = detail.context?.valids || [];
+      return `${fieldDisplayName} must be one of: ${validValues.join(", ")}`;
+    } else if (message.includes("must be a valid") || message.includes("is invalid")) {
+      return `${fieldDisplayName} is invalid. Please check and try again`;
+    } else if (message.includes("must contain at least one of")) {
+      return `Please provide at least one of: ${detail.context?.peers?.join(", ") || "required fields"}`;
+    }
+
+    // Check if message already contains the field name (case-insensitive)
     const fieldLower = field.toLowerCase();
     const messageLower = message.toLowerCase();
+    const fieldDisplayLower = fieldDisplayName.toLowerCase();
 
     if (
       messageLower.startsWith(fieldLower + " ") ||
+      messageLower.startsWith(fieldDisplayLower + " ") ||
       messageLower.startsWith(fieldLower + " is") ||
-      messageLower.startsWith(fieldLower + " must")
+      messageLower.startsWith(fieldDisplayLower + " is") ||
+      messageLower.startsWith(fieldLower + " must") ||
+      messageLower.startsWith(fieldDisplayLower + " must")
     ) {
-      // Message already contains field name, just capitalize first letter
+      // Message already contains field name, return as is (capitalize first letter)
       return message.charAt(0).toUpperCase() + message.slice(1);
     }
 
     // Message doesn't contain field name, prepend it
-    return `${fieldCapitalized} ${message}`;
+    return `${fieldDisplayName} ${message}`;
   });
 
   // Return first error message (most important)
-  return errors[0] || "Validation error";
+  return errors[0] || "Please check your input and try again";
 };
 
 /**

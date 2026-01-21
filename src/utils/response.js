@@ -47,12 +47,12 @@ export const sendError = (
  */
 export const sendValidationError = (
   res,
-  errorMessage = "Validation error",
+  errorMessage = "Please check your input and try again",
   statusCode = StatusCodes.BAD_REQUEST
 ) => {
   res.status(statusCode).json({
     success: false,
-    message: "Validation error",
+    message: errorMessage, // Use the actual error message
     errorType: "Validation Error",
     error: errorMessage,
     data: null,
