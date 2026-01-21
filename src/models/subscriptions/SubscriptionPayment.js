@@ -40,6 +40,23 @@ const subscriptionPaymentSchema = new mongoose.Schema(
       enum: Object.values(SubscriptionStatus),
       required: true,
     },
+    // Store platform-specific data
+    receiptData: {
+      type: String, // For Apple: base64 receipt, For Google: purchase token
+      default: null,
+    },
+    productId: {
+      type: String, // Product ID/SKU from the store
+      default: null,
+    },
+    packageName: {
+      type: String, // For Google Play: package name
+      default: null,
+    },
+    orderId: {
+      type: String, // For Google Play: order ID
+      default: null,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -51,9 +68,9 @@ const subscriptionPaymentSchema = new mongoose.Schema(
 );
 
 // Indexes
+// Note: transactionId index is automatically created by unique: true
 subscriptionPaymentSchema.index({ userId: 1, createdAt: -1 });
 subscriptionPaymentSchema.index({ subscriptionId: 1 });
-subscriptionPaymentSchema.index({ transactionId: 1 });
 subscriptionPaymentSchema.index({ status: 1 });
 
 const SubscriptionPayment = mongoose.model(

@@ -126,6 +126,18 @@ const envVarsSchema = Joi.object({
     .uri()
     .default("https://omeeba.app/share")
     .description("Base URL for shareable content links"),
+
+  // Apple App Store Configuration
+  APPLE_APP_SECRET: Joi.string()
+    .optional()
+    .allow("")
+    .description("Apple App Store shared secret for receipt verification"),
+
+  // Google Play Store Configuration
+  GOOGLE_SERVICE_ACCOUNT_KEY: Joi.string()
+    .optional()
+    .allow("")
+    .description("Google Play service account key (JSON string) for purchase verification"),
 })
   .unknown()
   .prefs({ errors: { label: "key" } });
@@ -218,6 +230,12 @@ export default {
   },
   share: {
     baseUrl: envVars.SHARE_BASE_URL,
+  },
+  apple: {
+    appSecret: envVars.APPLE_APP_SECRET,
+  },
+  google: {
+    serviceAccountKey: envVars.GOOGLE_SERVICE_ACCOUNT_KEY,
   },
 };
 

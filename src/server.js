@@ -3,6 +3,7 @@ import { connectDB } from "./config/database.js";
 import logger from "./utils/logger.js";
 import config from "./config/env.js";
 import { startPollCronJob } from "./services/poll-cron.service.js";
+import { startVerifiedBadgeCronJob } from "./services/verified-badge-cron.service.js";
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (err) => {
@@ -16,6 +17,9 @@ connectDB();
 
 // Start poll cron job for auto-calculating poll results
 startPollCronJob();
+
+// Start verified badge expiration cron job
+startVerifiedBadgeCronJob();
 
 // Start server
 const server = app.listen(config.port, () => {

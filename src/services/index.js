@@ -37,3 +37,7 @@ export { default as contentLikeService } from "./content-like.service.js";
 
 // Content Share Services
 export { default as contentShareService } from "./content-share.service.js";
+
+// Purchase Verification Services
+export { default as purchaseVerificationService } from "./purchase-verification.service.js";
+export { default as verifiedBadgeCronService } from "./verified-badge-cron.service.js";

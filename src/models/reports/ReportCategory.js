@@ -28,8 +28,8 @@ const reportCategorySchema = new mongoose.Schema(
 );
 
 // Indexes
+// Note: name index is automatically created by unique: true
 reportCategorySchema.index({ isActive: 1, displayOrder: 1 });
-reportCategorySchema.index({ name: 1 });
 
 const ReportCategory = mongoose.model("ReportCategory", reportCategorySchema);
 

@@ -33,7 +33,6 @@ const reportSubCategorySchema = new mongoose.Schema(
 
 // Indexes
 reportSubCategorySchema.index({ categoryId: 1, isActive: 1, displayOrder: 1 });
-reportSubCategorySchema.index({ categoryId: 1, name: 1 });
 
 // Compound unique index to prevent duplicate sub-categories in same category
 reportSubCategorySchema.index({ categoryId: 1, name: 1 }, { unique: true });
