@@ -7,8 +7,15 @@ import express from "express";
 import { validateBody } from "../utils/validation.js";
 import {
   saveContentBodySchema,
+  validateSavedContentListBody,
 } from "../validators/saved-content.validator.js";
-import { toggle, save, unsave, getStatus } from "../controllers/saved-content.controller.js";
+import {
+  toggle,
+  save,
+  unsave,
+  getStatus,
+  getList,
+} from "../controllers/saved-content.controller.js";
 import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -40,6 +47,13 @@ router.post("/unsave", protect, validateBody(saveContentBodySchema), unsave);
  * @access  Private
  */
 router.post("/status", protect, validateBody(saveContentBodySchema), getStatus);
+
+/**
+ * @route   POST /api/v1/saved-content/list
+ * @desc    Get user's saved content list with pagination and filtering
+ * @access  Private
+ */
+router.post("/list", protect, validateSavedContentListBody, getList);
 
 export default router;
 

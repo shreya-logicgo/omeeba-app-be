@@ -44,3 +44,4 @@ export { default as verifiedBadgeCronService } from "./verified-badge-cron.servi
 
 // Saved Content Services
 export { default as savedContentService } from "./saved-content.service.js";
+export { default as savedContentCronService } from "./saved-content-cron.service.js";

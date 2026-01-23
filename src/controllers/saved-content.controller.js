@@ -3,17 +3,20 @@ import {
   saveContent,
   unsaveContent,
   getContentSavedStatus,
+  getSavedContentListing,
 } from "../services/saved-content.service.js";
 import {
   sendSuccess,
   sendError,
   sendBadRequest,
   sendNotFound,
+  sendPaginated,
 } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
 import { ContentType } from "../models/enums.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 
 /**
  * Toggle save status (save if not saved, unsave if saved)
@@ -256,10 +259,72 @@ export const getStatus = async (req, res) => {
   }
 };
 
+/**
+ * Get saved content listing with pagination and filtering
+ * @route POST /api/v1/saved-content/list
+ * @access Private
+ */
+export const getList = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { contentType = "all", page: bodyPage, limit: bodyLimit } = req.body;
+    
+    // Use body parameters for pagination if provided, otherwise use defaults
+    const page = bodyPage || parseInt(req.query?.page) || 1;
+    const limit = bodyLimit || parseInt(req.query?.limit) || 20;
+
+    // Validate content type filter
+    const validContentTypes = ["all", ...Object.values(ContentType)];
+    if (!validContentTypes.includes(contentType)) {
+      return sendBadRequest(
+        res,
+        `Content type must be one of: ${validContentTypes.join(", ")}`
+      );
+    }
+
+    // Get saved content listing
+    const result = await getSavedContentListing(userId, {
+      contentType: contentType || "all",
+      page: Math.max(1, page),
+      limit: Math.min(100, Math.max(1, limit)),
+    });
+
+    // Get pagination metadata
+    const pagination = getPaginationMeta(
+      result.pagination.total,
+      page,
+      limit
+    );
+
+    return sendPaginated(
+      res,
+      result.content,
+      pagination,
+      "Saved content retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Get saved content list error:", error);
+
+    if (error.message === "Invalid content type") {
+      return sendBadRequest(res, error.message);
+    }
+
+    return sendError(
+      res,
+      "Failed to get saved content list",
+      "Get Saved Content List Error",
+      error.message || "An error occurred while retrieving saved content list",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   toggle,
   save,
   unsave,
   getStatus,
+  getList,
 };
 

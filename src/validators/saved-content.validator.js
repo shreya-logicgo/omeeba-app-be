@@ -1,6 +1,6 @@
 import Joi from "joi";
 import { ContentType } from "../models/enums.js";
-import { createSchema } from "../utils/validation.js";
+import { createSchema, validateBody } from "../utils/validation.js";
 
 /**
  * Content type body validation schema for toggle/save/unsave
@@ -45,8 +45,32 @@ export const contentTypeParamsSchema = Joi.object({
     }),
 });
 
+/**
+ * Body validation schema for saved content listing
+ */
+export const savedContentListBodySchema = Joi.object({
+  contentType: Joi.string()
+    .valid("all", ...Object.values(ContentType))
+    .optional()
+    .default("all")
+    .messages({
+      "any.only": `must be one of: all, ${Object.values(ContentType).join(", ")}`,
+    }),
+  page: Joi.number().integer().min(1).optional(),
+  limit: Joi.number().integer().min(1).max(100).optional(),
+});
+
+/**
+ * Middleware to validate saved content listing body parameters
+ */
+export const validateSavedContentListBody = validateBody(
+  savedContentListBodySchema
+);
+
 export default {
   saveContentBodySchema,
   contentTypeParamsSchema,
+  savedContentListBodySchema,
+  validateSavedContentListBody,
 };
 
