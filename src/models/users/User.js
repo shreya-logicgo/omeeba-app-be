@@ -109,6 +109,8 @@ const userSchema = new mongoose.Schema(
 // Note: email, username, and phoneNumber indexes are automatically created by unique: true
 userSchema.index({ role: 1 });
 userSchema.index({ isDeleted: 1 });
+// Text search index for name, username, and bio
+userSchema.index({ name: "text", username: "text", bio: "text" });
 
 const User = mongoose.model("User", userSchema);
 

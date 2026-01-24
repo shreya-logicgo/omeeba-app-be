@@ -4,6 +4,7 @@ import logger from "./utils/logger.js";
 import config from "./config/env.js";
 import { startPollCronJob } from "./services/poll-cron.service.js";
 import { startVerifiedBadgeCronJob } from "./services/verified-badge-cron.service.js";
+import { startSavedContentCleanupCronJob } from "./services/saved-content-cron.service.js";
 import { initializeSocket } from "./socket/socket.js";
 
 // Handle uncaught exceptions
@@ -21,6 +22,9 @@ startPollCronJob();
 
 // Start verified badge expiration cron job
 startVerifiedBadgeCronJob();
+
+// Start saved content cleanup cron job
+startSavedContentCleanupCronJob();
 
 // Start server
 const server = app.listen(config.port, () => {

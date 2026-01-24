@@ -19,8 +19,233 @@ import { getPagination, getPaginationMeta } from "../utils/pagination.js";
 import Poll from "../models/content/Poll.js";
 import ContentLike from "../models/interactions/ContentLike.js";
 import Comment from "../models/comments/Comment.js";
+import SavedContent from "../models/interactions/SavedContent.js";
 import { ContentType } from "../models/enums.js";
 import { generateShareableLink } from "../utils/shareableLink.js";
+
+/**
+ * Get liked content IDs for a user (bulk query for efficiency)
+ * @param {mongoose.Types.ObjectId} userId - User ID
+ * @param {Array} contentItems - Array of content items with contentType and _id
+ * @returns {Promise<Set>} Set of liked content IDs (as strings)
+ */
+const getLikedContentIds = async (userId, contentItems) => {
+  if (!userId || contentItems.length === 0) {
+    return new Set();
+  }
+
+  try {
+    // Group by content type
+    const byType = {
+      [ContentType.POST]: [],
+      [ContentType.WRITE_POST]: [],
+      [ContentType.ZEAL]: [],
+    };
+
+    contentItems.forEach((item) => {
+      const contentType = item.contentType || ContentType.POST;
+      if (byType[contentType]) {
+        byType[contentType].push(item._id);
+      }
+    });
+
+    // Fetch likes for all content types in parallel
+    const likePromises = [];
+    for (const [contentType, contentIds] of Object.entries(byType)) {
+      if (contentIds.length > 0) {
+        likePromises.push(
+          ContentLike.find({
+            contentType,
+            contentId: { $in: contentIds },
+            userId,
+          })
+            .select("contentId")
+            .lean()
+        );
+      }
+    }
+
+    const likeResults = await Promise.all(likePromises);
+    const likedIds = new Set();
+
+    likeResults.forEach((likes) => {
+      likes.forEach((like) => {
+        likedIds.add(like.contentId.toString());
+      });
+    });
+
+    return likedIds;
+  } catch (error) {
+    logger.error("Error getting liked content IDs:", error);
+    return new Set();
+  }
+};
+
+/**
+ * Get saved content IDs for a user (bulk query for efficiency)
+ * @param {mongoose.Types.ObjectId} userId - User ID
+ * @param {Array} contentItems - Array of content items with contentType and _id
+ * @returns {Promise<Set>} Set of saved content IDs (as strings)
+ */
+const getSavedContentIds = async (userId, contentItems) => {
+  if (!userId || contentItems.length === 0) {
+    return new Set();
+  }
+
+  try {
+    // Group by content type
+    const byType = {
+      [ContentType.POST]: [],
+      [ContentType.WRITE_POST]: [],
+      [ContentType.ZEAL]: [],
+    };
+
+    contentItems.forEach((item) => {
+      const contentType = item.contentType || ContentType.POST;
+      if (byType[contentType]) {
+        byType[contentType].push(item._id);
+      }
+    });
+
+    // Fetch saved content for all content types in parallel
+    const savedPromises = [];
+    for (const [contentType, contentIds] of Object.entries(byType)) {
+      if (contentIds.length > 0) {
+        savedPromises.push(
+          SavedContent.find({
+            contentType,
+            contentId: { $in: contentIds },
+            userId,
+          })
+            .select("contentId")
+            .lean()
+        );
+      }
+    }
+
+    const savedResults = await Promise.all(savedPromises);
+    const savedIds = new Set();
+
+    savedResults.forEach((savedItems) => {
+      savedItems.forEach((saved) => {
+        savedIds.add(saved.contentId.toString());
+      });
+    });
+
+    return savedIds;
+  } catch (error) {
+    logger.error("Error getting saved content IDs:", error);
+    return new Set();
+  }
+};
+
+/**
+ * Get engagement metrics (likeCount, commentCount) for content items
+ * @param {Array} contentItems - Array of content items with contentType and _id
+ * @returns {Promise<Map>} Map of contentId -> { likeCount, commentCount }
+ */
+const getEngagementMetrics = async (contentItems) => {
+  const metricsMap = new Map();
+
+  if (contentItems.length === 0) {
+    return metricsMap;
+  }
+
+  // Group by content type
+  const byType = {
+    [ContentType.POST]: [],
+    [ContentType.WRITE_POST]: [],
+    [ContentType.ZEAL]: [],
+  };
+
+  contentItems.forEach((item) => {
+    const contentType = item.contentType || ContentType.POST;
+    if (byType[contentType]) {
+      byType[contentType].push(item._id);
+    }
+  });
+
+  // Fetch metrics in parallel for each content type
+  const metricPromises = [];
+
+  for (const [contentType, contentIds] of Object.entries(byType)) {
+    if (contentIds.length === 0) continue;
+
+    // Get likes
+    metricPromises.push(
+      ContentLike.aggregate([
+        {
+          $match: {
+            contentType,
+            contentId: { $in: contentIds },
+          },
+        },
+        {
+          $group: {
+            _id: "$contentId",
+            likeCount: { $sum: 1 },
+          },
+        },
+      ])
+    );
+
+    // Get comments
+    metricPromises.push(
+      Comment.aggregate([
+        {
+          $match: {
+            contentType,
+            contentId: { $in: contentIds },
+          },
+        },
+        {
+          $group: {
+            _id: "$contentId",
+            commentCount: { $sum: 1 },
+          },
+        },
+      ])
+    );
+  }
+
+  const results = await Promise.all(metricPromises);
+
+  // Process results and build metrics map
+  let resultIndex = 0;
+  for (const [, contentIds] of Object.entries(byType)) {
+    if (contentIds.length === 0) continue;
+
+    // Process likes
+    const likes = results[resultIndex++] || [];
+    likes.forEach((item) => {
+      const id = item._id.toString();
+      if (!metricsMap.has(id)) {
+        metricsMap.set(id, { likeCount: 0, commentCount: 0 });
+      }
+      metricsMap.get(id).likeCount = item.likeCount;
+    });
+
+    // Process comments
+    const comments = results[resultIndex++] || [];
+    comments.forEach((item) => {
+      const id = item._id.toString();
+      if (!metricsMap.has(id)) {
+        metricsMap.set(id, { likeCount: 0, commentCount: 0 });
+      }
+      metricsMap.get(id).commentCount = item.commentCount;
+    });
+  }
+
+  // Initialize metrics for items that don't have any engagement yet
+  contentItems.forEach((item) => {
+    const id = item._id.toString();
+    if (!metricsMap.has(id)) {
+      metricsMap.set(id, { likeCount: 0, commentCount: 0 });
+    }
+  });
+
+  return metricsMap;
+};
 
 /**
  * Update Profile
@@ -201,18 +426,40 @@ export const getUserPost = async (req, res) => {
       )
       .lean();
 
-    // Add shareable link to each post
-    const postsWithShareableLink = userPosts.map((post) => ({
+    // Add contentType to each post for helper functions
+    const postsWithType = userPosts.map((post) => ({
       ...post,
-      shareableLink: generateShareableLink(ContentType.POST, post._id),
+      contentType: ContentType.POST,
     }));
+
+    // Get engagement metrics, liked and saved status
+    const currentUserId = req.user._id;
+    const [metricsMap, likedIds, savedIds] = await Promise.all([
+      getEngagementMetrics(postsWithType),
+      getLikedContentIds(currentUserId, postsWithType),
+      getSavedContentIds(currentUserId, postsWithType),
+    ]);
+
+    // Add shareable link, engagement metrics, and status to each post
+    const postsWithMetadata = postsWithType.map((post) => {
+      const postId = post._id.toString();
+      const metrics = metricsMap.get(postId) || { likeCount: 0, commentCount: 0 };
+      return {
+        ...post,
+        likeCount: metrics.likeCount,
+        commentCount: metrics.commentCount,
+        isLiked: likedIds.has(postId),
+        isSaved: savedIds.has(postId),
+        shareableLink: generateShareableLink(ContentType.POST, post._id),
+      };
+    });
 
     // Get pagination metadata
     const pagination = getPaginationMeta(total, page, limit);
 
     return sendPaginated(
       res,
-      postsWithShareableLink,
+      postsWithMetadata,
       pagination,
       "User post fetch successfully.",
       StatusCodes.OK
@@ -270,18 +517,40 @@ export const getUserWritePosts = async (req, res) => {
       )
       .lean();
 
-    // Add shareable link to each write post
-    const postsWithShareableLink = userPosts.map((post) => ({
+    // Add contentType to each post for helper functions
+    const postsWithType = userPosts.map((post) => ({
       ...post,
-      shareableLink: generateShareableLink(ContentType.WRITE_POST, post._id),
+      contentType: ContentType.WRITE_POST,
     }));
+
+    // Get engagement metrics, liked and saved status
+    const currentUserId = req.user._id;
+    const [metricsMap, likedIds, savedIds] = await Promise.all([
+      getEngagementMetrics(postsWithType),
+      getLikedContentIds(currentUserId, postsWithType),
+      getSavedContentIds(currentUserId, postsWithType),
+    ]);
+
+    // Add shareable link, engagement metrics, and status to each post
+    const postsWithMetadata = postsWithType.map((post) => {
+      const postId = post._id.toString();
+      const metrics = metricsMap.get(postId) || { likeCount: 0, commentCount: 0 };
+      return {
+        ...post,
+        likeCount: metrics.likeCount,
+        commentCount: metrics.commentCount,
+        isLiked: likedIds.has(postId),
+        isSaved: savedIds.has(postId),
+        shareableLink: generateShareableLink(ContentType.WRITE_POST, post._id),
+      };
+    });
 
     // Get pagination metadata
     const pagination = getPaginationMeta(total, page, limit);
 
     return sendPaginated(
       res,
-      postsWithShareableLink,
+      postsWithMetadata,
       pagination,
       "User post fetch successfully.",
       StatusCodes.OK
@@ -445,28 +714,27 @@ export const getMentionedPosts = async (req, res) => {
     // Apply pagination
     const paginatedPosts = combinedPosts.slice(skip, skip + limit);
 
-    // Get like and comment counts for all posts, and add shareable links
-    const postsWithCounts = await Promise.all(
-      paginatedPosts.map(async (post) => {
-        const [likeCount, commentCount] = await Promise.all([
-          ContentLike.countDocuments({
-            contentType: post.contentType,
-            contentId: post._id,
-          }),
-          Comment.countDocuments({
-            contentType: post.contentType,
-            contentId: post._id,
-          }),
-        ]);
+    // Get engagement metrics, liked and saved status in bulk
+    const currentUserId = req.user._id;
+    const [metricsMap, likedIds, savedIds] = await Promise.all([
+      getEngagementMetrics(paginatedPosts),
+      getLikedContentIds(currentUserId, paginatedPosts),
+      getSavedContentIds(currentUserId, paginatedPosts),
+    ]);
 
-        return {
-          ...post,
-          likeCount,
-          commentCount,
-          shareableLink: generateShareableLink(post.contentType, post._id),
-        };
-      })
-    );
+    // Add engagement metrics, status, and shareable links to each post
+    const postsWithCounts = paginatedPosts.map((post) => {
+      const postId = post._id.toString();
+      const metrics = metricsMap.get(postId) || { likeCount: 0, commentCount: 0 };
+      return {
+        ...post,
+        likeCount: metrics.likeCount,
+        commentCount: metrics.commentCount,
+        isLiked: likedIds.has(postId),
+        isSaved: savedIds.has(postId),
+        shareableLink: generateShareableLink(post.contentType, post._id),
+      };
+    });
 
     // Get pagination metadata
     const pagination = getPaginationMeta(total, page, limit);

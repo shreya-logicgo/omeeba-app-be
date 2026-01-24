@@ -29,6 +29,9 @@ import chatRoutes from "./chat.routes.js";
 import snapRoutes from "./snap.routes.js";
 import mediaRoutes from "./media.routes.js";
 import supportRoutes from "./support.routes.js";
+import savedContentRoutes from "./saved-content.routes.js";
+import exploreRoutes from "./explore.routes.js";
+import hashtagRoutes from "./hashtag.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
@@ -47,5 +50,8 @@ router.use(`/${config.apiVersion}/chat`, chatRoutes);
 router.use(`/${config.apiVersion}/snaps`, snapRoutes);
 router.use(`/${config.apiVersion}/media`, mediaRoutes);
 router.use(`/${config.apiVersion}/support`, supportRoutes);
+router.use(`/${config.apiVersion}/saved-content`, savedContentRoutes);
+router.use(`/${config.apiVersion}/explore`, exploreRoutes);
+router.use(`/${config.apiVersion}/hashtags`, hashtagRoutes);
 
 export default router;

@@ -59,6 +59,8 @@ postSchema.index({ userId: 1, createdAt: -1 });
 postSchema.index({ createdAt: -1 });
 postSchema.index({ mentionedUserIds: 1 });
 postSchema.index({ shareCount: -1 }); // For analytics and virality tracking
+// Text search index for caption
+postSchema.index({ caption: "text" });
 
 const Post = mongoose.model("Post", postSchema);
 
