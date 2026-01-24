@@ -12,6 +12,7 @@ import {
   ContentShare,
   Comment,
   User,
+  UserFollower,
   ChatRoom,
   SavedContent,
 } from "../models/index.js";
@@ -431,6 +432,157 @@ const formatContentItem = (
 };
 
 /**
+ * Format content list with metrics/like/save metadata
+ * @param {mongoose.Types.ObjectId} userId - User ID (optional)
+ * @param {Array} contentItems - Array of content items
+ * @returns {Promise<Array>} Formatted content items
+ */
+const formatContentList = async (userId, contentItems) => {
+  if (!contentItems || contentItems.length === 0) {
+    return [];
+  }
+
+  const metricsMap = await getEngagementMetrics(contentItems);
+  const [likedContentIds, savedContentIds] = userId
+    ? await Promise.all([
+        getLikedContentIds(userId, contentItems),
+        getSavedContentIds(userId, contentItems),
+      ])
+    : [new Set(), new Set()];
+
+  return contentItems.map((item) => {
+    const metrics = metricsMap.get(item._id.toString()) || {
+      likeCount: 0,
+      commentCount: 0,
+      shareCount: 0,
+    };
+    const isLiked = likedContentIds.has(item._id.toString());
+    const isSaved = savedContentIds.has(item._id.toString());
+    return formatContentItem(
+      item,
+      metrics,
+      item.contentType,
+      isLiked,
+      isSaved
+    );
+  });
+};
+
+/**
+ * Fetch latest content for given users across Post/Write/Zeal
+ * @param {Array<mongoose.Types.ObjectId>} userIds - User IDs
+ * @param {Object} reportedContentIds - Reported content IDs by type
+ * @param {number} limit - Max items to return
+ * @returns {Promise<Array>} Content items with contentType
+ */
+const fetchLatestContentByUsers = async (
+  userIds,
+  reportedContentIds,
+  limit,
+  contentTypes = null
+) => {
+  if (!userIds || userIds.length === 0 || limit <= 0) {
+    return [];
+  }
+
+  const contentQueries = [];
+  const typeSet = Array.isArray(contentTypes) && contentTypes.length > 0
+    ? new Set(contentTypes)
+    : null;
+  const includePost = !typeSet || typeSet.has(ContentType.POST);
+  const includeWrite = !typeSet || typeSet.has(ContentType.WRITE_POST);
+  const includeZeal = !typeSet || typeSet.has(ContentType.ZEAL);
+
+  if (includePost) {
+    const postQuery = { userId: { $in: userIds } };
+    if (reportedContentIds[ContentType.POST]?.length > 0) {
+      postQuery._id = {
+        $nin: reportedContentIds[ContentType.POST].map(
+          (id) => new mongoose.Types.ObjectId(id)
+        ),
+      };
+    }
+    contentQueries.push(
+      Post.find(postQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("musicId", "title artist album coverImage duration")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((posts) =>
+          posts.map((post) => ({
+            ...post,
+            contentType: ContentType.POST,
+          }))
+        )
+    );
+  }
+
+  if (includeWrite) {
+    const writeQuery = { userId: { $in: userIds } };
+    if (reportedContentIds[ContentType.WRITE_POST]?.length > 0) {
+      writeQuery._id = {
+        $nin: reportedContentIds[ContentType.WRITE_POST].map(
+          (id) => new mongoose.Types.ObjectId(id)
+        ),
+      };
+    }
+    contentQueries.push(
+      WritePost.find(writeQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((writes) =>
+          writes.map((write) => ({
+            ...write,
+            contentType: ContentType.WRITE_POST,
+          }))
+        )
+    );
+  }
+
+  if (includeZeal) {
+    const zealQuery = {
+      userId: { $in: userIds },
+      status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
+    };
+    if (reportedContentIds[ContentType.ZEAL]?.length > 0) {
+      zealQuery._id = {
+        $nin: reportedContentIds[ContentType.ZEAL].map(
+          (id) => new mongoose.Types.ObjectId(id)
+        ),
+      };
+    }
+    contentQueries.push(
+      ZealPost.find(zealQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("musicId", "title artist album coverImage duration")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((zeals) =>
+          zeals.map((zeal) => ({
+            ...zeal,
+            contentType: ContentType.ZEAL,
+          }))
+        )
+    );
+  }
+
+  const contentArrays = await Promise.all(contentQueries);
+  const allContent = contentArrays.flat();
+  allContent.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return allContent.slice(0, limit);
+};
+
+/**
  * Get trending content for Explore landing screen
  * @param {mongoose.Types.ObjectId} userId - User ID (optional, for filtering)
  * @param {Object} options - Query options
@@ -669,6 +821,145 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     };
   } catch (error) {
     logger.error("Error in getTrendingContent:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get home feed content (followed -> trending -> latest)
+ * @param {mongoose.Types.ObjectId} userId - User ID (required)
+ * @param {Object} options - Query options
+ * @param {number} options.page - Page number (default: 1)
+ * @param {number} options.limit - Items per page (default: 20)
+ * @returns {Promise<Object>} Home feed content with pagination
+ */
+export const getHomeFeed = async (userId, options = {}) => {
+  try {
+    const { page = 1, limit = 20, item = "all" } = options;
+    const skip = (page - 1) * limit;
+    const fetchLimit = limit * (page + 1);
+
+    // Get blocked users + reported content
+    let blockedUserIds = [];
+    let reportedContentIds = {
+      [ContentType.POST]: [],
+      [ContentType.WRITE_POST]: [],
+      [ContentType.ZEAL]: [],
+    };
+
+    if (userId) {
+      blockedUserIds = await getBlockedUserIds(userId);
+      try {
+        reportedContentIds = await getReportedContentIds(userId);
+      } catch (error) {
+        logger.error("Error getting reported content IDs:", error);
+      }
+    }
+
+    const baseUserQuery = { isDeleted: false };
+    if (blockedUserIds.length > 0) {
+      baseUserQuery._id = { $nin: blockedUserIds };
+    }
+
+    const validUsers = await User.find(baseUserQuery).select("_id");
+    const validUserIds = validUsers.map((u) => u._id);
+    const validUserIdSet = new Set(validUserIds.map((id) => id.toString()));
+
+    // Map item filter to content types
+    const normalizedItem = String(item || "all").toLowerCase();
+    const itemMap = {
+      post: [ContentType.POST],
+      posts: [ContentType.POST],
+      write: [ContentType.WRITE_POST],
+      writes: [ContentType.WRITE_POST],
+      zeal: [ContentType.ZEAL],
+      zeels: [ContentType.ZEAL],
+      zeals: [ContentType.ZEAL],
+      all: [ContentType.POST, ContentType.WRITE_POST], // default: no zeals
+    };
+    const contentTypes = itemMap[normalizedItem] || itemMap.all;
+    const contentTypeSet = new Set(contentTypes);
+
+    // Followed user IDs
+    let followedUserIds = [];
+    if (userId) {
+      const followRows = await UserFollower.find({ followerId: userId })
+        .select("userId")
+        .lean();
+      followedUserIds = followRows
+        .map((row) => row.userId?.toString())
+        .filter((id) => id && validUserIdSet.has(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+    }
+
+    // 1) Followed users latest
+    const followedRaw = await fetchLatestContentByUsers(
+      followedUserIds,
+      reportedContentIds,
+      fetchLimit,
+      contentTypes
+    );
+    const followedContent = await formatContentList(userId, followedRaw);
+
+    // 2) Trending content
+    const singleType =
+      contentTypes.length === 1 && contentTypeSet.has(ContentType.POST)
+        ? "post"
+        : contentTypes.length === 1 && contentTypeSet.has(ContentType.WRITE_POST)
+        ? "write"
+        : contentTypes.length === 1 && contentTypeSet.has(ContentType.ZEAL)
+        ? "zeal"
+        : "all";
+    const trendingResult = await getTrendingContent(userId, {
+      page: 1,
+      limit: fetchLimit,
+      contentType: singleType,
+    });
+    const trendingContent = (trendingResult.content || []).filter((item) =>
+      contentTypeSet.has(item.contentType)
+    );
+
+    // 3) Latest content (global)
+    const latestRaw = await fetchLatestContentByUsers(
+      validUserIds,
+      reportedContentIds,
+      fetchLimit,
+      contentTypes
+    );
+    const latestContent = await formatContentList(userId, latestRaw);
+
+    // Combine with priority: followed -> trending -> latest (dedupe)
+    const combined = [];
+    const seen = new Set();
+    const addUnique = (items) => {
+      items.forEach((item) => {
+        const key = `${item.contentType}:${item.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push(item);
+        }
+      });
+    };
+    addUnique(followedContent);
+    addUnique(trendingContent);
+    addUnique(latestContent);
+
+    const paginated = combined.slice(skip, skip + limit);
+    const total = combined.length;
+
+    return {
+      content: paginated,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        hasNext: skip + limit < total,
+        hasPrev: page > 1,
+      },
+    };
+  } catch (error) {
+    logger.error("Error in getHomeFeed:", error);
     throw error;
   }
 };
@@ -1786,5 +2077,6 @@ export default {
   searchAcrossEntities,
   getContentByHashtag,
   simplifiedSearch,
+  getHomeFeed,
 };
 

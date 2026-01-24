@@ -32,6 +32,7 @@ import supportRoutes from "./support.routes.js";
 import savedContentRoutes from "./saved-content.routes.js";
 import exploreRoutes from "./explore.routes.js";
 import hashtagRoutes from "./hashtag.routes.js";
+import homeRoutes from "./home.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
@@ -53,5 +54,6 @@ router.use(`/${config.apiVersion}/support`, supportRoutes);
 router.use(`/${config.apiVersion}/saved-content`, savedContentRoutes);
 router.use(`/${config.apiVersion}/explore`, exploreRoutes);
 router.use(`/${config.apiVersion}/hashtags`, hashtagRoutes);
+router.use(`/${config.apiVersion}/home`, homeRoutes);
 
 export default router;
