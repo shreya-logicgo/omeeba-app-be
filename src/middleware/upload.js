@@ -74,3 +74,45 @@ export const upload = multer({
 // Single file upload middleware
 export const uploadSingle = upload.single("file");
 
+/**
+ * Image-only upload (memory storage) for posts
+ */
+const imageOnlyFilter = (req, file, cb) => {
+  const allowedImageTypes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+  ];
+
+  if (allowedImageTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(
+      new Error(
+        `Invalid image type. Allowed types: ${allowedImageTypes.join(", ")}`
+      ),
+      false
+    );
+  }
+};
+
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: imageOnlyFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB per image
+    files: 20,
+  },
+});
+
+export const uploadPostImages = imageUpload.array("images", 20);
+
+// Profile/cover image upload (memory storage)
+export const uploadProfileImage = imageUpload.single("profileImage");
+export const uploadProfileImages = imageUpload.fields([
+  { name: "profileImage", maxCount: 1 },
+  { name: "coverImage", maxCount: 1 },
+]);
+

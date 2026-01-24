@@ -22,6 +22,10 @@ import Comment from "../models/comments/Comment.js";
 import SavedContent from "../models/interactions/SavedContent.js";
 import { ContentType } from "../models/enums.js";
 import { generateShareableLink } from "../utils/shareableLink.js";
+import {
+  generateStorageKey,
+  uploadBufferToStorage,
+} from "../services/storage.service.js";
 
 /**
  * Get liked content IDs for a user (bulk query for efficiency)
@@ -255,7 +259,47 @@ const getEngagementMetrics = async (contentItems) => {
 export const updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const updateData = req.body;
+    const updateData = { ...req.body };
+
+    // Upload profile/cover image if provided (multipart form-data)
+    const profileFile =
+      (req.files && req.files.profileImage && req.files.profileImage[0]) ||
+      req.file ||
+      null;
+    const coverFile =
+      req.files && req.files.coverImage && req.files.coverImage[0]
+        ? req.files.coverImage[0]
+        : null;
+
+    if (profileFile) {
+      const storageKey = generateStorageKey(
+        userId.toString(),
+        "image",
+        profileFile.mimetype,
+        "profiles"
+      );
+      const profileImageUrl = await uploadBufferToStorage(
+        storageKey,
+        profileFile.buffer,
+        profileFile.mimetype
+      );
+      updateData.profileImage = profileImageUrl;
+    }
+
+    if (coverFile) {
+      const storageKey = generateStorageKey(
+        userId.toString(),
+        "image",
+        coverFile.mimetype,
+        "covers"
+      );
+      const coverImageUrl = await uploadBufferToStorage(
+        storageKey,
+        coverFile.buffer,
+        coverFile.mimetype
+      );
+      updateData.coverImage = coverImageUrl;
+    }
 
     // Update profile
     const user = await updateProfileService(userId, updateData);

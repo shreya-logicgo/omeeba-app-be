@@ -15,6 +15,7 @@ import {
   getMentionedPosts,
 } from "../controllers/user.controller.js";
 import { protect } from "../middleware/auth.js";
+import { uploadProfileImages } from "../middleware/upload.js";
 import { searchUsers } from "../controllers/user.controller.js";
 import { validateQuery } from "../utils/validation.js";
 import { searchUsersQuerySchema } from "../validators/user.validator.js";
@@ -29,6 +30,7 @@ const router = express.Router();
 router.put(
   "/profile",
   protect,
+  uploadProfileImages,
   validateBody(updateProfileSchema),
   updateProfile
 );

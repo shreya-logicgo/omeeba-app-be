@@ -28,7 +28,7 @@ const initializeS3Client = () => {
   }
 
   // Priority: DigitalOcean Spaces > AWS S3
-  let accessKey, secretKey, region, bucket, endpoint;
+  let accessKey, secretKey, region, endpoint;
 
   if (
     config.digitalOcean.accessKey &&
@@ -39,7 +39,6 @@ const initializeS3Client = () => {
     accessKey = config.digitalOcean.accessKey;
     secretKey = config.digitalOcean.secretKey;
     region = config.digitalOcean.region || "blr1";
-    bucket = config.digitalOcean.bucketName;
     endpoint = config.digitalOcean.endpoint;
     logger.info("Using DigitalOcean Spaces for storage");
   } else if (config.aws.accessKeyId && config.aws.secretAccessKey) {
@@ -47,7 +46,6 @@ const initializeS3Client = () => {
     accessKey = config.aws.accessKeyId;
     secretKey = config.aws.secretAccessKey;
     region = config.aws.region;
-    bucket = config.aws.s3Bucket;
     endpoint = config.aws.s3Endpoint;
     logger.info("Using AWS S3 for storage");
   } else {
@@ -91,13 +89,13 @@ const getBucketName = () => {
  * @param {string} mimeType - MIME type
  * @returns {string} Storage key
  */
-export const generateStorageKey = (userId, fileType, mimeType) => {
+export const generateStorageKey = (userId, fileType, mimeType, baseDir = null) => {
   const timestamp = Date.now();
   const randomString = crypto.randomBytes(8).toString("hex");
   const extension = mimeType.includes("video") ? "mp4" : mimeType.split("/")[1] || "jpg";
   
   // Use DigitalOcean dirname if configured
-  const dirname = config.digitalOcean.dirname || "zeals";
+  const dirname = baseDir || config.digitalOcean.dirname || "zeals";
   return `${dirname}/${userId}/${fileType}/${timestamp}-${randomString}.${extension}`;
 };
 
@@ -212,6 +210,43 @@ export const getPublicUrl = (storageKey) => {
   }
 
   return null;
+};
+
+/**
+ * Upload a file buffer directly to storage
+ * @param {string} storageKey - Storage key (S3 key)
+ * @param {Buffer} buffer - File buffer
+ * @param {string} mimeType - MIME type
+ * @returns {Promise<string>} Public URL
+ */
+export const uploadBufferToStorage = async (storageKey, buffer, mimeType) => {
+  try {
+    const client = initializeS3Client();
+
+    if (!client) {
+      throw new Error("S3 client not initialized. Please configure storage credentials.");
+    }
+
+    const bucketName = getBucketName();
+    if (!bucketName) {
+      throw new Error("Storage bucket not configured");
+    }
+
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: storageKey,
+      Body: buffer,
+      ContentType: mimeType,
+      ACL: "public-read",
+    });
+
+    await client.send(command);
+
+    return getPublicUrl(storageKey);
+  } catch (error) {
+    logger.error("Error uploading buffer to storage:", error);
+    throw new Error(`Failed to upload file: ${error.message}`);
+  }
 };
 
 /**
@@ -383,6 +418,7 @@ export default {
   generatePresignedUploadUrl,
   verifyFileExists,
   getPublicUrl,
+  uploadBufferToStorage,
   initiateMultipartUpload,
   generateChunkUploadUrl,
   completeMultipartUpload,
