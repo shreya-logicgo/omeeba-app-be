@@ -39,6 +39,7 @@ router.get(
  *                - 'trending': Search only write posts
  *                - 'polls': Search only polls (status: ACTIVE)
  *                - 'users': Search users by username or name
+ *                - 'hashtag': Search hashtags (returns tag + contentCount)
  * @query   contentType - For explore type only: 'zeal' or 'post' (optional)
  * 
  * @filter_details
@@ -48,6 +49,7 @@ router.get(
  * - trending: WritePost.content (text index)
  * - polls: Poll.caption (text index, status: ACTIVE)
  * - users: User.name, User.username (case-insensitive regex)
+ * - hashtag: Hashtag.tag (case-insensitive regex, returns contentCount)
  * 
  * Base filters applied:
  * - Excludes deleted users (isDeleted: false)

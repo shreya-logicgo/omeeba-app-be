@@ -15,6 +15,8 @@ import {
   ChatRoom,
   SavedContent,
 } from "../models/index.js";
+import Hashtag from "../models/hashtags/Hashtag.js";
+import HashtagContent from "../models/hashtags/HashtagContent.js";
 import { ContentType, ZealStatus, PollStatus } from "../models/enums.js";
 import { getReportedContentIds } from "../utils/contentFilter.js";
 import logger from "../utils/logger.js";
@@ -1197,24 +1199,119 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     const validUsers = await User.find(baseUserQuery).select("_id");
     const validUserIds = validUsers.map((u) => u._id);
 
-    // Build hashtag regex
-    const hashtagRegex = new RegExp(`#${normalizedHashtag}\\b`, "i");
+    const normalizedTag = normalizedHashtag.trim().toLowerCase();
+
+    if (!normalizedTag) {
+      return {
+        content: [],
+        hashtag: `#${normalizedHashtag}`,
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    }
+
+    // Map query contentType to stored content types
+    const contentTypeMap = {
+      post: ContentType.POST,
+      write: ContentType.WRITE_POST,
+      zeal: ContentType.ZEAL,
+      poll: "Poll",
+    };
+
+    const allowedKeys =
+      contentType === "all" ? Object.keys(contentTypeMap) : [contentType];
+    const allowedLinkTypes = allowedKeys
+      .map((key) => contentTypeMap[key])
+      .filter(Boolean);
+
+    if (allowedLinkTypes.length === 0) {
+      return {
+        content: [],
+        hashtag: `#${normalizedHashtag}`,
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    }
+
+    // Find hashtag record
+    const hashtagDoc = await Hashtag.findOne({ tag: normalizedTag });
+    if (!hashtagDoc) {
+      return {
+        content: [],
+        hashtag: `#${normalizedHashtag}`,
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    }
+
+    // Fetch content links for the hashtag
+    const contentLinks = await HashtagContent.find({
+      hashtagId: hashtagDoc._id,
+      contentType: { $in: allowedLinkTypes },
+    })
+      .select("contentType contentId")
+      .lean();
+
+    if (contentLinks.length === 0) {
+      return {
+        content: [],
+        hashtag: `#${normalizedHashtag}`,
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0,
+          hasNext: false,
+          hasPrev: false,
+        },
+      };
+    }
+
+    const contentIdsByType = {
+      [ContentType.POST]: new Set(),
+      [ContentType.WRITE_POST]: new Set(),
+      [ContentType.ZEAL]: new Set(),
+      Poll: new Set(),
+    };
+
+    contentLinks.forEach((link) => {
+      if (contentIdsByType[link.contentType]) {
+        contentIdsByType[link.contentType].add(link.contentId.toString());
+      }
+    });
 
     const contentQueries = [];
 
     // Search Posts
-    if (contentType === "all" || contentType === "post") {
+    const postIds = Array.from(contentIdsByType[ContentType.POST]);
+    if (postIds.length > 0) {
       const postQuery = {
         userId: { $in: validUserIds },
-        caption: hashtagRegex,
+        _id: { $in: postIds },
       };
 
       if (reportedContentIds[ContentType.POST].length > 0) {
-        postQuery._id = {
-          $nin: reportedContentIds[ContentType.POST].map(
-            (id) => new mongoose.Types.ObjectId(id)
-          ),
-        };
+        postQuery._id.$nin = reportedContentIds[ContentType.POST].map(
+          (id) => new mongoose.Types.ObjectId(id)
+        );
       }
 
       contentQueries.push(
@@ -1234,18 +1331,17 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     }
 
     // Search WritePosts
-    if (contentType === "all" || contentType === "write") {
+    const writeIds = Array.from(contentIdsByType[ContentType.WRITE_POST]);
+    if (writeIds.length > 0) {
       const writeQuery = {
         userId: { $in: validUserIds },
-        content: hashtagRegex,
+        _id: { $in: writeIds },
       };
 
       if (reportedContentIds[ContentType.WRITE_POST].length > 0) {
-        writeQuery._id = {
-          $nin: reportedContentIds[ContentType.WRITE_POST].map(
-            (id) => new mongoose.Types.ObjectId(id)
-          ),
-        };
+        writeQuery._id.$nin = reportedContentIds[ContentType.WRITE_POST].map(
+          (id) => new mongoose.Types.ObjectId(id)
+        );
       }
 
       contentQueries.push(
@@ -1264,19 +1360,18 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     }
 
     // Search ZealPosts
-    if (contentType === "all" || contentType === "zeal") {
+    const zealIds = Array.from(contentIdsByType[ContentType.ZEAL]);
+    if (zealIds.length > 0) {
       const zealQuery = {
         userId: { $in: validUserIds },
         status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
-        caption: hashtagRegex,
+        _id: { $in: zealIds },
       };
 
       if (reportedContentIds[ContentType.ZEAL].length > 0) {
-        zealQuery._id = {
-          $nin: reportedContentIds[ContentType.ZEAL].map(
-            (id) => new mongoose.Types.ObjectId(id)
-          ),
-        };
+        zealQuery._id.$nin = reportedContentIds[ContentType.ZEAL].map(
+          (id) => new mongoose.Types.ObjectId(id)
+        );
       }
 
       contentQueries.push(
@@ -1296,11 +1391,12 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     }
 
     // Search Polls
-    if (contentType === "all" || contentType === "poll") {
+    const pollIds = Array.from(contentIdsByType.Poll);
+    if (pollIds.length > 0) {
       const pollQuery = {
         createdBy: { $in: validUserIds },
         status: PollStatus.ACTIVE,
-        caption: hashtagRegex,
+        _id: { $in: pollIds },
       };
 
       contentQueries.push(
@@ -1462,7 +1558,7 @@ const escapeRegex = (str) => {
  * @param {mongoose.Types.ObjectId} userId - User ID (optional)
  * @param {Object} options - Search options
  * @param {string} options.query - Search query (optional)
- * @param {string} options.type - Filter by type: 'explore', 'trending', 'polls', 'users'
+ * @param {string} options.type - Filter by type: 'explore', 'trending', 'polls', 'users', 'hashtag'
  * @param {string} options.contentType - For explore type: 'zeal' or 'post' (optional)
  * @returns {Promise<Object>} Search results (no pagination, max 15 items)
  */
@@ -1772,6 +1868,29 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
       }));
 
       return { data: formattedUsers };
+    } else if (type === "hashtag") {
+      // Hashtags: search hashtag table and return count
+      const hashtagQuery = {};
+
+      if (safeSearchTerm) {
+        hashtagQuery.tag = { $regex: safeSearchTerm, $options: "i" };
+      } else {
+        // If no search term, return top hashtags by count
+        hashtagQuery.contentCount = { $gt: 0 };
+      }
+
+      const hashtags = await Hashtag.find(hashtagQuery)
+        .select("tag contentCount lastUsedAt")
+        .sort({ contentCount: -1, lastUsedAt: -1 })
+        .limit(limit)
+        .lean();
+
+      const formattedHashtags = hashtags.map((hashtag) => ({
+        tag: `#${hashtag.tag}`,
+        contentCount: hashtag.contentCount || 0,
+      }));
+
+      return { data: formattedHashtags };
     }
 
     return { data: [] };

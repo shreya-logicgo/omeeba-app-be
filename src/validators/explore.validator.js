@@ -38,10 +38,11 @@ export const searchSchema = createSchema(
       "string.max": "query cannot exceed 200 characters",
     }),
     type: Joi.string()
-      .valid("explore", "trending", "polls", "users")
+      .valid("explore", "trending", "polls", "users", "hashtag")
       .required()
       .messages({
-        "any.only": "type must be one of: explore, trending, polls, users",
+        "any.only":
+          "type must be one of: explore, trending, polls, users, hashtag",
         "any.required": "type is required",
       }),
     contentType: Joi.string()
