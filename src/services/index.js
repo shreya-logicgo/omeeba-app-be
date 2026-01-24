@@ -49,4 +49,5 @@ export { default as verifiedBadgeCronService } from "./verified-badge-cron.servi
 export { default as chatRoomService } from "./chatRoom.service.js";
 export { default as chatMessageService } from "./chatMessage.service.js";
 export { default as chatReadService } from "./chatRead.service.js";
+export { default as snapService } from "./snap.service.js";
 export { default as supportRequestService } from "./supportRequest.service.js";

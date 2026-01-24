@@ -26,6 +26,8 @@ import contentShareRoutes from "./content-share.routes.js";
 import purchaseVerificationRoutes from "./purchase-verification.routes.js";
 import commentRoutes from "./comment.routes.js";
 import chatRoutes from "./chat.routes.js";
+import snapRoutes from "./snap.routes.js";
+import mediaRoutes from "./media.routes.js";
 import supportRoutes from "./support.routes.js";
 
 // Mount routes
@@ -42,6 +44,8 @@ router.use(`/${config.apiVersion}/content-shares`, contentShareRoutes);
 router.use(`/${config.apiVersion}/purchases`, purchaseVerificationRoutes);
 router.use(`/${config.apiVersion}/comments`, commentRoutes);
 router.use(`/${config.apiVersion}/chat`, chatRoutes);
+router.use(`/${config.apiVersion}/snaps`, snapRoutes);
+router.use(`/${config.apiVersion}/media`, mediaRoutes);
 router.use(`/${config.apiVersion}/support`, supportRoutes);
 
 export default router;

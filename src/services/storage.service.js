@@ -184,6 +184,27 @@ export const verifyFileExists = async (storageKey) => {
 };
 
 /**
+ * Upload buffer to S3 (server-side)
+ * @param {string} storageKey - S3 key
+ * @param {Buffer} buffer - File buffer
+ * @param {string} mimeType - MIME type
+ */
+export const uploadBuffer = async (storageKey, buffer, mimeType) => {
+  const client = initializeS3Client();
+  if (!client) throw new Error("S3 client not initialized");
+  const bucketName = getBucketName();
+  if (!bucketName) throw new Error("Storage bucket not configured");
+  const command = new PutObjectCommand({
+    Bucket: bucketName,
+    Key: storageKey,
+    Body: buffer,
+    ContentType: mimeType,
+    ACL: "public-read",
+  });
+  await client.send(command);
+};
+
+/**
  * Get public URL for a file (if bucket is public)
  * @param {string} storageKey - Storage key (S3 key)
  * @returns {string} Public URL
@@ -381,6 +402,7 @@ export const abortMultipartUpload = async (storageKey, uploadId) => {
 export default {
   generateStorageKey,
   generatePresignedUploadUrl,
+  uploadBuffer,
   verifyFileExists,
   getPublicUrl,
   initiateMultipartUpload,

@@ -9,10 +9,22 @@ import config from "../config/env.js";
 import { User } from "../models/index.js";
 import ChatRoom from "../models/chat/ChatRoom.js";
 import ChatMessage from "../models/chat/ChatMessage.js";
-import ChatParticipant from "../models/chat/ChatParticipant.js";
+import Snap from "../models/chat/Snap.js";
 import { MessageStatus } from "../models/enums.js";
-import { sendMessage } from "../services/chatMessage.service.js";
-import { markMessagesAsRead } from "../services/chatRead.service.js";
+import { sendMessage, getMessages } from "../services/chatMessage.service.js";
+import { markMessagesAsRead, getUnreadCount, getTotalUnreadCount } from "../services/chatRead.service.js";
+import {
+  getOrCreateChatRoom,
+  getChatRooms,
+  getChatRoomById,
+  deleteChatRoom,
+} from "../services/chatRoom.service.js";
+import {
+  sendSnapWithMediaId,
+  getSnapsInbox,
+  getSentSnaps,
+  viewSnap,
+} from "../services/snap.service.js";
 import logger from "../utils/logger.js";
 
 // Store active users: userId -> socketId
@@ -21,31 +33,41 @@ const activeUsers = new Map();
 const socketRooms = new Map();
 
 /**
- * Authenticate socket connection using JWT
+ * Authenticate socket connection.
+ * Supports:
+ * 1. JWT token: auth.token or Authorization header
+ * 2. userId: query ?userId=xxx or auth.userId (e.g. Postman WebSocket with Params)
  */
 const authenticateSocket = async (socket, next) => {
   try {
-    const token = socket.handshake.auth.token || socket.handshake.headers.authorization?.split(" ")[1];
+    const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(" ")[1];
+    const userId = socket.handshake.query?.userId || socket.handshake.auth?.userId;
 
-    if (!token) {
-      return next(new Error("Authentication error: Token required"));
+    if (token) {
+      const decoded = jwt.verify(token, config.jwt.secretKey);
+      const user = await User.findById(decoded.id).select("-password");
+      if (!user || user.isDeleted) {
+        return next(new Error("Authentication error: User not found"));
+      }
+      socket.userId = user._id.toString();
+      socket.user = user;
+      return next();
     }
 
-    const decoded = jwt.verify(token, config.jwt.secretKey);
-    const user = await User.findById(decoded.id).select("-password");
-
-    if (!user || user.isDeleted) {
-      return next(new Error("Authentication error: User not found"));
+    if (userId) {
+      const user = await User.findById(userId).select("-password");
+      if (!user || user.isDeleted) {
+        return next(new Error("Authentication error: User not found"));
+      }
+      socket.userId = user._id.toString();
+      socket.user = user;
+      return next();
     }
 
-    // Attach user to socket
-    socket.userId = user._id.toString();
-    socket.user = user;
-
-    next();
+    return next(new Error("Authentication error: Token or userId required"));
   } catch (error) {
     logger.error("Socket authentication error:", error);
-    next(new Error("Authentication error: Invalid token"));
+    next(new Error(error.message || "Authentication error: Invalid token"));
   }
 };
 
@@ -152,15 +174,16 @@ export const initializeSocket = (server) => {
 
     /**
      * Handle: Send message
+     * Use mediaId (from POST /media/upload) for photo/video; optional mediaUrl/thumbnailUrl otherwise.
      */
     socket.on("send_message", async (data) => {
       try {
-        const { roomId, messageType, message, mediaUrl, thumbnailUrl, contentId, contentType } = data;
+        const { roomId, messageType, message, mediaId, mediaUrl, thumbnailUrl, contentId, contentType } = data;
 
-        // Send message using service
         const formattedMessage = await sendMessage(roomId, userId, {
           messageType,
           message,
+          mediaId,
           mediaUrl,
           thumbnailUrl,
           contentId,
@@ -172,21 +195,18 @@ export const initializeSocket = (server) => {
           message: formattedMessage,
         });
 
-        // Update message status to DELIVERED for other users
+        // Update message status to DELIVERED when recipient is online; tell SENDER (User A)
         const room = await ChatRoom.findById(roomId);
         if (room) {
           const otherUserId = room.userA.toString() === userId ? room.userB : room.userA;
-          
-          // Check if other user is online
           const otherUserSocketId = activeUsers.get(otherUserId.toString());
+
           if (otherUserSocketId) {
-            // Update message status to delivered
             await ChatMessage.findByIdAndUpdate(formattedMessage.id, {
               status: MessageStatus.DELIVERED,
             });
-
-            // Emit delivered status
-            io.to(`user:${otherUserId}`).emit("message_delivered", {
+            // Emit to SENDER: "your message was delivered to recipient"
+            io.to(`user:${userId}`).emit("message_delivered", {
               messageId: formattedMessage.id,
               roomId,
               status: MessageStatus.DELIVERED,
@@ -275,6 +295,263 @@ export const initializeSocket = (server) => {
         });
       } catch (error) {
         logger.error("Typing stop error:", error);
+      }
+    });
+
+    /**
+     * Handle: Create or get room (ack + listen: room_created)
+     */
+    socket.on("create_room", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { otherUserId, chatType = "Direct" } = data || {};
+        if (!otherUserId) {
+          const res = { success: false, error: "otherUserId required" };
+          cb(res);
+          socket.emit("room_created", res);
+          return;
+        }
+        const room = await getOrCreateChatRoom(userId, otherUserId, chatType);
+        const res = { success: true, data: room };
+        cb(res);
+        socket.emit("room_created", res);
+      } catch (e) {
+        logger.error("create_room error:", e);
+        const res = { success: false, error: e.message || "Failed to create room" };
+        cb(res);
+        socket.emit("room_created", res);
+      }
+    });
+
+    /**
+     * Handle: Get chat rooms / inbox (ack + listen: rooms_list)
+     */
+    socket.on("get_rooms", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { page = 1, limit = 20 } = data || {};
+        const result = await getChatRooms(userId, page, limit);
+        const res = { success: true, data: result };
+        cb(res);
+        socket.emit("rooms_list", res);
+      } catch (e) {
+        logger.error("get_rooms error:", e);
+        const res = { success: false, error: e.message || "Failed to get rooms" };
+        cb(res);
+        socket.emit("rooms_list", res);
+      }
+    });
+
+    /**
+     * Handle: Get single room (ack + listen: room_detail)
+     */
+    socket.on("get_room", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { roomId } = data || {};
+        if (!roomId) {
+          const res = { success: false, error: "roomId required" };
+          cb(res);
+          socket.emit("room_detail", res);
+          return;
+        }
+        const room = await getChatRoomById(roomId, userId);
+        if (!room) {
+          const res = { success: false, error: "Room not found" };
+          cb(res);
+          socket.emit("room_detail", res);
+          return;
+        }
+        const res = { success: true, data: room };
+        cb(res);
+        socket.emit("room_detail", res);
+      } catch (e) {
+        logger.error("get_room error:", e);
+        const res = { success: false, error: e.message || "Failed to get room" };
+        cb(res);
+        socket.emit("room_detail", res);
+      }
+    });
+
+    /**
+     * Handle: Get messages (ack + listen: messages_list)
+     */
+    socket.on("get_messages", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { roomId, page = 1, limit = 50 } = data || {};
+        if (!roomId) {
+          const res = { success: false, error: "roomId required" };
+          cb(res);
+          socket.emit("messages_list", res);
+          return;
+        }
+        const result = await getMessages(roomId, userId, page, limit);
+        const res = { success: true, data: result };
+        cb(res);
+        socket.emit("messages_list", res);
+      } catch (e) {
+        logger.error("get_messages error:", e);
+        const res = { success: false, error: e.message || "Failed to get messages" };
+        cb(res);
+        socket.emit("messages_list", res);
+      }
+    });
+
+    /**
+     * Handle: Unread count (ack + listen: unread_count). roomId optional: total if omitted.
+     */
+    socket.on("get_unread_count", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { roomId } = data || {};
+        const count = roomId
+          ? await getUnreadCount(roomId, userId)
+          : await getTotalUnreadCount(userId);
+        const res = { success: true, data: { unreadCount: count, roomId: roomId || null } };
+        cb(res);
+        socket.emit("unread_count", res);
+      } catch (e) {
+        logger.error("get_unread_count error:", e);
+        const res = { success: false, error: e.message || "Failed to get unread count" };
+        cb(res);
+        socket.emit("unread_count", res);
+      }
+    });
+
+    /**
+     * Handle: Delete room (ack + listen: room_deleted)
+     */
+    socket.on("delete_room", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { roomId } = data || {};
+        if (!roomId) {
+          const res = { success: false, error: "roomId required" };
+          cb(res);
+          socket.emit("room_deleted", res);
+          return;
+        }
+        await deleteChatRoom(roomId, userId);
+        const res = { success: true, data: { roomId } };
+        cb(res);
+        socket.emit("room_deleted", res);
+      } catch (e) {
+        logger.error("delete_room error:", e);
+        const res = { success: false, error: e.message || "Failed to delete room" };
+        cb(res);
+        socket.emit("room_deleted", res);
+      }
+    });
+
+    /**
+     * Handle: Send snap (mediaId from POST /media/upload). Emit snap_sent to sender, new_snap to recipients.
+     */
+    socket.on("send_snap", async (data) => {
+      try {
+        const { mediaId, recipientIds, expiresInSeconds, duration } = data || {};
+        const snap = await sendSnapWithMediaId(userId, {
+          mediaId,
+          recipientIds,
+          expiresInSeconds,
+          duration,
+        });
+
+        socket.emit("snap_sent", { snap });
+
+        const fullSnap = await Snap.findById(snap.id)
+          .populate("senderId", "name username profileImage isVerifiedBadge")
+          .populate("recipients.userId", "name username profileImage isVerifiedBadge");
+        if (fullSnap) {
+          fullSnap.recipients.forEach((r) => {
+            const rid = r.userId._id.toString();
+            io.to(`user:${rid}`).emit("new_snap", {
+              snap: {
+                id: fullSnap._id.toString(),
+                sender: {
+                  id: fullSnap.senderId._id.toString(),
+                  name: fullSnap.senderId.name,
+                  username: fullSnap.senderId.username,
+                  profileImage: fullSnap.senderId.profileImage,
+                  isVerifiedBadge: fullSnap.senderId.isVerifiedBadge,
+                },
+                mediaType: fullSnap.mediaType,
+                thumbnailUrl: fullSnap.thumbnailUrl,
+                duration: fullSnap.duration,
+                expiresAt: fullSnap.expiresAt,
+                isExpired: fullSnap.isExpired,
+                createdAt: fullSnap.createdAt,
+              },
+            });
+          });
+        }
+        logger.info(`Snap sent via socket: ${snap.id} by user ${userId}`);
+      } catch (e) {
+        logger.error("send_snap error:", e);
+        socket.emit("error", { message: e.message || "Failed to send snap" });
+      }
+    });
+
+    /**
+     * Handle: Snaps inbox (ack + listen: snaps_inbox)
+     */
+    socket.on("get_snaps_inbox", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { page = 1, limit = 20, includeExpired = false } = data || {};
+        const result = await getSnapsInbox(userId, { page, limit, includeExpired });
+        const res = { success: true, data: result };
+        cb(res);
+        socket.emit("snaps_inbox", res);
+      } catch (e) {
+        logger.error("get_snaps_inbox error:", e);
+        const res = { success: false, error: e.message || "Failed to get snaps inbox" };
+        cb(res);
+        socket.emit("snaps_inbox", res);
+      }
+    });
+
+    /**
+     * Handle: Sent snaps (ack + listen: snaps_sent)
+     */
+    socket.on("get_snaps_sent", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { page = 1, limit = 20 } = data || {};
+        const result = await getSentSnaps(userId, { page, limit });
+        const res = { success: true, data: result };
+        cb(res);
+        socket.emit("snaps_sent", res);
+      } catch (e) {
+        logger.error("get_snaps_sent error:", e);
+        const res = { success: false, error: e.message || "Failed to get sent snaps" };
+        cb(res);
+        socket.emit("snaps_sent", res);
+      }
+    });
+
+    /**
+     * Handle: View snap (ack + listen: snap_viewed). Returns viewUrl etc.
+     */
+    socket.on("view_snap", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { snapId } = data || {};
+        if (!snapId) {
+          const res = { success: false, error: "snapId required" };
+          cb(res);
+          socket.emit("snap_viewed", res);
+          return;
+        }
+        const result = await viewSnap(snapId, userId);
+        const res = { success: true, data: result };
+        cb(res);
+        socket.emit("snap_viewed", res);
+      } catch (e) {
+        logger.error("view_snap error:", e);
+        const res = { success: false, error: e.message || "Failed to view snap" };
+        cb(res);
+        socket.emit("snap_viewed", res);
       }
     });
 

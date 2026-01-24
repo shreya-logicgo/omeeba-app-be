@@ -43,6 +43,8 @@ import Notification from "./notifications/Notification.js";
 import ChatRoom from "./chat/ChatRoom.js";
 import ChatMessage from "./chat/ChatMessage.js";
 import ChatParticipant from "./chat/ChatParticipant.js";
+import Snap from "./chat/Snap.js";
+import Media from "./chat/Media.js";
 
 // Support
 import SupportRequest from "./support/SupportRequest.js";
@@ -95,6 +97,8 @@ export {
   ChatRoom,
   ChatMessage,
   ChatParticipant,
+  Snap,
+  Media,
 
   // Support
   SupportRequest,

@@ -10,18 +10,29 @@ import { User } from "../models/index.js";
 import { MessageType, MessageStatus } from "../models/enums.js";
 import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatTime12Hour } from "../utils/timeFormatter.js";
+import { getMediaForUser } from "./media.service.js";
 import logger from "../utils/logger.js";
 
 /**
- * Send a message in a chat room
+ * Send a message in a chat room.
+ * Supports mediaId (from POST /media/upload): resolve to mediaUrl/thumbnailUrl.
  * @param {string} roomId - Room ID
  * @param {string} senderId - Sender user ID
- * @param {Object} messageData - Message data
+ * @param {Object} messageData - { messageType, message?, mediaId?, mediaUrl?, thumbnailUrl?, contentId?, contentType? }
  * @returns {Promise<Object>} Created message
  */
 export const sendMessage = async (roomId, senderId, messageData) => {
   try {
-    const { messageType, message, mediaUrl, thumbnailUrl, contentId, contentType } = messageData;
+    const { messageType, message, mediaId, mediaUrl, thumbnailUrl, contentId, contentType } = messageData;
+
+    let resolvedMediaUrl = mediaUrl || null;
+    let resolvedThumbnailUrl = thumbnailUrl || null;
+
+    if (mediaId) {
+      const media = await getMediaForUser(mediaId, senderId);
+      resolvedMediaUrl = media.mediaUrl;
+      resolvedThumbnailUrl = media.thumbnailUrl;
+    }
 
     // Verify room exists and user is a participant
     const room = await ChatRoom.findOne({
@@ -43,15 +54,16 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       senderId,
       messageType,
       message: message || null,
-      mediaUrl: mediaUrl || null,
-      thumbnailUrl: thumbnailUrl || null,
+      mediaUrl: resolvedMediaUrl,
+      thumbnailUrl: resolvedThumbnailUrl,
       contentId: contentId || null,
       contentType: contentType || null,
       status: MessageStatus.SENT,
     });
 
     // Update room's last message
-    room.lastMessage = message || (messageType === MessageType.IMAGE ? "📷 Image" : messageType === MessageType.SNAP ? "📸 Snap" : null);
+    const lastPreview = message || (messageType === MessageType.IMAGE ? "📷 Image" : messageType === MessageType.SNAP ? "📸 Snap" : null);
+    room.lastMessage = lastPreview;
     room.lastMessageType = messageType;
     room.lastMessageAt = newMessage.createdAt;
     await room.save();
