@@ -46,6 +46,10 @@ import ChatMessage from "./chat/ChatMessage.js";
 import ReportCategory from "./reports/ReportCategory.js";
 import ReportSubCategory from "./reports/ReportSubCategory.js";
 
+// Hashtags
+import Hashtag from "./hashtags/Hashtag.js";
+import HashtagContent from "./hashtags/HashtagContent.js";
+
 // Export enums
 import * as Enums from "./enums.js";
 
@@ -92,6 +96,10 @@ export {
   // Reports
   ReportCategory,
   ReportSubCategory,
+
+  // Hashtags
+  Hashtag,
+  HashtagContent,
 
   // Enums
   Enums,

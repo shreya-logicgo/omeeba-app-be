@@ -5,7 +5,7 @@
 
 import ZealDraft from "../models/content/ZealDraft.js";
 import ZealPost from "../models/content/ZealPost.js";
-import { ZealStatus } from "../models/enums.js";
+import { ZealStatus, ContentType } from "../models/enums.js";
 import {
   generateStorageKey,
   generatePresignedUploadUrl,
@@ -13,6 +13,7 @@ import {
   getPublicUrl,
   initiateMultipartUpload,
 } from "./storage.service.js";
+import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
 import config from "../config/env.js";
 import logger from "../utils/logger.js";
 
@@ -341,13 +342,26 @@ const processZealAsync = async (zealId) => {
       zealPost.status = ZealStatus.READY;
       zealPost.processingError = null;
       logger.info(`Zeal post processed successfully: ${zealId}`);
+      
+      await zealPost.save();
+      
+      // Link hashtags to content when status becomes READY (async, don't wait)
+      if (zealPost.caption) {
+        const tags = extractHashtags(zealPost.caption);
+        if (tags.length > 0) {
+          linkHashtagsToContent(ContentType.ZEAL, zealPost._id, tags).catch(
+            (error) => {
+              logger.error(`Error linking hashtags for zeal ${zealPost._id}:`, error);
+            }
+          );
+        }
+      }
     } else {
       zealPost.status = ZealStatus.FAILED;
       zealPost.processingError = "Processing failed: Unsupported format or corrupted file";
       logger.error(`Zeal post processing failed: ${zealId}`);
+      await zealPost.save();
     }
-
-    await zealPost.save();
   } catch (error) {
     logger.error(`Error in processZealAsync for ${zealId}:`, error);
 

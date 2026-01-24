@@ -1,6 +1,8 @@
 import WritePost from "../models/content/WritePost.js";
 import User from "../models/users/User.js";
 import logger from "../utils/logger.js";
+import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
+import { ContentType } from "../models/enums.js";
 
 /**
  * Create Write Post
@@ -35,12 +37,23 @@ export const createWritePost = async (userId, postData) => {
     // Create write post
     const writePost = new WritePost({
       userId,
-      title: postData.title || "",
       content: postData.content.trim(),
       mentionedUserIds: postData.mentionedUserIds || [],
     });
 
     await writePost.save();
+
+    // Link hashtags to content (async, don't wait)
+    if (postData.content) {
+      const tags = extractHashtags(postData.content);
+      if (tags.length > 0) {
+        linkHashtagsToContent(ContentType.WRITE_POST, writePost._id, tags).catch(
+          (error) => {
+            logger.error(`Error linking hashtags for writePost ${writePost._id}:`, error);
+          }
+        );
+      }
+    }
 
     // Populate user and mentioned users
     await writePost.populate([

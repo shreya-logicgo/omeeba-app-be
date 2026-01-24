@@ -26,6 +26,7 @@ import contentShareRoutes from "./content-share.routes.js";
 import purchaseVerificationRoutes from "./purchase-verification.routes.js";
 import savedContentRoutes from "./saved-content.routes.js";
 import exploreRoutes from "./explore.routes.js";
+import hashtagRoutes from "./hashtag.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
@@ -41,5 +42,6 @@ router.use(`/${config.apiVersion}/content-shares`, contentShareRoutes);
 router.use(`/${config.apiVersion}/purchases`, purchaseVerificationRoutes);
 router.use(`/${config.apiVersion}/saved-content`, savedContentRoutes);
 router.use(`/${config.apiVersion}/explore`, exploreRoutes);
+router.use(`/${config.apiVersion}/hashtags`, hashtagRoutes);
 
 export default router;

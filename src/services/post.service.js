@@ -2,6 +2,8 @@ import Post from "../models/content/Post.js";
 import User from "../models/users/User.js";
 import Music from "../models/music/Music.js";
 import logger from "../utils/logger.js";
+import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
+import { ContentType } from "../models/enums.js";
 
 /**
  * Create Post
@@ -96,6 +98,18 @@ export const createPost = async (userId, postData) => {
     });
 
     await post.save();
+
+    // Link hashtags to content (async, don't wait)
+    if (postData.caption) {
+      const tags = extractHashtags(postData.caption);
+      if (tags.length > 0) {
+        linkHashtagsToContent(ContentType.POST, post._id, tags).catch(
+          (error) => {
+            logger.error(`Error linking hashtags for post ${post._id}:`, error);
+          }
+        );
+      }
+    }
 
     // Populate user, mentioned users, and music
     await post.populate([
