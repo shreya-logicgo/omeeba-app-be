@@ -89,6 +89,8 @@ zealPostSchema.index({ mentionedUserIds: 1 });
 zealPostSchema.index({ status: 1 });
 zealPostSchema.index({ userId: 1, status: 1 });
 zealPostSchema.index({ shareCount: -1 }); // For analytics and virality tracking
+// Text search index for caption
+zealPostSchema.index({ caption: "text" });
 
 const ZealPost = mongoose.model("ZealPost", zealPostSchema);
 

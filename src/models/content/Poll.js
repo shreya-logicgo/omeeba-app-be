@@ -82,6 +82,8 @@ const pollSchema = new mongoose.Schema(
 pollSchema.index({ createdBy: 1, createdAt: -1 });
 pollSchema.index({ status: 1, duration: 1 });
 pollSchema.index({ createdAt: -1 });
+// Text search index for caption
+pollSchema.index({ caption: "text" });
 
 const Poll = mongoose.model("Poll", pollSchema);
 

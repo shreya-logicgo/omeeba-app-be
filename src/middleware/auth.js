@@ -88,6 +88,56 @@ export const protect = async (req, res, next) => {
 };
 
 /**
+ * Optional protect - Verify JWT token if present, but don't fail if missing
+ * Useful for endpoints that work both with and without authentication
+ */
+export const optionalProtect = async (req, res, next) => {
+  let token;
+
+  // Extract token from Authorization header
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer")
+  ) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+
+  // If no token, continue without user
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  try {
+    // Verify and decode token
+    const decoded = jwt.verify(token, config.jwt.secretKey);
+
+    // Check if decoded token has required fields
+    if (!decoded || !decoded.id) {
+      logger.warn("Invalid token payload structure");
+      req.user = null;
+      return next();
+    }
+
+    // Find user by ID from token
+    const user = await User.findById(decoded.id).select("-password");
+
+    if (!user || user.isDeleted) {
+      req.user = null;
+      return next();
+    }
+
+    // Attach user to request object
+    req.user = user;
+    next();
+  } catch (error) {
+    // For optional auth, just continue without user on any error
+    req.user = null;
+    next();
+  }
+};
+
+/**
  * Authorize specific roles
  */
 export const authorize = (...roles) => {
