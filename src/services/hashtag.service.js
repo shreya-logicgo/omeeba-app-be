@@ -73,7 +73,7 @@ const getOrCreateHashtags = async (tags) => {
 
 /**
  * Link hashtags to content
- * @param {string} contentType - Content type (ContentType.POST, ContentType.WRITE_POST, ContentType.ZEAL)
+ * @param {string} contentType - Content type (ContentType.POST, ContentType.WRITE_POST, ContentType.ZEAL, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @param {Array<string>} tags - Array of hashtag tags (without #)
  * @returns {Promise<void>}

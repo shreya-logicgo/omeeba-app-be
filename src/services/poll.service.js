@@ -2,6 +2,9 @@ import Poll from "../models/content/Poll.js";
 import User from "../models/users/User.js";
 import { PollStatus } from "../models/enums.js";
 import logger from "../utils/logger.js";
+import { extractHashtags, linkHashtagsToContent } from "./hashtag.service.js";
+
+const POLL_CONTENT_TYPE = "Poll";
 
 /**
  * Create Poll
@@ -55,6 +58,18 @@ export const createPoll = async (userId, pollData) => {
     });
 
     await poll.save();
+
+    // Link hashtags to content (async, don't wait)
+    if (pollData.caption) {
+      const tags = extractHashtags(pollData.caption);
+      if (tags.length > 0) {
+        linkHashtagsToContent(POLL_CONTENT_TYPE, poll._id, tags).catch(
+          (error) => {
+            logger.error(`Error linking hashtags for poll ${poll._id}:`, error);
+          }
+        );
+      }
+    }
 
     // Populate createdBy
     await poll.populate({
