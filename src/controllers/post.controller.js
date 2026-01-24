@@ -1,7 +1,31 @@
 import { createPost as createPostService } from "../services/post.service.js";
+import {
+  generateStorageKey,
+  uploadBufferToStorage,
+} from "../services/storage.service.js";
 import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
+
+const normalizeStringArray = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Fallback to comma-separated
+    }
+    return trimmed
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
 
 /**
  * Create Post
@@ -11,7 +35,26 @@ import logger from "../utils/logger.js";
 export const createPost = async (req, res) => {
   try {
     const userId = req.user._id;
-    const postData = req.body;
+    const postData = { ...req.body };
+
+    // Normalize multipart fields
+    postData.mentionedUserIds = normalizeStringArray(postData.mentionedUserIds);
+    postData.images = normalizeStringArray(postData.images);
+
+    // Upload images from multipart form-data if provided
+    if (req.files && req.files.length > 0) {
+      const uploadPromises = req.files.map(async (file) => {
+        const storageKey = generateStorageKey(
+          userId.toString(),
+          "image",
+          file.mimetype,
+          "posts"
+        );
+        return uploadBufferToStorage(storageKey, file.buffer, file.mimetype);
+      });
+
+      postData.images = await Promise.all(uploadPromises);
+    }
 
     // Create post
     const post = await createPostService(userId, postData);

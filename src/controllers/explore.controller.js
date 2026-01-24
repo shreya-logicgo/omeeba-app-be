@@ -73,11 +73,11 @@ export const search = async (req, res) => {
     const { query = "", type, contentType } = req.query;
 
     // Validate type
-    const validTypes = ["explore", "trending", "polls", "users"];
+    const validTypes = ["explore", "trending", "polls", "users", "hashtag"];
     if (!validTypes.includes(type)) {
       return sendError(
         res,
-        "Invalid type. Must be one of: explore, trending, polls, users",
+        "Invalid type. Must be one of: explore, trending, polls, users, hashtag",
         "Validation Error",
         "Invalid type parameter",
         StatusCodes.BAD_REQUEST

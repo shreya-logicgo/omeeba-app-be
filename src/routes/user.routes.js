@@ -15,9 +15,16 @@ import {
   getMentionedPosts,
 } from "../controllers/user.controller.js";
 import { protect } from "../middleware/auth.js";
-import { searchUsers, searchUsersForMentionsHandler } from "../controllers/user.controller.js";
+import {
+  searchUsers,
+  searchUsersForMentionsHandler,
+} from "../controllers/user.controller.js";
+import { uploadProfileImages } from "../middleware/upload.js";
 import { validateQuery } from "../utils/validation.js";
-import { searchUsersQuerySchema, searchMentionsQuerySchema } from "../validators/user.validator.js";
+import {
+  searchUsersQuerySchema,
+  searchMentionsQuerySchema,
+} from "../validators/user.validator.js";
 
 const router = express.Router();
 
@@ -29,6 +36,7 @@ const router = express.Router();
 router.put(
   "/profile",
   protect,
+  uploadProfileImages,
   validateBody(updateProfileSchema),
   updateProfile
 );

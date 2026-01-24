@@ -15,20 +15,22 @@ export const createPostSchema = createSchema(
       )
       .min(1)
       .max(20)
-      .required()
+      .optional()
       .messages({
         "array.base": "Images must be an array",
         "array.min": "At least one image is required",
-        "array.max": "Cannot upload more than 10 images",
-        "any.required": "At least one image is required",
+        "array.max": "Cannot upload more than 20 images",
       }),
-    mentionedUserIds: Joi.array()
-      .items(
-        Joi.string()
-          .pattern(/^[0-9a-fA-F]{24}$/)
-          .messages({
-            "string.pattern.base": "must be a valid user ID",
-          })
+    mentionedUserIds: Joi.alternatives()
+      .try(
+        Joi.array().items(
+          Joi.string()
+            .pattern(/^[0-9a-fA-F]{24}$/)
+            .messages({
+              "string.pattern.base": "must be a valid user ID",
+            })
+        ),
+        Joi.string().allow("")
       )
       .optional()
       .messages({

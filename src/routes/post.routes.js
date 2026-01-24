@@ -3,6 +3,7 @@ import { protect } from "../middleware/auth.js";
 import { validateBody } from "../utils/validation.js";
 import { createPostSchema } from "../validators/post.validator.js";
 import { createPost } from "../controllers/post.controller.js";
+import { uploadPostImages } from "../middleware/upload.js";
 
 const router = express.Router();
 
@@ -11,6 +12,6 @@ const router = express.Router();
  * @desc    Create a new post
  * @access  Private
  */
-router.post("/", protect, validateBody(createPostSchema), createPost);
+router.post("/", protect, uploadPostImages, validateBody(createPostSchema), createPost);
 
 export default router;
