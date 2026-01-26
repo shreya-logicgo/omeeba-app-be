@@ -40,6 +40,25 @@ export const comparePassword = async (password, hashedPassword) => {
 };
 
 /**
+ * Remove sensitive fields from user object
+ * @param {Object} userObject - User object
+ * @returns {Object} User object without sensitive fields
+ */
+const removeSensitiveFields = (userObject) => {
+  const sensitiveFields = [
+    "password",
+    "otp",
+    "otpExpireAt",
+    "forgotPasswordOTP",
+    "forgotPasswordOTPExpireAt",
+    "forgotPasswordOTPVerified",
+    "forgotPasswordOTPVerifiedAt",
+  ];
+  sensitiveFields.forEach((field) => delete userObject[field]);
+  return userObject;
+};
+
+/**
  * Register new user
  * @param {Object} userData - User registration data
  * @param {string} userData.email - User email
@@ -595,6 +614,57 @@ export const resetPassword = async (email, newPassword) => {
   }
 };
 
+/**
+ * Change password (for authenticated users)
+ * @param {string} userId - User ID
+ * @param {string} oldPassword - Current password
+ * @param {string} newPassword - New password
+ * @returns {Promise<Object>} Updated user (without password)
+ */
+export const changePassword = async (userId, oldPassword, newPassword) => {
+  try {
+    // Find user
+    const user = await User.findById(userId);
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (user.isDeleted) {
+      throw new Error("User account has been deleted");
+    }
+
+    // Verify old password
+    const isPasswordValid = await comparePassword(oldPassword, user.password);
+
+    if (!isPasswordValid) {
+      throw new Error("Old password is incorrect");
+    }
+
+    // Check if new password is same as old password
+    const isSamePassword = await comparePassword(newPassword, user.password);
+
+    if (isSamePassword) {
+      throw new Error("New password must be different from current password");
+    }
+
+    // Hash new password
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Update password
+    user.password = hashedPassword;
+    await user.save();
+
+    logger.info(`Password changed for user ${user.email}`);
+
+    // Return user without sensitive fields
+    return removeSensitiveFields(user.toObject());
+  } catch (error) {
+    logger.error("Error in changePassword:", error);
+    throw error;
+  }
+};
+
 export default {
   registerUser,
   verifyOTP,
@@ -602,6 +672,7 @@ export default {
   loginUser,
   forgotPassword,
   resetPassword,
+  changePassword,
   generateToken,
   generateOTP,
   hashPassword,

@@ -109,6 +109,18 @@ export const resetPasswordSchema = createSchema(
   ["email", "newPassword"]
 );
 
+/**
+ * Change Password validation schema
+ * Requires oldPassword and newPassword (for authenticated users)
+ */
+export const changePasswordSchema = createSchema(
+  {
+    oldPassword: commonValidations.password.label("Old Password"),
+    newPassword: commonValidations.password.label("New Password"),
+  },
+  ["oldPassword", "newPassword"]
+);
+
 export default {
   registerSchema,
   verifyOTPSchema,
@@ -116,4 +128,5 @@ export default {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  changePasswordSchema,
 };

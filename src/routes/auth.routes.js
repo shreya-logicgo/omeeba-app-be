@@ -11,6 +11,7 @@ import {
   login,
   forgotPassword,
   resetPassword,
+  changePassword,
 } from "../controllers/auth.controller.js";
 import { validateBody } from "../utils/validation.js";
 import {
@@ -20,7 +21,9 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  changePasswordSchema,
 } from "../validators/auth.validator.js";
+import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -74,6 +77,19 @@ router.post(
   "/reset-password",
   validateBody(resetPasswordSchema),
   resetPassword
+);
+
+/**
+ * @route   PUT /api/v1/auth/change-password
+ * @desc    Change password for authenticated user
+ * @access  Private
+ * @body    { oldPassword, newPassword }
+ */
+router.put(
+  "/change-password",
+  protect,
+  validateBody(changePasswordSchema),
+  changePassword
 );
 
 export default router;

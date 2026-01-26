@@ -10,6 +10,7 @@ import {
   loginUser,
   forgotPassword as forgotPasswordService,
   resetPassword as resetPasswordService,
+  changePassword as changePasswordService,
   generateToken,
 } from "../services/auth.service.js";
 import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
@@ -318,6 +319,52 @@ export const resetPasswordHandler = async (req, res) => {
   }
 };
 
+/**
+ * Change Password
+ * @route PUT /api/v1/auth/change-password
+ * @access Private
+ */
+export const changePassword = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { oldPassword, newPassword } = req.body;
+
+    // Change password
+    const user = await changePasswordService(userId, oldPassword, newPassword);
+
+    // Return success response
+    return sendSuccess(
+      res,
+      {
+        user: {
+          id: user._id,
+          email: user.email,
+          name: user.name,
+          username: user.username,
+        },
+      },
+      "Password changed successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Change password error:", error);
+
+    // Handle custom errors
+    if (error.message) {
+      return sendBadRequest(res, error.message);
+    }
+
+    // Generic error
+    return sendError(
+      res,
+      "Failed to change password",
+      "Change Password Error",
+      error.message || "An error occurred while changing password",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 // Export named exports for routes
 export { forgotPasswordHandler as forgotPassword };
 export { resetPasswordHandler as resetPassword };
@@ -329,4 +376,5 @@ export default {
   login,
   forgotPassword: forgotPasswordHandler,
   resetPassword: resetPasswordHandler,
+  changePassword,
 };
