@@ -53,7 +53,6 @@ const snapSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       required: true,
-      index: true,
     },
     isExpired: {
       type: Boolean,

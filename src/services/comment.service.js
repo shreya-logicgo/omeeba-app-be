@@ -5,11 +5,12 @@
 
 import Comment from "../models/comments/Comment.js";
 import { User } from "../models/index.js";
-import { ContentType, ContentTypeToModelName } from "../models/enums.js";
+import { ContentType, ContentTypeToModelName, NotificationType } from "../models/enums.js";
 import { getContentModel, validateContentExists } from "../models/utils/contentHelper.js";
 import { parseAndValidateMentions } from "../utils/mentionParser.js";
-import { getCommentLikeCount, isCommentLikedByUser, getCommentsLikeStatus } from "./commentLike.service.js";
+import { getCommentLikeCount, isCommentLikedByUser } from "./commentLike.service.js";
 import { getTimeAgo, formatNumber } from "../utils/timeAgo.js";
+import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -90,6 +91,66 @@ export const createComment = async (userId, commentData) => {
     ]);
 
     logger.info(`Comment created: ${newComment._id} by user ${userId} on ${contentType} ${contentId}`);
+
+    // Create notifications
+    try {
+      // Get content to find owner
+      const ContentModel = getContentModel(contentType);
+      const content = await ContentModel.findById(contentId).select("userId");
+
+      if (content) {
+        const contentOwnerId = content.userId;
+
+        // Notify content owner (if not self-comment)
+        if (contentOwnerId.toString() !== userId.toString()) {
+          let notificationType;
+          if (contentType === ContentType.POST) {
+            notificationType = NotificationType.POST_COMMENT;
+          } else if (contentType === ContentType.ZEAL) {
+            notificationType = NotificationType.ZEAL_COMMENT;
+          } else if (contentType === ContentType.WRITE_POST) {
+            notificationType = NotificationType.WRITE_COMMENT;
+          }
+
+          if (notificationType) {
+            await createNotification({
+              receiverId: contentOwnerId,
+              senderId: userId,
+              type: notificationType,
+              contentType,
+              contentId,
+              metadata: { commentId: newComment._id.toString() },
+            });
+          }
+        }
+
+        // Notify mentioned users
+        if (mentionedUserIds.length > 0) {
+          const notificationPromises = mentionedUserIds.map((mentionedUserId) => {
+            // Don't notify if mentioned user is the commenter or content owner
+            if (
+              mentionedUserId.toString() !== userId.toString() &&
+              mentionedUserId.toString() !== contentOwnerId.toString()
+            ) {
+              return createNotification({
+                receiverId: mentionedUserId,
+                senderId: userId,
+                type: NotificationType.MENTION_IN_COMMENT,
+                contentType,
+                contentId,
+                metadata: { commentId: newComment._id.toString() },
+              });
+            }
+            return Promise.resolve(null);
+          });
+
+          await Promise.all(notificationPromises);
+        }
+      }
+    } catch (notificationError) {
+      // Log error but don't fail the comment creation
+      logger.error("Error creating comment notifications:", notificationError);
+    }
 
     // Get like count and user's like status
     const [likeCount, isLiked] = await Promise.all([

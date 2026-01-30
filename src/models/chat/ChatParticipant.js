@@ -52,7 +52,6 @@ const chatParticipantSchema = new mongoose.Schema(
 // Compound index to ensure one participant record per user per room
 chatParticipantSchema.index({ roomId: 1, userId: 1 }, { unique: true });
 chatParticipantSchema.index({ userId: 1, updatedAt: -1 });
-chatParticipantSchema.index({ roomId: 1 });
 
 const ChatParticipant = mongoose.model("ChatParticipant", chatParticipantSchema);
 

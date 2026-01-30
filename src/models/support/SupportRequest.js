@@ -68,7 +68,7 @@ supportRequestSchema.index({ userId: 1, createdAt: -1 });
 supportRequestSchema.index({ status: 1 });
 supportRequestSchema.index({ priority: 1 });
 supportRequestSchema.index({ assignedTo: 1 });
-supportRequestSchema.index({ roomId: 1 });
+// Note: roomId already has an index from unique: true constraint, so no need for explicit index
 
 const SupportRequest = mongoose.model("SupportRequest", supportRequestSchema);
 

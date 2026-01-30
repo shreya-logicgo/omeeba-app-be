@@ -138,6 +138,25 @@ const envVarsSchema = Joi.object({
     .optional()
     .allow("")
     .description("Google Play service account key (JSON string) for purchase verification"),
+
+  // Firebase Configuration
+  FIREBASE_PROJECT_ID: Joi.string()
+    .optional()
+    .allow("")
+    .description("Firebase project ID"),
+  FIREBASE_PRIVATE_KEY: Joi.string()
+    .optional()
+    .allow("")
+    .description("Firebase private key (from service account JSON)"),
+  FIREBASE_CLIENT_EMAIL: Joi.string()
+    .optional()
+    .allow("")
+    .email()
+    .description("Firebase client email (from service account JSON)"),
+  FIREBASE_SERVICE_ACCOUNT_KEY: Joi.string()
+    .optional()
+    .allow("")
+    .description("Firebase service account key (full JSON string)"),
 })
   .unknown()
   .prefs({ errors: { label: "key" } });
@@ -236,6 +255,12 @@ export default {
   },
   google: {
     serviceAccountKey: envVars.GOOGLE_SERVICE_ACCOUNT_KEY,
+  },
+  firebase: {
+    projectId: envVars.FIREBASE_PROJECT_ID,
+    privateKey: envVars.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+    clientEmail: envVars.FIREBASE_CLIENT_EMAIL,
+    serviceAccountKey: envVars.FIREBASE_SERVICE_ACCOUNT_KEY,
   },
 };
 

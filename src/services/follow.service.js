@@ -5,8 +5,8 @@
 
 import User from "../models/users/User.js";
 import UserFollower from "../models/users/UserFollower.js";
-import Notification from "../models/notifications/Notification.js";
-import { NotificationType, NotificationStatus } from "../models/enums.js";
+import { createNotification } from "./notification.service.js";
+import { NotificationType } from "../models/enums.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -70,12 +70,10 @@ export const followUser = async (followerId, targetUserId) => {
 
     // Create notification for target user
     try {
-      await Notification.create({
+      await createNotification({
         receiverId: targetUserId,
         senderId: followerId,
-        type: NotificationType.FOLLOW,
-        message: `${follower.name} started following you`,
-        status: NotificationStatus.UNREAD,
+        type: NotificationType.NEW_FOLLOWER,
       });
     } catch (notificationError) {
       // Log error but don't fail the follow operation
@@ -178,17 +176,8 @@ export const unfollowUser = async (followerId, targetUserId) => {
       $inc: { followingCount: -1 },
     });
 
-    // Delete follow notification if exists
-    try {
-      await Notification.deleteMany({
-        receiverId: targetUserId,
-        senderId: followerId,
-        type: NotificationType.FOLLOW,
-      });
-    } catch (notificationError) {
-      // Log error but don't fail the unfollow operation
-      logger.warn("Error deleting follow notification:", notificationError);
-    }
+    // Delete follow notification if exists (optional cleanup)
+    // Note: We don't delete notifications on unfollow as per common UX patterns
 
     logger.info(
       `User ${followerId} unfollowed user ${targetUserId}`

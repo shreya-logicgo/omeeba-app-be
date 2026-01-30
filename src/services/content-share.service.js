@@ -3,7 +3,8 @@ import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
 import User from "../models/users/User.js";
-import { ContentType, ZealStatus } from "../models/enums.js";
+import { ContentType, ZealStatus, NotificationType } from "../models/enums.js";
+import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
 
@@ -202,6 +203,45 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
         timestamp: new Date().toISOString(),
       })
     );
+
+    // Create notifications
+    try {
+      const contentOwnerId = content.userId;
+
+      // Notify content owner (if not self-share)
+      if (contentOwnerId.toString() !== senderId.toString()) {
+        await createNotification({
+          receiverId: contentOwnerId,
+          senderId: senderId,
+          type: NotificationType.CONTENT_SHARED,
+          contentType,
+          contentId,
+        });
+      }
+
+      // Notify receivers
+      const receiverNotificationPromises = receiverObjectIds.map((receiverId) => {
+        // Don't notify if receiver is the sender or content owner
+        if (
+          receiverId.toString() !== senderId.toString() &&
+          receiverId.toString() !== contentOwnerId.toString()
+        ) {
+          return createNotification({
+            receiverId: receiverId,
+            senderId: senderId,
+            type: NotificationType.CONTENT_SHARED_WITH_YOU,
+            contentType,
+            contentId,
+          });
+        }
+        return Promise.resolve(null);
+      });
+
+      await Promise.all(receiverNotificationPromises);
+    } catch (notificationError) {
+      // Log error but don't fail the share operation
+      logger.error("Error creating share notifications:", notificationError);
+    }
 
     return {
       success: true,

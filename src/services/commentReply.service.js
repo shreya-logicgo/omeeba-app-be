@@ -6,9 +6,11 @@
 import ReplyComment from "../models/comments/ReplyComment.js";
 import Comment from "../models/comments/Comment.js";
 import { User } from "../models/index.js";
+import { NotificationType } from "../models/enums.js";
 import { parseAndValidateMentions } from "../utils/mentionParser.js";
 import { getReplyCommentLikeCount, isReplyCommentLikedByUser } from "./replyCommentLike.service.js";
 import { getTimeAgo, formatNumber } from "../utils/timeAgo.js";
+import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -88,6 +90,55 @@ export const createReply = async (userId, commentId, reply) => {
     const timeAgo = getTimeAgo(newReply.createdAt);
 
     logger.info(`Reply created: ${newReply._id} by user ${userId} on comment ${commentId}`);
+
+    // Create notifications
+    try {
+      const commentOwnerId = parentComment.userId;
+
+      // Notify comment owner (if not self-reply)
+      if (commentOwnerId.toString() !== userId.toString()) {
+        await createNotification({
+          receiverId: commentOwnerId,
+          senderId: userId,
+          type: NotificationType.COMMENT_REPLY,
+          contentType: parentComment.contentType,
+          contentId: parentComment.contentId,
+          metadata: {
+            commentId: parentComment._id.toString(),
+            replyId: newReply._id.toString(),
+          },
+        });
+      }
+
+      // Notify mentioned users
+      if (mentionedUserIds.length > 0) {
+        const notificationPromises = mentionedUserIds.map((mentionedUserId) => {
+          // Don't notify if mentioned user is the replier or comment owner
+          if (
+            mentionedUserId.toString() !== userId.toString() &&
+            mentionedUserId.toString() !== commentOwnerId.toString()
+          ) {
+            return createNotification({
+              receiverId: mentionedUserId,
+              senderId: userId,
+              type: NotificationType.MENTION_IN_COMMENT,
+              contentType: parentComment.contentType,
+              contentId: parentComment.contentId,
+              metadata: {
+                commentId: parentComment._id.toString(),
+                replyId: newReply._id.toString(),
+              },
+            });
+          }
+          return Promise.resolve(null);
+        });
+
+        await Promise.all(notificationPromises);
+      }
+    } catch (notificationError) {
+      // Log error but don't fail the reply creation
+      logger.error("Error creating reply notifications:", notificationError);
+    }
 
     // Format response
     return {

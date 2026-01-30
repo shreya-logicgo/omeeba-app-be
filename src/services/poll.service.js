@@ -1,6 +1,7 @@
 import Poll from "../models/content/Poll.js";
 import User from "../models/users/User.js";
-import { PollStatus } from "../models/enums.js";
+import { PollStatus, NotificationType } from "../models/enums.js";
+import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
 import { extractHashtags, linkHashtagsToContent } from "./hashtag.service.js";
 
@@ -127,6 +128,8 @@ export const votePoll = async (userId, pollId, optionId) => {
       (vote) => vote.userId.toString() === userId.toString()
     );
 
+    const isNewVote = !existingVote;
+
     if (existingVote) {
       // User has already voted, update their vote
       const oldOptionId = existingVote.optionId;
@@ -174,6 +177,25 @@ export const votePoll = async (userId, pollId, optionId) => {
       select: "name username profileImage email isAccountVerified isVerifiedBadge",
     });
 
+    // Create notification for poll creator (only for new votes, not vote changes)
+    if (isNewVote) {
+      try {
+        const pollCreatorId = poll.createdBy._id || poll.createdBy;
+        if (pollCreatorId.toString() !== userId.toString()) {
+          await createNotification({
+            receiverId: pollCreatorId,
+            senderId: userId,
+            type: NotificationType.POLL_VOTED,
+            contentType: "Poll",
+            contentId: pollId,
+          });
+        }
+      } catch (notificationError) {
+        // Log error but don't fail the vote operation
+        logger.error("Error creating poll vote notification:", notificationError);
+      }
+    }
+
     logger.info(`User ${userId} voted on poll ${pollId} for option ${optionId}`);
 
     return poll;
@@ -191,7 +213,7 @@ export const votePoll = async (userId, pollId, optionId) => {
  */
 export const getPoll = async (pollId, userId = null) => {
   try {
-    const poll = await Poll.findById(pollId).populate({
+    let poll = await Poll.findById(pollId).populate({
       path: "createdBy",
       select: "name username profileImage email isAccountVerified isVerifiedBadge",
     });

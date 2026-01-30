@@ -99,6 +99,16 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Firebase Cloud Messaging (FCM) token for push notifications
+    fcmToken: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    pushNotificationEnabled: {
+      type: Boolean,
+      default: true, // User can enable/disable push notifications
+    },
   },
   {
     timestamps: true,

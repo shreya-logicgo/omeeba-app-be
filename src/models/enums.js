@@ -47,11 +47,50 @@ const BillingCycle = {
 };
 
 const NotificationType = {
+  // Follow & User Activity
+  NEW_FOLLOWER: "New Follower",
+  FOLLOW_REQUEST: "Follow Request",
+  FOLLOW_REQUEST_ACCEPTED: "Follow Request Accepted",
+  
+  // Likes
+  POST_LIKED: "Post Liked",
+  ZEAL_LIKED: "Zeal Liked",
+  WRITE_LIKED: "Write Liked",
+  COMMENT_LIKED: "Comment Liked",
+  AGGREGATED_LIKES: "Aggregated Likes",
+  
+  // Comments & Replies
   POST_COMMENT: "Post Comment",
+  ZEAL_COMMENT: "Zeal Comment",
+  WRITE_COMMENT: "Write Comment",
   COMMENT_REPLY: "Comment Reply",
-  POST_LIKE: "Post Like",
-  COMMENT_LIKE: "Comment Like",
-  FOLLOW: "Follow",
+  MENTION_IN_COMMENT: "Mention In Comment",
+  
+  // Mentions
+  MENTION_IN_POST: "Mention In Post",
+  MENTION_IN_ZEAL: "Mention In Zeal",
+  MENTION_IN_WRITE: "Mention In Write",
+  
+  // Shares
+  CONTENT_SHARED: "Content Shared",
+  CONTENT_SHARED_WITH_YOU: "Content Shared With You",
+  
+  // Snaps
+  NEW_SNAP_RECEIVED: "New Snap Received",
+  SNAP_VIEWED: "Snap Viewed",
+  
+  // Polls
+  POLL_VOTED: "Poll Voted",
+  POLL_ENDED: "Poll Ended",
+  
+  // System & Account
+  VERIFIED_BADGE_ACTIVATED: "Verified Badge Activated",
+  VERIFIED_BADGE_EXPIRED: "Verified Badge Expired",
+  SUBSCRIPTION_PAYMENT_SUCCESS: "Subscription Payment Success",
+  
+  // Moderation & Safety
+  CONTENT_REPORTED: "Content Reported",
+  MODERATION_ACTION: "Moderation Action",
 };
 
 const NotificationStatus = {

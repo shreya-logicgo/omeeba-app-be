@@ -2,7 +2,8 @@ import ContentLike from "../models/interactions/ContentLike.js";
 import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
-import { ContentType, ZealStatus } from "../models/enums.js";
+import { ContentType, ZealStatus, NotificationType } from "../models/enums.js";
+import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -106,6 +107,34 @@ export const likeContent = async (userId, contentType, contentId) => {
       contentType,
       contentId,
     });
+
+    // Create notification for content owner (if not self-like)
+    try {
+      const contentOwnerId = content.userId;
+      if (contentOwnerId.toString() !== userId.toString()) {
+        let notificationType;
+        if (contentType === ContentType.POST) {
+          notificationType = NotificationType.POST_LIKED;
+        } else if (contentType === ContentType.ZEAL) {
+          notificationType = NotificationType.ZEAL_LIKED;
+        } else if (contentType === ContentType.WRITE_POST) {
+          notificationType = NotificationType.WRITE_LIKED;
+        }
+
+        if (notificationType) {
+          await createNotification({
+            receiverId: contentOwnerId,
+            senderId: userId,
+            type: notificationType,
+            contentType,
+            contentId,
+          });
+        }
+      }
+    } catch (notificationError) {
+      // Log error but don't fail the like operation
+      logger.error("Error creating like notification:", notificationError);
+    }
 
     logger.info(
       `Content liked: ${contentType} ${contentId} by user ${userId}`
