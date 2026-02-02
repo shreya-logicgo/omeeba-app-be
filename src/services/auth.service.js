@@ -355,10 +355,12 @@ export const verifyOTP = async (email, otp, type = null) => {
 
 /**
  * Resend OTP
+ * Handles both account verification and forgot password OTP
  * @param {string} email - User email
+ * @param {string} type - OTP type: "account" or "password" (optional, auto-detected if not provided)
  * @returns {Promise<Object>} User with new OTP sent
  */
-export const resendOTP = async (email) => {
+export const resendOTP = async (email, type = null) => {
   try {
     // Find user by email
     const user = await User.findOne({
@@ -370,36 +372,111 @@ export const resendOTP = async (email) => {
       throw new Error("No account found with this email address");
     }
 
-    // Check if user is already verified
-    if (user.isAccountVerified) {
-      throw new Error("Your account is already verified");
+    // Auto-detect type if not provided
+    if (!type) {
+      if (!user.isAccountVerified) {
+        type = "account";
+      } else if (user.forgotPasswordOTP || user.forgotPasswordOTPExpireAt) {
+        type = "password";
+      } else {
+        // If account is verified and no forgot password OTP exists, check if user is trying to reset password
+        // In this case, they should use forgot-password endpoint first
+        throw new Error(
+          "No active verification code found. Please request a new code"
+        );
+      }
     }
 
-    // Generate new OTP
-    const otp = generateOTP();
-    const otpExpireAt = new Date();
-    otpExpireAt.setMinutes(otpExpireAt.getMinutes() + config.otp.expireMinutes);
+    // Handle account verification OTP
+    if (type === "account") {
+      // Check if user is already verified
+      if (user.isAccountVerified) {
+        throw new Error("Your account is already verified");
+      }
 
-    // Update user with new OTP
-    user.otp = otp;
-    user.otpExpireAt = otpExpireAt;
-    await user.save();
+      // Generate new OTP
+      const otp = generateOTP();
+      const otpExpireAt = new Date();
+      otpExpireAt.setMinutes(
+        otpExpireAt.getMinutes() + config.otp.expireMinutes
+      );
 
-    // Send OTP email
-    try {
-      await sendOTPEmail(user.email, otp);
-      logger.info(`OTP resent to ${user.email}`);
-    } catch (emailError) {
-      logger.error(`Failed to send OTP email to ${user.email}:`, emailError);
-      throw new Error("Failed to send OTP email. Please try again later");
+      // Update user with new OTP
+      user.otp = otp;
+      user.otpExpireAt = otpExpireAt;
+      await user.save();
+
+      // Send OTP email
+      try {
+        await sendOTPEmail(user.email, otp);
+        logger.info(`Account verification OTP resent to ${user.email}`);
+      } catch (emailError) {
+        logger.error(`Failed to send OTP email to ${user.email}:`, emailError);
+        throw new Error("Failed to send OTP email. Please try again later");
+      }
+
+      // Return user without password and OTP
+      const userObject = user.toObject();
+      delete userObject.password;
+      delete userObject.otp;
+      delete userObject.forgotPasswordOTP;
+      delete userObject.forgotPasswordOTPExpireAt;
+
+      return {
+        ...userObject,
+        type: "account",
+      };
     }
 
-    // Return user without password and OTP
-    const userObject = user.toObject();
-    delete userObject.password;
-    delete userObject.otp;
+    // Handle forgot password OTP
+    if (type === "password") {
+      // Check if account is verified
+      if (!user.isAccountVerified) {
+        throw new Error("Please verify your email address first");
+      }
 
-    return userObject;
+      // Generate new OTP for password reset
+      const otp = generateOTP();
+      const otpExpireAt = new Date();
+      otpExpireAt.setMinutes(
+        otpExpireAt.getMinutes() + config.otp.expireMinutes
+      );
+
+      // Update user with forgot password OTP and reset verification flags
+      user.forgotPasswordOTP = otp;
+      user.forgotPasswordOTPExpireAt = otpExpireAt;
+      user.forgotPasswordOTPVerified = false;
+      user.forgotPasswordOTPVerifiedAt = null;
+      await user.save();
+
+      // Send OTP email
+      try {
+        await sendForgotPasswordOTPEmail(user.email, otp);
+        logger.info(`Forgot password OTP resent to ${user.email}`);
+      } catch (emailError) {
+        logger.error(
+          `Failed to send forgot password OTP email to ${user.email}:`,
+          emailError
+        );
+        throw new Error("Failed to send OTP email. Please try again later");
+      }
+
+      // Return user without password and OTP
+      const userObject = user.toObject();
+      delete userObject.password;
+      delete userObject.otp;
+      delete userObject.forgotPasswordOTP;
+      delete userObject.forgotPasswordOTPExpireAt;
+      delete userObject.forgotPasswordOTPVerified;
+      delete userObject.forgotPasswordOTPVerifiedAt;
+
+      return {
+        ...userObject,
+        type: "password",
+      };
+    }
+
+    throw new Error("Invalid OTP type");
   } catch (error) {
     logger.error("Error in resendOTP:", error);
     throw error;
