@@ -656,7 +656,7 @@ const formatPollForFeed = (poll) => ({
  * @param {Object} options - Query options
  * @param {number} options.page - Page number (default: 1)
  * @param {number} options.limit - Items per page (default: 20)
- * @param {string} options.contentType - Filter by content type: 'all', 'post', 'write', 'zeal' (default: 'all')
+ * @param {string} options.contentType - Filter by content type: 'all', 'post', 'write', 'zeal', 'poll' (default: 'all')
  * @returns {Promise<Object>} Trending content with pagination
  */
 export const getTrendingContent = async (userId = null, options = {}) => {
@@ -664,7 +664,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     const {
       page = 1,
       limit = 20,
-      contentType = "all", // 'all', 'post', 'write', 'zeal'
+      contentType = "all", // 'all', 'post', 'write', 'zeal', 'poll'
     } = options;
 
     const skip = (page - 1) * limit;
@@ -805,6 +805,27 @@ export const getTrendingContent = async (userId = null, options = {}) => {
       );
     }
 
+    // Polls query (only active)
+    if (contentType === "all" || contentType === "poll") {
+      const pollQuery = {
+        createdBy: { $in: validUserIds },
+        status: PollStatus.ACTIVE,
+      };
+
+      contentQueries.push(
+        Poll.find(pollQuery)
+          .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
+          .select("-__v")
+          .lean()
+          .then((polls) =>
+            polls.map((poll) => ({
+              ...poll,
+              contentType: "Poll",
+            }))
+          )
+      );
+    }
+
     // Fetch all content in parallel
     const contentArrays = await Promise.all(contentQueries);
     let allContent = contentArrays.flat();
@@ -816,19 +837,23 @@ export const getTrendingContent = async (userId = null, options = {}) => {
       };
     }
 
-    // Get engagement metrics for all content
-    const metricsMap = await getEngagementMetrics(allContent);
+    // Separate polls from other content for metrics calculation
+    const nonPollContent = allContent.filter((item) => item.contentType !== "Poll");
+    const pollContent = allContent.filter((item) => item.contentType === "Poll");
 
-    // Get liked and saved content IDs for user (if authenticated)
+    // Get engagement metrics for non-poll content
+    const metricsMap = await getEngagementMetrics(nonPollContent);
+
+    // Get liked and saved content IDs for user (if authenticated) - only for non-poll content
     const [likedContentIds, savedContentIds] = userId
       ? await Promise.all([
-          getLikedContentIds(userId, allContent),
-          getSavedContentIds(userId, allContent),
+          getLikedContentIds(userId, nonPollContent),
+          getSavedContentIds(userId, nonPollContent),
         ])
       : [new Set(), new Set()];
 
-    // Calculate trending scores and attach metrics
-    const contentWithScores = allContent.map((item) => {
+    // Calculate trending scores and attach metrics for non-poll content
+    const nonPollWithScores = nonPollContent.map((item) => {
       const metrics = metricsMap.get(item._id.toString()) || {
         likeCount: 0,
         commentCount: 0,
@@ -842,7 +867,22 @@ export const getTrendingContent = async (userId = null, options = {}) => {
       };
     });
 
-    // Sort by trending score (descending)
+    // Calculate trending scores for polls (using totalVotes)
+    const pollWithScores = pollContent.map((item) => {
+      const totalVotes = item.totalVotes || 0;
+      // Recency factor for polls
+      const now = new Date();
+      const ageInHours = (now - item.createdAt) / (1000 * 60 * 60);
+      const recencyFactor = Math.max(0, 1 - ageInHours / 168); // Decay over 7 days
+      const trendingScore = totalVotes * (1 + recencyFactor);
+      return {
+        ...item,
+        trendingScore,
+      };
+    });
+
+    // Combine and sort by trending score
+    const contentWithScores = [...nonPollWithScores, ...pollWithScores];
     contentWithScores.sort((a, b) => b.trendingScore - a.trendingScore);
 
     // Apply pagination
@@ -851,6 +891,29 @@ export const getTrendingContent = async (userId = null, options = {}) => {
 
     // Format content items with isLiked and isSaved status
     const formattedContent = paginatedContent.map((item) => {
+      // Handle poll formatting separately
+      if (item.contentType === "Poll") {
+        return {
+          id: item._id.toString(),
+          contentType: "Poll",
+          caption: item.caption || "",
+          options: item.options || [],
+          totalVotes: item.totalVotes || 0,
+          status: item.status,
+          duration: item.duration,
+          createdBy: {
+            id: item.createdBy._id.toString(),
+            name: item.createdBy.name,
+            username: item.createdBy.username,
+            profileImage: item.createdBy.profileImage,
+            isAccountVerified: item.createdBy.isAccountVerified,
+            isVerifiedBadge: item.createdBy.isVerifiedBadge,
+          },
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        };
+      }
+
       const isLiked = likedContentIds.has(item._id.toString());
       const isSaved = savedContentIds.has(item._id.toString());
       return formatContentItem(
