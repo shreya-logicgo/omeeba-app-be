@@ -7,7 +7,12 @@ import {
   createSupportRequest,
   getSupportRequests,
 } from "../services/supportRequest.service.js";
-import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
+import {
+  sendSuccess,
+  sendError,
+  sendBadRequest,
+  sendPaginated,
+} from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -59,9 +64,10 @@ export const getSupportRequestsHandler = async (req, res) => {
 
     const result = await getSupportRequests(userId, page, limit);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.requests,
+      result.pagination,
       "Support requests retrieved successfully",
       StatusCodes.OK
     );

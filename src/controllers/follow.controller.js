@@ -11,7 +11,13 @@ import {
   getFollowing,
   getFollowCounts,
 } from "../services/follow.service.js";
-import { sendSuccess, sendError, sendBadRequest, sendNotFound } from "../utils/response.js";
+import {
+  sendSuccess,
+  sendError,
+  sendBadRequest,
+  sendNotFound,
+  sendPaginated,
+} from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -160,9 +166,10 @@ export const getFollowersList = async (req, res) => {
     // Get followers
     const result = await getFollowers(userId, currentUserId, page, limit, search);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.followers,
+      result.pagination,
       "Followers retrieved successfully",
       StatusCodes.OK
     );
@@ -206,9 +213,10 @@ export const getFollowingList = async (req, res) => {
     // Get following
     const result = await getFollowing(userId, currentUserId, page, limit, search);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.following,
+      result.pagination,
       "Following retrieved successfully",
       StatusCodes.OK
     );

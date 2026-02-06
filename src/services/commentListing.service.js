@@ -11,6 +11,7 @@ import { validateContentExists } from "../models/utils/contentHelper.js";
 import { getCommentLikeCount, getCommentsLikeStatus, isCommentLikedByUser } from "./commentLike.service.js";
 import { getReportedCommentIdsSet } from "../utils/commentFilter.js";
 import { getTimeAgo, formatNumber } from "../utils/timeAgo.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -161,12 +162,7 @@ export const getComments = async (contentType, contentId, currentUserId, page = 
 
     return {
       comments: formattedComments,
-      pagination: {
-        page,
-        limit,
-        total: visibleComments.length, // Adjusted total after filtering
-        totalPages: Math.ceil(total / limit), // Use original total for pagination
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getComments:", error);

@@ -35,6 +35,26 @@ export const roomIdParamsSchema = Joi.object({
 });
 
 /**
+ * Room ID + Message ID Params Schema
+ */
+export const roomIdMessageIdParamsSchema = Joi.object({
+  roomId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .required()
+    .messages({
+      "string.pattern.base": "Room ID is invalid",
+      "any.required": "Room ID is required",
+    }),
+  messageId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .required()
+    .messages({
+      "string.pattern.base": "Message ID is invalid",
+      "any.required": "Message ID is required",
+    }),
+});
+
+/**
  * Get Messages Query Schema
  */
 export const getMessagesQuerySchema = Joi.object({

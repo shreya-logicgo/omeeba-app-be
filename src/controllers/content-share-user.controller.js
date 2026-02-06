@@ -2,7 +2,7 @@ import { getEligibleUsersForSharing } from "../services/content-share-user.servi
 import { sendPaginated, sendError } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
-import { getPagination, getPaginationMeta } from "../utils/pagination.js";
+import { getPagination } from "../utils/pagination.js";
 
 /**
  * Get eligible users for content sharing
@@ -36,17 +36,10 @@ export const getEligibleUsers = async (req, res) => {
       type,
     });
 
-    // Get pagination metadata
-    const pagination = getPaginationMeta(
-      result.pagination.total,
-      page,
-      limit
-    );
-
     return sendPaginated(
       res,
       result.users,
-      pagination,
+      result.pagination,
       "Eligible users retrieved successfully",
       StatusCodes.OK
     );

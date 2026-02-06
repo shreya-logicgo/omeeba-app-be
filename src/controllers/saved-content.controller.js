@@ -16,7 +16,6 @@ import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
 import { ContentType } from "../models/enums.js";
-import { getPaginationMeta } from "../utils/pagination.js";
 
 /**
  * Toggle save status (save if not saved, unsave if saved)
@@ -289,17 +288,10 @@ export const getList = async (req, res) => {
       limit: Math.min(100, Math.max(1, limit)),
     });
 
-    // Get pagination metadata
-    const pagination = getPaginationMeta(
-      result.pagination.total,
-      page,
-      limit
-    );
-
     return sendPaginated(
       res,
       result.content,
-      pagination,
+      result.pagination,
       "Saved content retrieved successfully",
       StatusCodes.OK
     );

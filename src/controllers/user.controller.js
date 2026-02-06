@@ -350,9 +350,10 @@ export const searchUsers = async (req, res) => {
       limit
     );
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.users,
+      result.pagination,
       "Users retrieved successfully",
       StatusCodes.OK
     );

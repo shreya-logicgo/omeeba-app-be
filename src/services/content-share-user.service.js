@@ -2,6 +2,7 @@ import User from "../models/users/User.js";
 import UserFollower from "../models/users/UserFollower.js";
 import ChatRoom from "../models/chat/ChatRoom.js";
 import mongoose from "mongoose";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -122,14 +123,7 @@ export const getEligibleUsersForSharing = async (senderId, options = {}) => {
         // If searchable but no search term, return empty
         return {
           users: [],
-          pagination: {
-            page,
-            limit,
-            total: 0,
-            pages: 0,
-            hasNext: false,
-            hasPrev: false,
-          },
+          pagination: getPaginationMeta(0, page, limit),
         };
       }
     }
@@ -147,14 +141,7 @@ export const getEligibleUsersForSharing = async (senderId, options = {}) => {
         // No eligible users found, return empty
         return {
           users: [],
-          pagination: {
-            page,
-            limit,
-            total: 0,
-            pages: 0,
-            hasNext: false,
-            hasPrev: false,
-          },
+          pagination: getPaginationMeta(0, page, limit),
         };
       }
     } else if (type === "all" && eligibleUserIds.size > 0 && !search) {
@@ -235,14 +222,7 @@ export const getEligibleUsersForSharing = async (senderId, options = {}) => {
 
     return {
       users: formattedUsers,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: page * limit < total,
-        hasPrev: page > 1,
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getEligibleUsersForSharing:", error);

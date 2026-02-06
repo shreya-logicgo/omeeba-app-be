@@ -7,10 +7,10 @@ import { createSchema } from "../utils/validation.js";
 export const getHomeFeedSchema = createSchema(
   {
     item: Joi.string()
-      .valid("all", "post", "posts", "write", "writes", "zeal", "zeels", "zeals")
+      .valid("all", "post", "posts", "write", "writes", "zeal", "zeels", "zeals", "poll", "polls")
       .optional()
       .messages({
-        "any.only": "item must be one of: all, post(s), write(s), zeal(s)",
+        "any.only": "item must be one of: all, post(s), write(s), zeal(s), poll(s)",
       }),
     page: Joi.number().integer().min(1).optional().messages({
       "number.base": "page must be a number",

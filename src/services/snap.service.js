@@ -15,6 +15,7 @@ import {
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import config from "../config/env.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import crypto from "crypto";
@@ -369,12 +370,7 @@ export const getSnapsInbox = async (userId, options = {}) => {
 
     return {
       snaps: formattedSnaps,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getSnapsInbox:", error);
@@ -400,12 +396,7 @@ export const getSentSnaps = async (senderId, options = {}) => {
 
     return {
       snaps: formattedSnaps,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getSentSnaps:", error);

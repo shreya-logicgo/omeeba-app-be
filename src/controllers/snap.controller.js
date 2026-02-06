@@ -11,7 +11,12 @@ import {
   getSentSnaps,
   deliverSnapToRecipients,
 } from "../services/snap.service.js";
-import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
+import {
+  sendSuccess,
+  sendError,
+  sendBadRequest,
+  sendPaginated,
+} from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -158,9 +163,10 @@ export const getSnapsInboxHandler = async (req, res) => {
 
     const result = await getSnapsInbox(userId, options);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.snaps,
+      result.pagination,
       "Snaps retrieved successfully",
       StatusCodes.OK
     );
@@ -194,9 +200,10 @@ export const getSentSnapsHandler = async (req, res) => {
 
     const result = await getSentSnaps(senderId, options);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.snaps,
+      result.pagination,
       "Sent snaps retrieved successfully",
       StatusCodes.OK
     );

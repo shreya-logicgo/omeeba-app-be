@@ -9,7 +9,13 @@ import {
   deleteChatRoom,
   getOrCreateChatRoom,
 } from "../services/chatRoom.service.js";
-import { sendSuccess, sendError, sendNotFound, sendBadRequest } from "../utils/response.js";
+import {
+  sendSuccess,
+  sendError,
+  sendNotFound,
+  sendBadRequest,
+  sendPaginated,
+} from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -69,9 +75,10 @@ export const getChatRoomsHandler = async (req, res) => {
 
     const result = await getChatRooms(userId, page, limit);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.rooms,
+      result.pagination,
       "Chat rooms retrieved successfully",
       StatusCodes.OK
     );

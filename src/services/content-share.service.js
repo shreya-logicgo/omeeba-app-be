@@ -5,6 +5,7 @@ import ZealPost from "../models/content/ZealPost.js";
 import User from "../models/users/User.js";
 import { ContentType, ZealStatus, NotificationType } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
 
@@ -294,14 +295,7 @@ export const getSharesSentByUser = async (userId, options = {}) => {
 
     return {
       shares,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: page * limit < total,
-        hasPrev: page > 1,
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getSharesSentByUser:", error);
@@ -340,14 +334,7 @@ export const getSharesReceivedByUser = async (userId, options = {}) => {
 
     return {
       shares,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: page * limit < total,
-        hasPrev: page > 1,
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getSharesReceivedByUser:", error);

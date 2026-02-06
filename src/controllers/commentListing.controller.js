@@ -4,7 +4,13 @@
  */
 
 import { getComments, getCommentById } from "../services/commentListing.service.js";
-import { sendSuccess, sendError, sendBadRequest, sendNotFound } from "../utils/response.js";
+import {
+  sendSuccess,
+  sendError,
+  sendBadRequest,
+  sendNotFound,
+  sendPaginated,
+} from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -23,9 +29,10 @@ export const getCommentsHandler = async (req, res) => {
     // Get comments
     const result = await getComments(contentType, contentId, currentUserId, page, limit);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.comments,
+      result.pagination,
       "Comments retrieved successfully",
       StatusCodes.OK
     );

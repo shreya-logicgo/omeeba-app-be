@@ -7,6 +7,7 @@ import User from "../models/users/User.js";
 import UserFollower from "../models/users/UserFollower.js";
 import { createNotification } from "./notification.service.js";
 import { NotificationType } from "../models/enums.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -315,12 +316,7 @@ export const getFollowers = async (userId, currentUserId, page = 1, limit = 20, 
           status: isFollowing ? "following" : "not_following",
         };
       }),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getFollowers:", error);
@@ -410,12 +406,7 @@ export const getFollowing = async (userId, currentUserId, page = 1, limit = 20, 
           status: isFollowing ? "following" : "not_following",
         };
       }),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getFollowing:", error);

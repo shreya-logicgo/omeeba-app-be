@@ -6,6 +6,7 @@
 import Notification from "../models/notifications/Notification.js";
 import User from "../models/users/User.js";
 import { NotificationType, NotificationStatus, ContentType } from "../models/enums.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { sendPushNotificationToUser } from "./firebase.service.js";
 
@@ -551,14 +552,7 @@ export const getNotifications = async (userId, options = {}) => {
 
     return {
       notifications: formattedNotifications,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: skip + limit < total,
-        hasPrev: page > 1,
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error getting notifications:", error);

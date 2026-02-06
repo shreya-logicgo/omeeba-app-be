@@ -20,6 +20,7 @@ import Hashtag from "../models/hashtags/Hashtag.js";
 import HashtagContent from "../models/hashtags/HashtagContent.js";
 import { ContentType, ZealStatus, PollStatus } from "../models/enums.js";
 import { getReportedContentIds } from "../utils/contentFilter.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
 
@@ -584,6 +585,71 @@ const fetchLatestContentByUsers = async (
   return allContent.slice(0, limit);
 };
 
+const CONTENT_TYPE_POLL = "poll";
+
+/**
+ * Fetch latest polls by given users (Poll uses createdBy)
+ * @param {Array<mongoose.Types.ObjectId>} userIds - User IDs (createdBy)
+ * @param {number} limit - Max items to return
+ * @returns {Promise<Array>} Poll items with contentType
+ */
+const fetchLatestPollsByUsers = async (userIds, limit) => {
+  if (!userIds || userIds.length === 0 || limit <= 0) return [];
+  const polls = await Poll.find({
+    createdBy: { $in: userIds },
+    status: PollStatus.ACTIVE,
+  })
+    .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
+    .select("-__v -userVotes")
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+  return polls.map((p) => ({ ...p, contentType: CONTENT_TYPE_POLL }));
+};
+
+/**
+ * Fetch trending polls (by totalVotes) and latest polls
+ * @param {Array<mongoose.Types.ObjectId>} validUserIds - Valid user IDs
+ * @param {number} limit - Max items
+ * @returns {Promise<Array>} Polls sorted by totalVotes desc
+ */
+const fetchTrendingPolls = async (validUserIds, limit) => {
+  if (!validUserIds || validUserIds.length === 0 || limit <= 0) return [];
+  const polls = await Poll.find({
+    createdBy: { $in: validUserIds },
+    status: PollStatus.ACTIVE,
+  })
+    .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
+    .select("-__v -userVotes")
+    .sort({ totalVotes: -1, createdAt: -1 })
+    .limit(limit)
+    .lean();
+  return polls.map((p) => ({ ...p, contentType: CONTENT_TYPE_POLL }));
+};
+
+const formatPollForFeed = (poll) => ({
+  id: poll._id.toString(),
+  contentType: CONTENT_TYPE_POLL,
+  caption: poll.caption || "",
+  options: poll.options || [],
+  totalVotes: poll.totalVotes || 0,
+  status: poll.status,
+  duration: poll.duration,
+  createdBy: poll.createdBy
+    ? {
+        id: poll.createdBy._id.toString(),
+        name: poll.createdBy.name,
+        username: poll.createdBy.username,
+        profileImage: poll.createdBy.profileImage,
+        isAccountVerified: poll.createdBy.isAccountVerified,
+        isVerifiedBadge: poll.createdBy.isVerifiedBadge,
+      }
+    : null,
+  likeCount: 0,
+  commentCount: 0,
+  createdAt: poll.createdAt,
+});
+
 /**
  * Get trending content for Explore landing screen
  * @param {mongoose.Types.ObjectId} userId - User ID (optional, for filtering)
@@ -642,14 +708,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     if (validUserIds.length === 0) {
       return {
         content: [],
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -753,14 +812,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     if (allContent.length === 0) {
       return {
         content: [],
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -812,14 +864,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
 
     return {
       content: formattedContent,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: skip + limit < total,
-        hasPrev: page > 1,
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getTrendingContent:", error);
@@ -877,10 +922,13 @@ export const getHomeFeed = async (userId, options = {}) => {
       zeal: [ContentType.ZEAL],
       zeels: [ContentType.ZEAL],
       zeals: [ContentType.ZEAL],
-      all: [ContentType.POST, ContentType.WRITE_POST], // default: no zeals
+      poll: [CONTENT_TYPE_POLL],
+      polls: [CONTENT_TYPE_POLL],
+      all: [ContentType.POST, ContentType.WRITE_POST, CONTENT_TYPE_POLL], // default: post, write, poll (no zeals)
     };
     const contentTypes = itemMap[normalizedItem] || itemMap.all;
     const contentTypeSet = new Set(contentTypes);
+    const includePolls = contentTypeSet.has(CONTENT_TYPE_POLL);
 
     // Followed user IDs
     let followedUserIds = [];
@@ -894,7 +942,7 @@ export const getHomeFeed = async (userId, options = {}) => {
         .map((id) => new mongoose.Types.ObjectId(id));
     }
 
-    // 1) Followed users latest
+    // 1) Followed users latest (post/write/zeal)
     const followedRaw = await fetchLatestContentByUsers(
       followedUserIds,
       reportedContentIds,
@@ -903,7 +951,14 @@ export const getHomeFeed = async (userId, options = {}) => {
     );
     const followedContent = await formatContentList(userId, followedRaw);
 
-    // 2) Trending content
+    // 1b) Followed users latest polls
+    let followedPolls = [];
+    if (includePolls) {
+      const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, fetchLimit);
+      followedPolls = followedPollsRaw.map(formatPollForFeed);
+    }
+
+    // 2) Trending content (post/write/zeal). For zeal, skip trending → use latest only (user wants latest up)
     const singleType =
       contentTypes.length === 1 && contentTypeSet.has(ContentType.POST)
         ? "post"
@@ -912,16 +967,26 @@ export const getHomeFeed = async (userId, options = {}) => {
         : contentTypes.length === 1 && contentTypeSet.has(ContentType.ZEAL)
         ? "zeal"
         : "all";
-    const trendingResult = await getTrendingContent(userId, {
-      page: 1,
-      limit: fetchLimit,
-      contentType: singleType,
-    });
-    const trendingContent = (trendingResult.content || []).filter((item) =>
-      contentTypeSet.has(item.contentType)
-    );
+    let trendingContent = [];
+    if (singleType !== "zeal") {
+      const trendingResult = await getTrendingContent(userId, {
+        page: 1,
+        limit: fetchLimit,
+        contentType: singleType,
+      });
+      trendingContent = (trendingResult.content || []).filter((item) =>
+        contentTypeSet.has(item.contentType)
+      );
+    }
 
-    // 3) Latest content (global)
+    // 2b) Trending polls (by totalVotes)
+    let trendingPolls = [];
+    if (includePolls) {
+      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit);
+      trendingPolls = trendingPollsRaw.map(formatPollForFeed);
+    }
+
+    // 3) Latest content (global post/write/zeal)
     const latestRaw = await fetchLatestContentByUsers(
       validUserIds,
       reportedContentIds,
@@ -929,6 +994,13 @@ export const getHomeFeed = async (userId, options = {}) => {
       contentTypes
     );
     const latestContent = await formatContentList(userId, latestRaw);
+
+    // 3b) Latest polls (global)
+    let latestPolls = [];
+    if (includePolls) {
+      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit);
+      latestPolls = latestPollsRaw.map(formatPollForFeed);
+    }
 
     // Combine with priority: followed -> trending -> latest (dedupe)
     const combined = [];
@@ -943,22 +1015,18 @@ export const getHomeFeed = async (userId, options = {}) => {
       });
     };
     addUnique(followedContent);
+    addUnique(followedPolls);
     addUnique(trendingContent);
+    addUnique(trendingPolls);
     addUnique(latestContent);
+    addUnique(latestPolls);
 
     const paginated = combined.slice(skip, skip + limit);
     const total = combined.length;
 
     return {
       content: paginated,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: skip + limit < total,
-        hasPrev: page > 1,
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getHomeFeed:", error);
@@ -1010,14 +1078,7 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
           polls: [],
           hashtags: [],
         },
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -1403,14 +1464,7 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
 
     return {
       results,
-      pagination: {
-        page,
-        limit,
-        total: totalResults,
-        pages: Math.ceil(totalResults / limit),
-        hasNext: skip + limit < totalResults,
-        hasPrev: page > 1,
-      },
+      pagination: getPaginationMeta(totalResults, page, limit),
     };
   } catch (error) {
     logger.error("Error in searchAcrossEntities:", error);
@@ -1450,14 +1504,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       return {
         content: [],
         hashtag: `#${normalizedHashtag}`,
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -1496,14 +1543,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       return {
         content: [],
         hashtag: `#${normalizedHashtag}`,
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -1525,14 +1565,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       return {
         content: [],
         hashtag: `#${normalizedHashtag}`,
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -1542,14 +1575,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       return {
         content: [],
         hashtag: `#${normalizedHashtag}`,
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -1565,14 +1591,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       return {
         content: [],
         hashtag: `#${normalizedHashtag}`,
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -1711,14 +1730,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       return {
         content: [],
         hashtag: `#${normalizedHashtag}`,
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          pages: 0,
-          hasNext: false,
-          hasPrev: false,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -1820,14 +1832,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     return {
       content: formattedContent,
       hashtag: `#${normalizedHashtag}`,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-        hasNext: skip + limit < total,
-        hasPrev: page > 1,
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getContentByHashtag:", error);

@@ -11,6 +11,7 @@ import { MessageType, MessageStatus } from "../models/enums.js";
 import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatTime12Hour } from "../utils/timeFormatter.js";
 import { getMediaForUser } from "./media.service.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -44,10 +45,6 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       throw new Error("Chat room not found or access denied");
     }
 
-    if (room.isBlocked) {
-      throw new Error("Chat room is blocked");
-    }
-
     // Create message
     const newMessage = await ChatMessage.create({
       roomId,
@@ -70,7 +67,7 @@ export const sendMessage = async (roomId, senderId, messageData) => {
 
     // Update unread counts (increment for other user, reset for sender)
     const otherUserId = room.userA.toString() === senderId ? room.userB : room.userA;
-    
+
     await Promise.all([
       // Increment unread count for other user
       ChatParticipant.findOneAndUpdate(
@@ -81,12 +78,22 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       // Reset unread count for sender (they've seen their own message)
       ChatParticipant.findOneAndUpdate(
         { roomId, userId: senderId },
-        { 
+        {
           unreadCount: 0,
           lastReadMessageId: newMessage._id,
           lastReadAt: new Date(),
         },
         { upsert: true, new: true }
+      ),
+      // Auto-mark other user's (User A) messages as READ when sender (User B) replies - reply implies they've read
+      ChatMessage.updateMany(
+        {
+          roomId,
+          senderId: otherUserId,
+          status: { $in: [MessageStatus.SENT, MessageStatus.DELIVERED] },
+          createdAt: { $lte: newMessage.createdAt },
+        },
+        { status: MessageStatus.SEEN }
       ),
     ]);
 
@@ -188,12 +195,7 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
 
     return {
       messages: formattedMessages,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getMessages:", error);
@@ -201,7 +203,73 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
   }
 };
 
+/**
+ * Delete a single message in a chat room
+ * Only the message sender can delete their own message
+ * @param {string} roomId - Room ID
+ * @param {string} messageId - Message ID to delete
+ * @param {string} userId - User ID (must be sender to delete)
+ * @returns {Promise<Object>} Deleted message info
+ */
+export const deleteMessage = async (roomId, messageId, userId) => {
+  try {
+    const room = await ChatRoom.findOne({
+      _id: roomId,
+      $or: [{ userA: userId }, { userB: userId }],
+    });
+
+    if (!room) {
+      throw new Error("Chat room not found or access denied");
+    }
+
+    const message = await ChatMessage.findOne({
+      _id: messageId,
+      roomId,
+    });
+
+    if (!message) {
+      throw new Error("Message not found");
+    }
+
+    if (message.senderId.toString() !== userId) {
+      throw new Error("You can only delete your own messages");
+    }
+
+    await ChatMessage.deleteOne({ _id: messageId });
+
+    // If deleted message was room's last message, update room with previous message
+    const lastMsg = await ChatMessage.findOne({ roomId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (lastMsg) {
+      let lastPreview = lastMsg.message;
+      if (lastMsg.messageType === MessageType.IMAGE) lastPreview = "📷 Image";
+      else if (lastMsg.messageType === MessageType.SNAP) lastPreview = "📸 Snap";
+      else if (lastMsg.messageType === MessageType.POST) lastPreview = "📌 Post";
+      else if (lastMsg.messageType === MessageType.WRITE_POST) lastPreview = "✍️ Write Post";
+      else if (lastMsg.messageType === MessageType.ZEAL) lastPreview = "🎬 Zeal";
+      room.lastMessage = lastPreview;
+      room.lastMessageType = lastMsg.messageType;
+      room.lastMessageAt = lastMsg.createdAt;
+    } else {
+      room.lastMessage = null;
+      room.lastMessageType = null;
+      room.lastMessageAt = null;
+    }
+    await room.save();
+
+    logger.info(`Message ${messageId} deleted in room ${roomId} by user ${userId}`);
+
+    return { roomId, messageId };
+  } catch (error) {
+    logger.error("Error in deleteMessage:", error);
+    throw error;
+  }
+};
+
 export default {
   sendMessage,
   getMessages,
+  deleteMessage,
 };

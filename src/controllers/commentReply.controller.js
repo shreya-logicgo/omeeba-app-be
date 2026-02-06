@@ -4,7 +4,13 @@
  */
 
 import { createReply, getReplies } from "../services/commentReply.service.js";
-import { sendSuccess, sendError, sendBadRequest, sendNotFound } from "../utils/response.js";
+import {
+  sendSuccess,
+  sendError,
+  sendBadRequest,
+  sendNotFound,
+  sendPaginated,
+} from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -66,9 +72,10 @@ export const getRepliesHandler = async (req, res) => {
     // Get replies
     const result = await getReplies(commentId, currentUserId, page, limit);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.replies,
+      result.pagination,
       "Replies retrieved successfully",
       StatusCodes.OK
     );

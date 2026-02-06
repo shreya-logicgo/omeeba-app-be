@@ -15,7 +15,7 @@ import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
 import { ContentType } from "../models/enums.js";
-import { getPagination, getPaginationMeta } from "../utils/pagination.js";
+import { getPagination } from "../utils/pagination.js";
 
 /**
  * Share content with one or more users
@@ -118,17 +118,10 @@ export const getSentShares = async (req, res) => {
     // Get shares sent by user
     const result = await getSharesSentByUser(userId, { page, limit });
 
-    // Get pagination metadata
-    const pagination = getPaginationMeta(
-      result.pagination.total,
-      page,
-      limit
-    );
-
     return sendPaginated(
       res,
       result.shares,
-      pagination,
+      result.pagination,
       "Shares sent retrieved successfully",
       StatusCodes.OK
     );
@@ -158,17 +151,10 @@ export const getReceivedShares = async (req, res) => {
     // Get shares received by user
     const result = await getSharesReceivedByUser(userId, { page, limit });
 
-    // Get pagination metadata
-    const pagination = getPaginationMeta(
-      result.pagination.total,
-      page,
-      limit
-    );
-
     return sendPaginated(
       res,
       result.shares,
-      pagination,
+      result.pagination,
       "Shares received retrieved successfully",
       StatusCodes.OK
     );

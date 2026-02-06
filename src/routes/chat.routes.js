@@ -13,6 +13,7 @@ import {
 import {
   sendMessageHandler,
   getMessagesHandler,
+  deleteMessageHandler,
 } from "../controllers/chatMessage.controller.js";
 import {
   markMessagesAsReadHandler,
@@ -27,6 +28,7 @@ import {
   sendMessageBodySchema,
   markMessagesAsReadBodySchema,
   roomIdParamsSchema,
+  roomIdMessageIdParamsSchema,
 } from "../validators/chat.validator.js";
 import { protect } from "../middleware/auth.js";
 
@@ -104,6 +106,18 @@ router.post(
   validateParams(roomIdParamsSchema),
   validateBody(sendMessageBodySchema),
   sendMessageHandler
+);
+
+/**
+ * @route   DELETE /api/v1/chat/rooms/:roomId/messages/:messageId
+ * @desc    Delete a single message (sender only)
+ * @access  Private
+ */
+router.delete(
+  "/rooms/:roomId/messages/:messageId",
+  protect,
+  validateParams(roomIdMessageIdParamsSchema),
+  deleteMessageHandler
 );
 
 /**

@@ -168,19 +168,13 @@ export const getHashtagContent = async (req, res) => {
       limit,
     });
 
-    return res.status(StatusCodes.OK).json({
-      success: true,
-      message: `Content for ${result.hashtag} retrieved successfully`,
-      data: result.content || [],
-      pagination: {
-        page: result.pagination.page,
-        limit: result.pagination.limit,
-        total: result.pagination.total,
-        pages: result.pagination.pages,
-        hasNext: result.pagination.hasNext || false,
-        hasPrev: result.pagination.hasPrev || false,
-      },
-    });
+    return sendPaginated(
+      res,
+      result.content || [],
+      result.pagination,
+      `Content for ${result.hashtag} retrieved successfully`,
+      StatusCodes.OK
+    );
   } catch (error) {
     logger.error("Get hashtag content error:", error);
 

@@ -4,6 +4,7 @@ import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
 import Poll from "../models/content/Poll.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
 
@@ -199,12 +200,7 @@ export const searchUsersByUsername = async (
     if (!searchTerm || !searchTerm.trim()) {
       return {
         users: [],
-        pagination: {
-          page,
-          limit,
-          total: 0,
-          totalPages: 0,
-        },
+        pagination: getPaginationMeta(0, page, limit),
       };
     }
 
@@ -266,12 +262,7 @@ export const searchUsersByUsername = async (
           status: isFollowing ? "following" : "not_following",
         };
       }),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in searchUsersByUsername:", error);

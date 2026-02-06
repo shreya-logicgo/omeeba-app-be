@@ -9,6 +9,7 @@ import ChatParticipant from "../models/chat/ChatParticipant.js";
 import { User } from "../models/index.js";
 import { ChatType } from "../models/enums.js";
 import { USER_ROLES } from "../constants/index.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -162,12 +163,7 @@ export const getSupportRequests = async (userId, page = 1, limit = 20) => {
 
     return {
       requests: formattedRequests,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getSupportRequests:", error);

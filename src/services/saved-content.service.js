@@ -5,6 +5,7 @@ import ZealPost from "../models/content/ZealPost.js";
 import ContentLike from "../models/interactions/ContentLike.js";
 import Comment from "../models/comments/Comment.js";
 import { ContentType, ZealStatus } from "../models/enums.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { generateShareableLink } from "../utils/shareableLink.js";
 
@@ -400,12 +401,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
     if (savedContentRecords.length === 0) {
       return {
         content: [],
-        pagination: {
-          total: 0,
-          actualTotal: 0,
-          page,
-          limit,
-        },
+        pagination: getPaginationMeta(0, page, limit),
         staleReferencesCleaned: 0,
       };
     }
@@ -613,12 +609,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
 
     return {
       content: contentWithMetadata,
-      pagination: {
-        total: totalSavedRecords,
-        actualTotal: contentWithMetadata.length,
-        page,
-        limit,
-      },
+      pagination: getPaginationMeta(totalSavedRecords, page, limit),
       staleReferencesCleaned: staleReferences.length,
     };
   } catch (error) {

@@ -11,6 +11,7 @@ import { parseAndValidateMentions } from "../utils/mentionParser.js";
 import { getReplyCommentLikeCount, isReplyCommentLikedByUser } from "./replyCommentLike.service.js";
 import { getTimeAgo, formatNumber } from "../utils/timeAgo.js";
 import { createNotification } from "./notification.service.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -266,12 +267,7 @@ export const getReplies = async (commentId, currentUserId, page = 1, limit = 20)
 
     return {
       replies: formattedReplies,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getReplies:", error);

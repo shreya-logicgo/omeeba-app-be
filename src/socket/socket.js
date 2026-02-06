@@ -11,7 +11,7 @@ import ChatRoom from "../models/chat/ChatRoom.js";
 import ChatMessage from "../models/chat/ChatMessage.js";
 import Snap from "../models/chat/Snap.js";
 import { MessageStatus } from "../models/enums.js";
-import { sendMessage, getMessages } from "../services/chatMessage.service.js";
+import { sendMessage, getMessages, deleteMessage } from "../services/chatMessage.service.js";
 import { markMessagesAsRead, getUnreadCount, getTotalUnreadCount } from "../services/chatRead.service.js";
 import {
   getOrCreateChatRoom,
@@ -195,7 +195,7 @@ export const initializeSocket = (server) => {
           message: formattedMessage,
         });
 
-        // Update message status to DELIVERED when recipient is online; tell SENDER (User A)
+        // Update message status to DELIVERED when recipient is online; tell SENDER
         const room = await ChatRoom.findById(roomId);
         if (room) {
           const otherUserId = room.userA.toString() === userId ? room.userB : room.userA;
@@ -205,13 +205,20 @@ export const initializeSocket = (server) => {
             await ChatMessage.findByIdAndUpdate(formattedMessage.id, {
               status: MessageStatus.DELIVERED,
             });
-            // Emit to SENDER: "your message was delivered to recipient"
             io.to(`user:${userId}`).emit("message_delivered", {
               messageId: formattedMessage.id,
               roomId,
               status: MessageStatus.DELIVERED,
             });
           }
+
+          // Notify other user (User A) that their messages are now READ - reply implies sender (User B) has read them
+          io.to(`user:${otherUserId}`).emit("messages_read", {
+            roomId,
+            userId,
+            lastReadMessageId: formattedMessage.id,
+            lastReadAt: new Date(),
+          });
         }
 
         logger.info(`Message sent via socket in room ${roomId} by user ${userId}`);
@@ -220,6 +227,31 @@ export const initializeSocket = (server) => {
         socket.emit("error", {
           message: error.message || "Failed to send message",
         });
+      }
+    });
+
+    /**
+     * Handle: Delete single message (ack + listen: message_deleted)
+     */
+    socket.on("delete_message", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { roomId, messageId } = data || {};
+        if (!roomId || !messageId) {
+          const res = { success: false, error: "roomId and messageId required" };
+          cb(res);
+          socket.emit("message_deleted", res);
+          return;
+        }
+        const result = await deleteMessage(roomId, messageId, userId);
+        const res = { success: true, data: result };
+        cb(res);
+        io.to(`room:${roomId}`).emit("message_deleted", res);
+      } catch (e) {
+        logger.error("delete_message error:", e);
+        const res = { success: false, error: e.message || "Failed to delete message" };
+        cb(res);
+        socket.emit("message_deleted", res);
       }
     });
 
@@ -421,6 +453,7 @@ export const initializeSocket = (server) => {
 
     /**
      * Handle: Delete room (ack + listen: room_deleted)
+     * Notifies both users so they can remove from UI
      */
     socket.on("delete_room", async (data, ack) => {
       const cb = typeof ack === "function" ? ack : () => {};
@@ -432,10 +465,22 @@ export const initializeSocket = (server) => {
           socket.emit("room_deleted", res);
           return;
         }
+        const room = await ChatRoom.findOne({
+          _id: roomId,
+          $or: [{ userA: userId }, { userB: userId }],
+        });
+        const otherUserId = room
+          ? (room.userA.toString() === userId ? room.userB : room.userA).toString()
+          : null;
         await deleteChatRoom(roomId, userId);
+        socket.leave(`room:${roomId}`);
+        socketRooms.get(socket.id)?.delete(roomId);
         const res = { success: true, data: { roomId } };
         cb(res);
         socket.emit("room_deleted", res);
+        if (otherUserId) {
+          io.to(`user:${otherUserId}`).emit("room_deleted", res);
+        }
       } catch (e) {
         logger.error("delete_room error:", e);
         const res = { success: false, error: e.message || "Failed to delete room" };

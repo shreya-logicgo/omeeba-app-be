@@ -12,6 +12,7 @@ import { User } from "../models/index.js";
 import { ChatType, MessageType, MessageStatus } from "../models/enums.js";
 import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatChatListTime } from "../utils/timeFormatter.js";
+import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -27,10 +28,7 @@ export const getOrCreateChatRoom = async (userAId, userBId, chatType = ChatType.
     const [userA, userB] = [userAId, userBId].sort();
 
     // Try to find existing room
-    let room = await ChatRoom.findOne({
-      userA,
-      userB,
-    });
+    let room = await ChatRoom.findOne({ userA, userB });
 
     if (!room) {
       // Create new room
@@ -102,7 +100,7 @@ export const getChatRooms = async (userId, page = 1, limit = 20) => {
   try {
     const skip = (page - 1) * limit;
 
-    // Find all rooms where user is either userA or userB
+    // Find all rooms where user is participant
     const rooms = await ChatRoom.find({
       $or: [{ userA: userId }, { userB: userId }],
     })
@@ -115,6 +113,7 @@ export const getChatRooms = async (userId, page = 1, limit = 20) => {
 
     const total = await ChatRoom.countDocuments({
       $or: [{ userA: userId }, { userB: userId }],
+      isBlocked: { $ne: true },
     });
 
     // Get participant data (unread counts) for each room
@@ -236,12 +235,7 @@ export const getChatRooms = async (userId, page = 1, limit = 20) => {
 
     return {
       rooms: formattedRooms,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getChatRooms:", error);
@@ -310,7 +304,8 @@ export const getChatRoomById = async (roomId, userId) => {
 };
 
 /**
- * Delete a chat room (soft delete by blocking)
+ * Delete a chat room permanently (room + messages + participants)
+ * User can create a fresh room with same person again after delete
  * @param {string} roomId - Room ID
  * @param {string} userId - User ID (to verify ownership)
  * @returns {Promise<boolean>} Success status
@@ -326,11 +321,14 @@ export const deleteChatRoom = async (roomId, userId) => {
       throw new Error("Chat room not found");
     }
 
-    // Mark as blocked (soft delete)
-    room.isBlocked = true;
-    await room.save();
+    // Hard delete: remove messages, participants, then room
+    await Promise.all([
+      ChatMessage.deleteMany({ roomId }),
+      ChatParticipant.deleteMany({ roomId }),
+    ]);
+    await ChatRoom.deleteOne({ _id: roomId });
 
-    logger.info(`Chat room ${roomId} blocked by user ${userId}`);
+    logger.info(`Chat room ${roomId} and its data deleted by user ${userId}`);
     return true;
   } catch (error) {
     logger.error("Error in deleteChatRoom:", error);

@@ -3,8 +3,13 @@
  * Handles chat message HTTP requests
  */
 
-import { sendMessage, getMessages } from "../services/chatMessage.service.js";
-import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
+import { sendMessage, getMessages, deleteMessage } from "../services/chatMessage.service.js";
+import {
+  sendSuccess,
+  sendError,
+  sendBadRequest,
+  sendPaginated,
+} from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -62,9 +67,10 @@ export const getMessagesHandler = async (req, res) => {
 
     const result = await getMessages(roomId, userId, page, limit);
 
-    return sendSuccess(
+    return sendPaginated(
       res,
-      result,
+      result.messages,
+      result.pagination,
       "Messages retrieved successfully",
       StatusCodes.OK
     );
@@ -89,7 +95,47 @@ export const getMessagesHandler = async (req, res) => {
   }
 };
 
+/**
+ * Delete Message
+ * @route DELETE /api/v1/chat/rooms/:roomId/messages/:messageId
+ * @access Private (sender only)
+ */
+export const deleteMessageHandler = async (req, res) => {
+  try {
+    const { roomId, messageId } = req.params;
+    const userId = req.user._id.toString();
+
+    const result = await deleteMessage(roomId, messageId, userId);
+
+    return sendSuccess(
+      res,
+      result,
+      "Message deleted successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Delete message error:", error);
+
+    if (
+      error.message === "Chat room not found or access denied" ||
+      error.message === "Message not found" ||
+      error.message === "You can only delete your own messages"
+    ) {
+      return sendBadRequest(res, error.message);
+    }
+
+    return sendError(
+      res,
+      "Failed to delete message",
+      "Delete Message Error",
+      error.message || "An error occurred while deleting message",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   sendMessageHandler,
   getMessagesHandler,
+  deleteMessageHandler,
 };
