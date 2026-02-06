@@ -25,11 +25,11 @@ export const getTrending = async (req, res) => {
     const { contentType = "all" } = req.query;
 
     // Validate contentType
-    const validContentTypes = ["all", "post", "write", "zeal"];
+    const validContentTypes = ["all", "post", "write", "zeal", "poll"];
     if (!validContentTypes.includes(contentType)) {
       return sendError(
         res,
-        "Invalid contentType. Must be one of: all, post, write, zeal",
+        "Invalid contentType. Must be one of: all, post, write, zeal, poll",
         "Validation Error",
         "Invalid contentType parameter",
         StatusCodes.BAD_REQUEST

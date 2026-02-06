@@ -7,10 +7,10 @@ import { createSchema } from "../utils/validation.js";
 export const getTrendingSchema = createSchema(
   {
     contentType: Joi.string()
-      .valid("all", "post", "write", "zeal")
+      .valid("all", "post", "write", "zeal", "poll")
       .optional()
       .messages({
-        "any.only": "contentType must be one of: all, post, write, zeal",
+        "any.only": "contentType must be one of: all, post, write, zeal, poll",
       }),
     page: Joi.number().integer().min(1).optional().messages({
       "number.base": "page must be a number",

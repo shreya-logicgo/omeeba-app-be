@@ -18,7 +18,7 @@ const router = express.Router();
  * @route   GET /api/v1/explore/trending
  * @desc    Get trending/popular content for Explore landing screen
  * @access  Public (optional auth - works without auth but filters better with auth)
- * @query   contentType - Filter by type: 'all', 'post', 'write', 'zeal' (default: 'all')
+ * @query   contentType - Filter by type: 'all', 'post', 'write', 'zeal', 'poll' (default: 'all')
  * @query   page - Page number (default: 1)
  * @query   limit - Items per page (default: 20)
  */
