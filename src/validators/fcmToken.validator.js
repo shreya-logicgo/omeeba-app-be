@@ -2,27 +2,27 @@ import Joi from "joi";
 import { createSchema } from "../utils/validation.js";
 
 /**
- * Register/Update FCM Token validation schema
+ * Register/Update OneSignal Player ID validation schema
  */
-export const registerFCMTokenSchema = createSchema(
+export const registerPlayerIdSchema = createSchema(
   {
-    fcmToken: Joi.string()
+    playerId: Joi.string()
       .required()
       .trim()
       .min(1)
       .messages({
-        "string.empty": "FCM token is required",
-        "any.required": "FCM token is required",
+        "string.empty": "Player ID cannot be empty",
+        "any.required": "Player ID is required",
       }),
   },
-  ["fcmToken"]
+  ["playerId"]
 );
 
 /**
- * Remove FCM Token validation schema
- * No body required - just removes the token
+ * Remove Player ID validation schema
+ * No body required - just removes the player ID
  */
-export const removeFCMTokenSchema = createSchema(
+export const removePlayerIdSchema = createSchema(
   {},
   []
 );
@@ -43,8 +43,8 @@ export const togglePushNotificationSchema = createSchema(
 );
 
 export default {
-  registerFCMTokenSchema,
-  removeFCMTokenSchema,
+  registerPlayerIdSchema,
+  removePlayerIdSchema,
   togglePushNotificationSchema,
 };
 
