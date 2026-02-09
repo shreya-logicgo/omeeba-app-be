@@ -207,10 +207,11 @@ export const searchUsersByUsername = async (
     const skip = (page - 1) * limit;
     const searchRegex = new RegExp(searchTerm.trim(), "i"); // Case-insensitive search
 
-    // Build query to exclude current user and deleted users
+    // Build query: exclude current user, deleted users, and unverified accounts
     const query = {
       username: searchRegex,
       isDeleted: false,
+      isAccountVerified: true,
     };
 
     // Exclude current user from search results
