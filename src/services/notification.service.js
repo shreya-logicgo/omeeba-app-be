@@ -8,7 +8,7 @@ import User from "../models/users/User.js";
 import { NotificationType, NotificationStatus, ContentType } from "../models/enums.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
-import { sendPushNotificationToUser } from "./firebase.service.js";
+import { sendPushNotificationToUser } from "./onesignal.service.js";
 
 /**
  * Generate aggregation key for grouping similar notifications
@@ -198,7 +198,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
   const aggregationKey = generateAggregationKey(type, receiverId, contentType, contentId);
 
   // Get receiver user for push notifications
-  const receiver = await User.findById(receiverId).select("fcmToken pushNotificationEnabled");
+  const receiver = await User.findById(receiverId).select("oneSignalPlayerId pushNotificationEnabled");
   if (!receiver || receiver.isDeleted) {
     logger.warn(`Receiver not found or deleted for notification: ${receiverId}`);
     return null;
@@ -343,8 +343,8 @@ export const createNotification = async (notificationData) => {
       return null;
     }
 
-    // Get receiver user (with FCM token for push notifications)
-    const receiver = await User.findById(receiverId).select("_id fcmToken pushNotificationEnabled");
+    // Get receiver user (with OneSignal player ID for push notifications)
+    const receiver = await User.findById(receiverId).select("_id oneSignalPlayerId pushNotificationEnabled");
     if (!receiver || receiver.isDeleted) {
       logger.warn(`Receiver not found or deleted for notification: ${receiverId}`);
       return null;
@@ -624,8 +624,8 @@ const sendPushNotificationAsync = async (receiver, sender, message, data = {}) =
   } catch (error) {
     // If token is invalid, we might want to remove it
     if (error.message === "INVALID_TOKEN") {
-      logger.warn(`Invalid FCM token detected for user: ${receiver._id}`);
-      // Optionally remove invalid tokens here
+      logger.warn(`Invalid OneSignal player ID detected for user: ${receiver._id}`);
+      // Optionally remove invalid player IDs here
     }
     throw error;
   }

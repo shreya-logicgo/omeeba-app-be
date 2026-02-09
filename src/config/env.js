@@ -139,24 +139,15 @@ const envVarsSchema = Joi.object({
     .allow("")
     .description("Google Play service account key (JSON string) for purchase verification"),
 
-  // Firebase Configuration
-  FIREBASE_PROJECT_ID: Joi.string()
+  // OneSignal Configuration
+  ONESIGNAL_APP_ID: Joi.string()
     .optional()
     .allow("")
-    .description("Firebase project ID"),
-  FIREBASE_PRIVATE_KEY: Joi.string()
+    .description("OneSignal App ID"),
+  ONESIGNAL_API_KEY: Joi.string()
     .optional()
     .allow("")
-    .description("Firebase private key (from service account JSON)"),
-  FIREBASE_CLIENT_EMAIL: Joi.string()
-    .optional()
-    .allow("")
-    .email()
-    .description("Firebase client email (from service account JSON)"),
-  FIREBASE_SERVICE_ACCOUNT_KEY: Joi.string()
-    .optional()
-    .allow("")
-    .description("Firebase service account key (full JSON string)"),
+    .description("OneSignal REST API Key"),
 })
   .unknown()
   .prefs({ errors: { label: "key" } });
@@ -256,11 +247,9 @@ export default {
   google: {
     serviceAccountKey: envVars.GOOGLE_SERVICE_ACCOUNT_KEY,
   },
-  firebase: {
-    projectId: envVars.FIREBASE_PROJECT_ID,
-    privateKey: envVars.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    clientEmail: envVars.FIREBASE_CLIENT_EMAIL,
-    serviceAccountKey: envVars.FIREBASE_SERVICE_ACCOUNT_KEY,
+  onesignal: {
+    appId: envVars.ONESIGNAL_APP_ID,
+    apiKey: envVars.ONESIGNAL_API_KEY,
   },
 };
 

@@ -99,8 +99,8 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
-    // Firebase Cloud Messaging (FCM) token for push notifications
-    fcmToken: {
+    // OneSignal Player ID for push notifications
+    oneSignalPlayerId: {
       type: String,
       default: null,
       trim: true,

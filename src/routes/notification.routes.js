@@ -7,6 +7,7 @@ import {
   markAsRead,
   markAllAsRead,
   deleteNotificationById,
+  createAndSendNotification,
 } from "../controllers/notification.controller.js";
 import {
   registerToken,
@@ -17,9 +18,10 @@ import {
 import {
   getNotificationsSchema,
   notificationIdSchema,
+  createAndSendNotificationSchema,
 } from "../validators/notification.validator.js";
 import {
-  registerFCMTokenSchema,
+  registerPlayerIdSchema,
   togglePushNotificationSchema,
 } from "../validators/fcmToken.validator.js";
 
@@ -69,6 +71,37 @@ router.put(
 router.put("/read-all", protect, markAllAsRead);
 
 /**
+ * @route   POST /api/v1/notifications/player-id
+ * @desc    Register or update OneSignal player ID for push notifications
+ * @access  Private
+ * @body    playerId - OneSignal player ID (required)
+ */
+router.post(
+  "/player-id",
+  protect,
+  validateBody(registerPlayerIdSchema),
+  registerToken
+);
+
+/**
+ * @route   GET /api/v1/notifications/player-id
+ * @desc    Get user's OneSignal player ID
+ * @access  Private
+ */
+router.get("/player-id", protect, getTokens);
+
+/**
+ * @route   DELETE /api/v1/notifications/player-id
+ * @desc    Remove OneSignal player ID
+ * @access  Private
+ */
+router.delete(
+  "/player-id",
+  protect,
+  removeToken
+);
+
+/**
  * @route   DELETE /api/v1/notifications/:notificationId
  * @desc    Delete a notification
  * @access  Private
@@ -82,37 +115,6 @@ router.delete(
 );
 
 /**
- * @route   POST /api/v1/notifications/fcm-token
- * @desc    Register or update FCM token for push notifications
- * @access  Private
- * @body    fcmToken - FCM token (required)
- */
-router.post(
-  "/fcm-token",
-  protect,
-  validateBody(registerFCMTokenSchema),
-  registerToken
-);
-
-/**
- * @route   GET /api/v1/notifications/fcm-token
- * @desc    Get user's FCM tokens
- * @access  Private
- */
-router.get("/fcm-token", protect, getTokens);
-
-/**
- * @route   DELETE /api/v1/notifications/fcm-token
- * @desc    Remove FCM token
- * @access  Private
- */
-router.delete(
-  "/fcm-token",
-  protect,
-  removeToken
-);
-
-/**
  * @route   PUT /api/v1/notifications/push-settings
  * @desc    Toggle push notification setting
  * @access  Private
@@ -123,6 +125,27 @@ router.put(
   protect,
   validateBody(togglePushNotificationSchema),
   togglePushSettings
+);
+
+/**
+ * @route   POST /api/v1/notifications/send
+ * @desc    Create and send notification with push notification
+ * @access  Private
+ * @body    receiverId - User ID to receive notification (optional if playerIds or sendToAll provided)
+ * @body    playerIds - Array of OneSignal player IDs (optional)
+ * @body    sendToAll - Boolean to send to all users (optional)
+ * @body    type - Notification type (optional)
+ * @body    contentType - Content type (optional)
+ * @body    contentId - Content ID (optional)
+ * @body    message - Notification message (optional)
+ * @body    title - Push notification title (optional)
+ * @body    metadata - Additional metadata (optional)
+ */
+router.post(
+  "/send",
+  protect,
+  validateBody(createAndSendNotificationSchema),
+  createAndSendNotification
 );
 
 export default router;
