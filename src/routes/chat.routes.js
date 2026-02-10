@@ -9,6 +9,7 @@ import {
   getChatRoomsHandler,
   getChatRoomByIdHandler,
   deleteChatRoomHandler,
+  getMessageRequestsHandler,
 } from "../controllers/chatRoom.controller.js";
 import {
   sendMessageHandler,
@@ -48,7 +49,7 @@ router.post(
 
 /**
  * @route   GET /api/v1/chat/rooms
- * @desc    Get chat rooms (inbox) for logged-in user
+ * @desc    Get chat rooms (inbox) for logged-in user (direct chats only)
  * @access  Private
  */
 router.get(
@@ -56,6 +57,18 @@ router.get(
   protect,
   validateQuery(getChatRoomsQuerySchema),
   getChatRoomsHandler
+);
+
+/**
+ * @route   GET /api/v1/chat/requests
+ * @desc    Get all message requests (where current user is recipient)
+ * @access  Private
+ */
+router.get(
+  "/requests",
+  protect,
+  validateQuery(getChatRoomsQuerySchema),
+  getMessageRequestsHandler
 );
 
 /**

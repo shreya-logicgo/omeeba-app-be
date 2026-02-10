@@ -1,5 +1,6 @@
 import https from "https";
 import { URL } from "url";
+import { google } from "googleapis";
 import SubscriptionPlan from "../models/subscriptions/SubscriptionPlan.js";
 import SubscriptionPayment from "../models/subscriptions/SubscriptionPayment.js";
 import UserSubscription from "../models/subscriptions/UserSubscription.js";
@@ -93,35 +94,52 @@ const verifyAppleReceipt = async (receiptData, isProduction = true) => {
  */
 const verifyGooglePurchaseToken = async (packageName, productId, purchaseToken) => {
   try {
-    // Google Play Developer API requires service account credentials
-    // This is a simplified version - in production, use googleapis library
-    const googleServiceAccount = config.google?.serviceAccountKey || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-    
+    const googleServiceAccount =
+      config.google?.serviceAccountKey || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+
     if (!googleServiceAccount) {
       throw new Error("Google service account key not configured");
     }
 
-    // For now, we'll use the Google Play Developer API REST endpoint
-    // In production, you should use the googleapis library with proper authentication
     const serviceAccount = JSON.parse(googleServiceAccount);
-    
-    // This is a placeholder - actual implementation requires OAuth2 JWT token
-    // You would need to use googleapis library:
-    // const { google } = require('googleapis');
-    // const auth = new google.auth.GoogleAuth({
-    //   credentials: serviceAccount,
-    //   scopes: ['https://www.googleapis.com/auth/androidpublisher']
-    // });
-    // const androidpublisher = google.androidpublisher({ version: 'v3', auth });
-    // const result = await androidpublisher.purchases.products.get({
-    //   packageName,
-    //   productId,
-    //   token: purchaseToken
-    // });
 
-    // For now, return a mock structure that would come from the API
-    // In production, implement the full Google Play API integration
-    throw new Error("Google Play verification requires googleapis library. Please install it and implement proper OAuth2 authentication.");
+    const auth = new google.auth.GoogleAuth({
+      credentials: serviceAccount,
+      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+    });
+
+    const authClient = await auth.getClient();
+    const androidpublisher = google.androidpublisher({
+      version: "v3",
+      auth: authClient,
+    });
+
+    // NOTE: Assuming subscription products. If you have one-time products,
+    // you would use purchases.products.get instead.
+    const { data } = await androidpublisher.purchases.subscriptions.get({
+      packageName,
+      subscriptionId: productId,
+      token: purchaseToken,
+    });
+
+    if (!data) {
+      throw new Error("Empty response from Google Play");
+    }
+
+    // purchaseState: 0 = Purchased, 1 = Canceled, 2 = Pending
+    if (typeof data.purchaseState !== "undefined" && data.purchaseState !== 0) {
+      throw new Error("Google Play purchase is not in purchased state");
+    }
+
+    // Check if already expired according to Google
+    if (data.expiryTimeMillis) {
+      const expiryDate = new Date(Number(data.expiryTimeMillis));
+      if (expiryDate <= new Date()) {
+        throw new Error("Google Play subscription has already expired");
+      }
+    }
+
+    return data;
   } catch (error) {
     logger.error("Google Play verification error:", error);
     throw error;
@@ -283,7 +301,15 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null)
     const plan = await findPlanByProductId(actualProductId, "apple");
 
     // Calculate expiration date
-    const expirationDate = calculateExpirationDate(plan.billingCycle);
+    let expirationDate = calculateExpirationDate(plan.billingCycle);
+
+    // If Apple provides an expires_date_ms (for subscriptions), prefer that
+    if (latestTransaction.expires_date_ms) {
+      const appleExpiry = new Date(parseInt(latestTransaction.expires_date_ms, 10));
+      if (!Number.isNaN(appleExpiry.getTime())) {
+        expirationDate = appleExpiry;
+      }
+    }
 
     // Create user subscription
     const subscription = new UserSubscription({
@@ -357,11 +383,13 @@ export const verifyGooglePurchase = async (
   orderId = null
 ) => {
   try {
-    // Verify purchase with Google
-    // Note: This requires proper Google Play API integration
-    // For now, we'll use a simplified approach
-    // In production, implement full Google Play Developer API integration
-    
+    // Verify purchase with Google Play Developer API
+    const purchaseData = await verifyGooglePurchaseToken(
+      packageName,
+      productId,
+      purchaseToken
+    );
+
     const transactionId = orderId || purchaseToken; // Use orderId if provided, else purchaseToken
 
     // Check for duplicate transaction
@@ -387,17 +415,16 @@ export const verifyGooglePurchase = async (
       };
     }
 
-    // TODO: Implement actual Google Play verification
-    // const purchaseData = await verifyGooglePurchase(packageName, productId, purchaseToken);
-    
-    // For now, we'll proceed with basic validation
-    // In production, verify the purchase with Google Play API first
-
     // Find or create subscription plan
     const plan = await findPlanByProductId(productId, "google");
 
     // Calculate expiration date
-    const expirationDate = calculateExpirationDate(plan.billingCycle);
+    let expirationDate = calculateExpirationDate(plan.billingCycle);
+
+    // If Google provides expiryTimeMillis, prefer that for accuracy
+    if (purchaseData && purchaseData.expiryTimeMillis) {
+      expirationDate = new Date(Number(purchaseData.expiryTimeMillis));
+    }
 
     // Create user subscription
     const subscription = new UserSubscription({

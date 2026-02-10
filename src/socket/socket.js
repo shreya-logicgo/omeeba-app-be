@@ -18,6 +18,10 @@ import {
   getChatRooms,
   getChatRoomById,
   deleteChatRoom,
+  getMessageRequests,
+  acceptMessageRequest,
+  rejectMessageRequest,
+  blockMessageRequest,
 } from "../services/chatRoom.service.js";
 import {
   sendSnapWithMediaId,
@@ -361,8 +365,8 @@ export const initializeSocket = (server) => {
     socket.on("get_rooms", async (data, ack) => {
       const cb = typeof ack === "function" ? ack : () => {};
       try {
-        const { page = 1, limit = 20 } = data || {};
-        const result = await getChatRooms(userId, page, limit);
+        const { page = 1, limit = 20, search = "" } = data || {};
+        const result = await getChatRooms(userId, page, limit, (search && search.trim()) || "");
         const res = { success: true, data: result };
         cb(res);
         socket.emit("rooms_list", res);
@@ -448,6 +452,120 @@ export const initializeSocket = (server) => {
         const res = { success: false, error: e.message || "Failed to get unread count" };
         cb(res);
         socket.emit("unread_count", res);
+      }
+    });
+
+    /**
+     * Handle: Get message requests list (ack + listen: message_requests_list)
+     */
+    socket.on("get_message_requests", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { page = 1, limit = 20, search = "" } = data || {};
+        const result = await getMessageRequests(userId, page, limit, (search && search.trim()) || "");
+        const res = { success: true, data: result };
+        cb(res);
+        socket.emit("message_requests_list", res);
+      } catch (e) {
+        logger.error("get_message_requests error:", e);
+        const res = { success: false, error: e.message || "Failed to get message requests" };
+        cb(res);
+        socket.emit("message_requests_list", res);
+      }
+    });
+
+    /**
+     * Handle: Accept message request (recipient only). Room becomes direct chat.
+     * Emit request_accepted to both users so UI can move chat to inbox.
+     */
+    socket.on("accept_message_request", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { roomId } = data || {};
+        if (!roomId) {
+          const res = { success: false, error: "roomId required" };
+          cb(res);
+          socket.emit("request_accepted", res);
+          return;
+        }
+        const room = await acceptMessageRequest(roomId, userId);
+        const res = { success: true, data: { roomId, room } };
+        cb(res);
+        socket.emit("request_accepted", res);
+        const otherUserId = room.otherUser && room.otherUser.id;
+        if (otherUserId) {
+          io.to(`user:${otherUserId}`).emit("request_accepted", res);
+        }
+      } catch (e) {
+        logger.error("accept_message_request error:", e);
+        const res = { success: false, error: e.message || "Failed to accept request" };
+        cb(res);
+        socket.emit("request_accepted", res);
+      }
+    });
+
+    /**
+     * Handle: Reject (Delete) message request. Thread removed; sender not notified; sender can try again.
+     * Emit request_rejected only to recipient so their list updates.
+     */
+    socket.on("reject_message_request", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { roomId } = data || {};
+        if (!roomId) {
+          const res = { success: false, error: "roomId required" };
+          cb(res);
+          socket.emit("request_rejected", res);
+          return;
+        }
+        await rejectMessageRequest(roomId, userId);
+        socket.leave(`room:${roomId}`);
+        socketRooms.get(socket.id)?.delete(roomId);
+        const res = { success: true, data: { roomId } };
+        cb(res);
+        socket.emit("request_rejected", res);
+      } catch (e) {
+        logger.error("reject_message_request error:", e);
+        const res = { success: false, error: e.message || "Failed to reject request" };
+        cb(res);
+        socket.emit("request_rejected", res);
+      }
+    });
+
+    /**
+     * Handle: Block message request. Thread removed; sender cannot send again.
+     * Emit request_blocked to both users.
+     */
+    socket.on("block_message_request", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { roomId } = data || {};
+        if (!roomId) {
+          const res = { success: false, error: "roomId required" };
+          cb(res);
+          socket.emit("request_blocked", res);
+          return;
+        }
+        const room = await ChatRoom.findOne({
+          _id: roomId,
+          $or: [{ userA: userId }, { userB: userId }],
+          chatType: "Request",
+        });
+        const requesterIdStr = room && room.requesterId ? room.requesterId.toString() : null;
+        await blockMessageRequest(roomId, userId);
+        socket.leave(`room:${roomId}`);
+        socketRooms.get(socket.id)?.delete(roomId);
+        const res = { success: true, data: { roomId } };
+        cb(res);
+        socket.emit("request_blocked", res);
+        if (requesterIdStr) {
+          io.to(`user:${requesterIdStr}`).emit("request_blocked", res);
+        }
+      } catch (e) {
+        logger.error("block_message_request error:", e);
+        const res = { success: false, error: e.message || "Failed to block request" };
+        cb(res);
+        socket.emit("request_blocked", res);
       }
     });
 

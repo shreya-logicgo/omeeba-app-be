@@ -18,6 +18,12 @@ const chatRoomSchema = new mongoose.Schema(
       enum: Object.values(ChatType),
       default: ChatType.DIRECT,
     },
+    /** When chatType is REQUEST: user who sent the request (the one not followed by the other) */
+    requesterId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     isBlocked: {
       type: Boolean,
       default: false,
