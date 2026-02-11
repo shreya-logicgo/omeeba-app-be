@@ -7,7 +7,7 @@ import ChatMessage from "../models/chat/ChatMessage.js";
 import ChatRoom from "../models/chat/ChatRoom.js";
 import ChatParticipant from "../models/chat/ChatParticipant.js";
 import { User } from "../models/index.js";
-import { MessageType, MessageStatus } from "../models/enums.js";
+import { MessageType, MessageStatus, ChatType } from "../models/enums.js";
 import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatTime12Hour } from "../utils/timeFormatter.js";
 import { getMediaForUser } from "./media.service.js";
@@ -43,6 +43,15 @@ export const sendMessage = async (roomId, senderId, messageData) => {
 
     if (!room) {
       throw new Error("Chat room not found or access denied");
+    }
+
+    // Message request rules: only requester can send; recipient cannot send until they accept
+    // Sender can send multiple messages (all stay in same request thread)
+    if (room.chatType === ChatType.REQUEST) {
+      const requesterIdStr = room.requesterId && room.requesterId.toString();
+      if (requesterIdStr !== senderId) {
+        throw new Error("You must accept the request before sending messages");
+      }
     }
 
     // Create message

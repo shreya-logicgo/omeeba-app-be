@@ -19,6 +19,7 @@ export const createChatRoomBodySchema = Joi.object({
 export const getChatRoomsQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).optional(),
   limit: Joi.number().integer().min(1).max(100).optional(),
+  search: Joi.string().trim().max(100).allow("").optional(),
 });
 
 /**

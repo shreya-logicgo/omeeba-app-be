@@ -43,6 +43,7 @@ import Notification from "./notifications/Notification.js";
 import ChatRoom from "./chat/ChatRoom.js";
 import ChatMessage from "./chat/ChatMessage.js";
 import ChatParticipant from "./chat/ChatParticipant.js";
+import BlockedMessageRequest from "./chat/BlockedMessageRequest.js";
 import Snap from "./chat/Snap.js";
 import Media from "./chat/Media.js";
 
@@ -101,6 +102,7 @@ export {
   ChatRoom,
   ChatMessage,
   ChatParticipant,
+  BlockedMessageRequest,
   Snap,
   Media,
 

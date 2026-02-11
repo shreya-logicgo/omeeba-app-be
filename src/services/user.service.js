@@ -211,14 +211,11 @@ export const searchUsersByUsername = async (
     const skip = (page - 1) * limit;
     const searchRegex = new RegExp(searchTerm.trim(), "i"); // Case-insensitive search
 
-    // Build query to exclude current user and deleted users
-    // Search in both username and name fields
+    // Build query: exclude current user, deleted users, and unverified accounts
     const query = {
-      $or: [
-        { username: searchRegex },
-        { name: searchRegex },
-      ],
+      $or: [{ username: searchRegex }, { name: searchRegex }],
       isDeleted: false,
+      isAccountVerified: true,
     };
 
     // Exclude current user from search results
@@ -294,13 +291,13 @@ export const searchUsersForMentions = async (
   try {
     // Limit max results to 20 for performance
     const maxLimit = Math.min(limit, 20);
-    
+
     if (!searchTerm || !searchTerm.trim()) {
       return [];
     }
 
     const searchQuery = searchTerm.trim().toLowerCase();
-    
+
     // Build query - search from beginning of username for better autocomplete
     const query = {
       username: new RegExp(`^${searchQuery}`, "i"), // Starts with search term (case-insensitive)

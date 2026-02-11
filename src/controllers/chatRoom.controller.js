@@ -8,6 +8,7 @@ import {
   getChatRoomById,
   deleteChatRoom,
   getOrCreateChatRoom,
+  getMessageRequests,
 } from "../services/chatRoom.service.js";
 import {
   sendSuccess,
@@ -72,8 +73,9 @@ export const getChatRoomsHandler = async (req, res) => {
     const userId = req.user._id.toString();
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
+    const search = (req.query.search && req.query.search.trim()) || "";
 
-    const result = await getChatRooms(userId, page, limit);
+    const result = await getChatRooms(userId, page, limit, search);
 
     return sendPaginated(
       res,
@@ -177,9 +179,44 @@ export const deleteChatRoomHandler = async (req, res) => {
   }
 };
 
+/**
+ * Get all message requests (where current user is recipient)
+ * @route GET /api/v1/chat/requests
+ * @access Private
+ */
+export const getMessageRequestsHandler = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const search = (req.query.search && req.query.search.trim()) || "";
+
+    const result = await getMessageRequests(userId, page, limit, search);
+
+    return sendPaginated(
+      res,
+      result.requests,
+      result.pagination,
+      "Message requests retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Get message requests error:", error);
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to get message requests",
+      "Get Message Requests Error",
+      error.message || "An error occurred",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   getOrCreateChatRoomHandler,
   getChatRoomsHandler,
   getChatRoomByIdHandler,
   deleteChatRoomHandler,
+  getMessageRequestsHandler,
 };

@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 import ChatRoom from "../models/chat/ChatRoom.js";
 import ChatMessage from "../models/chat/ChatMessage.js";
 import ChatParticipant from "../models/chat/ChatParticipant.js";
+import BlockedMessageRequest from "../models/chat/BlockedMessageRequest.js";
 import UserFollower from "../models/users/UserFollower.js";
 import { User } from "../models/index.js";
 import { ChatType, MessageType, MessageStatus } from "../models/enums.js";
@@ -16,26 +17,49 @@ import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 
 /**
- * Get or create a chat room between two users
- * @param {string} userAId - First user ID
- * @param {string} userBId - Second user ID
- * @param {string} chatType - Chat type (DIRECT or REQUEST)
+ * Get or create a chat room between two users.
+ * If the other user does not follow the current user, creates a REQUEST room (message request).
+ * @param {string} currentUserId - The user initiating the chat (logged-in user)
+ * @param {string} otherUserId - The other user
+ * @param {string} chatType - Chat type hint (DIRECT or REQUEST); overridden by follow check
  * @returns {Promise<Object>} Chat room
  */
-export const getOrCreateChatRoom = async (userAId, userBId, chatType = ChatType.DIRECT) => {
+export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType = ChatType.DIRECT) => {
   try {
-    // Ensure consistent ordering (smaller ID first)
-    const [userA, userB] = [userAId, userBId].sort();
+    // Ensure consistent ordering (smaller ID first) for room lookup
+    const [userA, userB] = [currentUserId, otherUserId].sort();
+
+    // Does the other user follow the current user? (recipient follows sender → direct chat)
+    const otherFollowsCurrent = await UserFollower.findOne({
+      userId: currentUserId,
+      followerId: otherUserId,
+    });
+
+    const isDirectAllowed = !!otherFollowsCurrent;
 
     // Try to find existing room
     let room = await ChatRoom.findOne({ userA, userB });
 
     if (!room) {
-      // Create new room
+      if (!isDirectAllowed) {
+        // Other does not follow current → check if current is blocked from sending requests
+        const blocked = await BlockedMessageRequest.findOne({
+          blockedByUserId: otherUserId,
+          blockedUserId: currentUserId,
+        });
+        if (blocked) {
+          throw new Error("You cannot send a message request to this user");
+        }
+      }
+
+      const effectiveChatType = isDirectAllowed ? ChatType.DIRECT : ChatType.REQUEST;
+      const requesterId = isDirectAllowed ? null : currentUserId;
+
       room = await ChatRoom.create({
         userA,
         userB,
-        chatType,
+        chatType: effectiveChatType,
+        requesterId,
       });
 
       // Create participant records for both users
@@ -60,18 +84,19 @@ export const getOrCreateChatRoom = async (userAId, userBId, chatType = ChatType.
     await room.populate("userB", "name username profileImage bio isVerifiedBadge");
 
     const roomId = room._id.toString();
-    const otherUser = room.userA._id.toString() === userAId ? room.userB : room.userA;
-    const otherUserId = otherUser._id.toString();
+    const otherUser = room.userA._id.toString() === currentUserId ? room.userB : room.userA;
+    const otherUserIdStr = otherUser._id.toString();
 
     // Get followers count
-    const followersCount = await UserFollower.countDocuments({ userId: otherUserId });
+    const followersCount = await UserFollower.countDocuments({ userId: otherUserIdStr });
 
     return {
       id: roomId,
       roomId: roomId, // Also include as roomId for clarity
       chatType: room.chatType,
+      requesterId: room.requesterId ? room.requesterId.toString() : null,
       otherUser: {
-        id: otherUserId,
+        id: otherUserIdStr,
         name: otherUser.name,
         username: otherUser.username,
         profileImage: otherUser.profileImage,
@@ -94,16 +119,35 @@ export const getOrCreateChatRoom = async (userAId, userBId, chatType = ChatType.
  * @param {string} userId - User ID
  * @param {number} page - Page number
  * @param {number} limit - Items per page
+ * @param {string} search - Optional; filter by other user's username
  * @returns {Promise<Object>} Chat rooms with pagination
  */
-export const getChatRooms = async (userId, page = 1, limit = 20) => {
+export const getChatRooms = async (userId, page = 1, limit = 20, search = "") => {
   try {
     const skip = (page - 1) * limit;
 
-    // Find all rooms where user is participant
-    const rooms = await ChatRoom.find({
-      $or: [{ userA: userId }, { userB: userId }],
-    })
+    const baseQuery = { chatType: ChatType.DIRECT };
+    if (search && search.trim()) {
+      const matchingUsers = await User.find({
+        username: { $regex: search.trim(), $options: "i" },
+        isDeleted: { $ne: true },
+      })
+        .select("_id")
+        .lean();
+      const matchingIds = matchingUsers.map((u) => u._id);
+      if (matchingIds.length === 0) {
+        return { rooms: [], pagination: getPaginationMeta(0, page, limit) };
+      }
+      baseQuery.$or = [
+        { userA: userId, userB: { $in: matchingIds } },
+        { userB: userId, userA: { $in: matchingIds } },
+      ];
+    } else {
+      baseQuery.$or = [{ userA: userId }, { userB: userId }];
+    }
+
+    // Find all DIRECT (inbox) rooms only; request rooms are in getMessageRequests
+    const rooms = await ChatRoom.find(baseQuery)
       .populate("userA", "name username profileImage bio isVerifiedBadge")
       .populate("userB", "name username profileImage bio isVerifiedBadge")
       .sort({ lastMessageAt: -1, updatedAt: -1 })
@@ -111,10 +155,8 @@ export const getChatRooms = async (userId, page = 1, limit = 20) => {
       .limit(limit)
       .lean();
 
-    const total = await ChatRoom.countDocuments({
-      $or: [{ userA: userId }, { userB: userId }],
-      isBlocked: { $ne: true },
-    });
+    const countQuery = { ...baseQuery, isBlocked: { $ne: true } };
+    const total = await ChatRoom.countDocuments(countQuery);
 
     // Get participant data (unread counts) for each room
     const roomIds = rooms.map((room) => room._id.toString());
@@ -279,6 +321,7 @@ export const getChatRoomById = async (roomId, userId) => {
       id: roomIdString,
       roomId: roomIdString, // Also include as roomId for clarity
       chatType: room.chatType,
+      requesterId: room.requesterId ? room.requesterId.toString() : null,
       otherUser: {
         id: otherUserId,
         name: otherUser.name,
@@ -336,9 +379,271 @@ export const deleteChatRoom = async (roomId, userId) => {
   }
 };
 
+/**
+ * Get all message requests for the current user (where they are the recipient)
+ * @param {string} userId - Current user ID (recipient of requests)
+ * @param {number} page - Page number
+ * @param {number} limit - Items per page
+ * @param {string} search - Optional; filter by requester's username
+ * @returns {Promise<Object>} Request rooms with pagination
+ */
+export const getMessageRequests = async (userId, page = 1, limit = 20, search = "") => {
+  try {
+    const skip = (page - 1) * limit;
+
+    const baseQuery = {
+      $or: [{ userA: userId }, { userB: userId }],
+      chatType: ChatType.REQUEST,
+    };
+    if (search && search.trim()) {
+      const matchingUsers = await User.find({
+        username: { $regex: search.trim(), $options: "i" },
+        isDeleted: { $ne: true },
+      })
+        .select("_id")
+        .lean();
+      const matchingIds = matchingUsers.map((u) => u._id);
+      if (matchingIds.length === 0) {
+        return { requests: [], pagination: getPaginationMeta(0, page, limit) };
+      }
+      baseQuery.requesterId = { $in: matchingIds };
+    }
+
+    const rooms = await ChatRoom.find(baseQuery)
+      .populate("userA", "name username profileImage bio isVerifiedBadge")
+      .populate("userB", "name username profileImage bio isVerifiedBadge")
+      .populate("requesterId", "name username profileImage bio isVerifiedBadge")
+      .sort({ lastMessageAt: -1, updatedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await ChatRoom.countDocuments(baseQuery);
+
+    const roomIds = rooms.map((r) => r._id.toString());
+    const participants = await ChatParticipant.find({
+      roomId: { $in: roomIds },
+      userId,
+    }).lean();
+    const participantMap = new Map(participants.map((p) => [p.roomId.toString(), p]));
+
+    const lastMessages = await ChatMessage.aggregate([
+      { $match: { roomId: { $in: rooms.map((r) => r._id) } } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: "$roomId", lastMessage: { $first: "$$ROOT" } } },
+    ]);
+    const lastMessageMap = new Map(
+      lastMessages.map((item) => [item._id.toString(), item.lastMessage])
+    );
+
+    const requesterIds = rooms
+      .map((r) => r.requesterId && r.requesterId._id && r.requesterId._id.toString())
+      .filter(Boolean);
+    const followersCounts =
+      requesterIds.length > 0
+        ? await UserFollower.aggregate([
+            { $match: { userId: { $in: requesterIds.map((id) => new mongoose.Types.ObjectId(id)) } } },
+            { $group: { _id: "$userId", count: { $sum: 1 } } },
+          ])
+        : [];
+    const followersMap = new Map(followersCounts.map((item) => [item._id.toString(), item.count]));
+
+    const formattedRooms = rooms.map((room) => {
+      const roomId = room._id.toString();
+      const participant = participantMap.get(roomId);
+      const requester = room.requesterId;
+      if (!requester || !requester._id) {
+        return null;
+      }
+      const requesterIdStr = requester._id.toString();
+      const followersCount = followersMap.get(requesterIdStr) || 0;
+      const lastMessage = lastMessageMap.get(roomId);
+      let lastMessagePreview = room.lastMessage;
+      if (room.lastMessageType === MessageType.TEXT) {
+        lastMessagePreview = room.lastMessage;
+      } else if (room.lastMessageType === MessageType.IMAGE) lastMessagePreview = "📷 Image";
+      else if (room.lastMessageType === MessageType.SNAP) lastMessagePreview = "📸 Snap";
+      else if (room.lastMessageType === MessageType.POST) lastMessagePreview = "📌 Post";
+      else if (room.lastMessageType === MessageType.WRITE_POST) lastMessagePreview = "✍️ Write Post";
+      else if (room.lastMessageType === MessageType.ZEAL) lastMessagePreview = "🎬 Zeal";
+
+      return {
+        id: roomId,
+        roomId,
+        chatType: ChatType.REQUEST,
+        fromUser: {
+          id: requesterIdStr,
+          name: requester.name,
+          username: requester.username,
+          profileImage: requester.profileImage,
+          bio: requester.bio,
+          isVerifiedBadge: requester.isVerifiedBadge,
+          followersCount,
+        },
+        lastMessage: lastMessagePreview,
+        lastMessageType: room.lastMessageType,
+        lastMessageAt: room.lastMessageAt,
+        timestamp: room.lastMessageAt ? formatChatListTime(room.lastMessageAt) : null,
+        unreadCount: participant ? participant.unreadCount : 0,
+        createdAt: room.createdAt,
+        updatedAt: room.updatedAt,
+      };
+    });
+
+    return {
+      requests: formattedRooms.filter(Boolean),
+      pagination: getPaginationMeta(total, page, limit),
+    };
+  } catch (error) {
+    logger.error("Error in getMessageRequests:", error);
+    throw error;
+  }
+};
+
+/**
+ * Accept a message request (recipient accepts → room becomes direct chat)
+ * @param {string} roomId - Room ID
+ * @param {string} userId - User ID (must be the recipient, not the requester)
+ * @returns {Promise<Object>} Updated room
+ */
+export const acceptMessageRequest = async (roomId, userId) => {
+  try {
+    const room = await ChatRoom.findOne({
+      _id: roomId,
+      $or: [{ userA: userId }, { userB: userId }],
+      chatType: ChatType.REQUEST,
+    })
+      .populate("userA", "name username profileImage bio isVerifiedBadge")
+      .populate("userB", "name username profileImage bio isVerifiedBadge");
+
+    if (!room) {
+      throw new Error("Chat room not found or not a pending request");
+    }
+
+    const requesterIdStr = room.requesterId && room.requesterId.toString();
+    if (requesterIdStr === userId) {
+      throw new Error("Only the recipient can accept the request");
+    }
+
+    room.chatType = ChatType.DIRECT;
+    room.requesterId = null;
+    await room.save();
+
+    const otherUser = room.userA._id.toString() === userId ? room.userB : room.userA;
+    const otherUserIdStr = otherUser._id.toString();
+    const followersCount = await UserFollower.countDocuments({ userId: otherUserIdStr });
+
+    return {
+      id: room._id.toString(),
+      roomId: room._id.toString(),
+      chatType: ChatType.DIRECT,
+      requesterId: null,
+      otherUser: {
+        id: otherUserIdStr,
+        name: otherUser.name,
+        username: otherUser.username,
+        profileImage: otherUser.profileImage,
+        bio: otherUser.bio,
+        isVerifiedBadge: otherUser.isVerifiedBadge,
+        followersCount,
+      },
+      isBlocked: room.isBlocked,
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+    };
+  } catch (error) {
+    logger.error("Error in acceptMessageRequest:", error);
+    throw error;
+  }
+};
+
+/**
+ * Reject (Delete) a message request: remove thread; sender is not notified and can send again later
+ * @param {string} roomId - Room ID
+ * @param {string} userId - User ID (must be the recipient)
+ * @returns {Promise<boolean>} Success
+ */
+export const rejectMessageRequest = async (roomId, userId) => {
+  try {
+    const room = await ChatRoom.findOne({
+      _id: roomId,
+      $or: [{ userA: userId }, { userB: userId }],
+      chatType: ChatType.REQUEST,
+    });
+
+    if (!room) {
+      throw new Error("Chat room not found or not a pending request");
+    }
+
+    const requesterIdStr = room.requesterId && room.requesterId.toString();
+    if (requesterIdStr === userId) {
+      throw new Error("Only the recipient can reject the request");
+    }
+
+    await Promise.all([
+      ChatMessage.deleteMany({ roomId: room._id }),
+      ChatParticipant.deleteMany({ roomId: room._id }),
+    ]);
+    await ChatRoom.deleteOne({ _id: roomId });
+
+    logger.info(`Message request ${roomId} rejected (deleted) by user ${userId}; sender can request again`);
+    return true;
+  } catch (error) {
+    logger.error("Error in rejectMessageRequest:", error);
+    throw error;
+  }
+};
+
+/**
+ * Block a message request: remove from list and prevent requester from sending again
+ * @param {string} roomId - Room ID
+ * @param {string} userId - User ID (must be the recipient)
+ * @returns {Promise<boolean>} Success
+ */
+export const blockMessageRequest = async (roomId, userId) => {
+  try {
+    const room = await ChatRoom.findOne({
+      _id: roomId,
+      $or: [{ userA: userId }, { userB: userId }],
+      chatType: ChatType.REQUEST,
+    });
+
+    if (!room) {
+      throw new Error("Chat room not found or not a pending request");
+    }
+
+    const requesterIdStr = room.requesterId && room.requesterId.toString();
+    if (requesterIdStr === userId) {
+      throw new Error("Only the recipient can block the request");
+    }
+
+    await BlockedMessageRequest.findOneAndUpdate(
+      { blockedByUserId: userId, blockedUserId: requesterIdStr },
+      { blockedByUserId: userId, blockedUserId: requesterIdStr },
+      { upsert: true }
+    );
+
+    await Promise.all([
+      ChatMessage.deleteMany({ roomId: room._id }),
+      ChatParticipant.deleteMany({ roomId: room._id }),
+    ]);
+    await ChatRoom.deleteOne({ _id: roomId });
+
+    logger.info(`Message request ${roomId} blocked by user ${userId}; requester ${requesterIdStr} cannot send again`);
+    return true;
+  } catch (error) {
+    logger.error("Error in blockMessageRequest:", error);
+    throw error;
+  }
+};
+
 export default {
   getOrCreateChatRoom,
   getChatRooms,
   getChatRoomById,
   deleteChatRoom,
+  getMessageRequests,
+  acceptMessageRequest,
+  rejectMessageRequest,
+  blockMessageRequest,
 };
