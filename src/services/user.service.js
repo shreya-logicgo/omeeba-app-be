@@ -112,6 +112,10 @@ export const getUserProfile = async (userId, viewerId = null) => {
       throw new Error("User account has been deleted");
     }
 
+    if (!user.isAccountVerified) {
+      throw new Error("User account is not verified");
+    }
+
     // Get followers count (people who follow this user)
     // userId = target user, followerId = people who follow
     const followersCount = await UserFollower.countDocuments({
@@ -183,8 +187,8 @@ export const getUserProfile = async (userId, viewerId = null) => {
 };
 
 /**
- * Search users by username
- * @param {string} searchTerm - Username search term
+ * Search users by username or name
+ * @param {string} searchTerm - Search term (searches both username and name)
  * @param {string} currentUserId - Current authenticated user ID (to check follow status)
  * @param {number} page - Page number (default: 1)
  * @param {number} limit - Items per page (default: 20)
@@ -208,8 +212,12 @@ export const searchUsersByUsername = async (
     const searchRegex = new RegExp(searchTerm.trim(), "i"); // Case-insensitive search
 
     // Build query to exclude current user and deleted users
+    // Search in both username and name fields
     const query = {
-      username: searchRegex,
+      $or: [
+        { username: searchRegex },
+        { name: searchRegex },
+      ],
       isDeleted: false,
     };
 
@@ -218,7 +226,7 @@ export const searchUsersByUsername = async (
       query._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
     }
 
-    // Search users by username (excluding deleted users and current user)
+    // Search users by username or name (excluding deleted users and current user)
     const users = await User.find(query)
       .select(
         "username name profileImage bio isVerifiedBadge followerCount followingCount"

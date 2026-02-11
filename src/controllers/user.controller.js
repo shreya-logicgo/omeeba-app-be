@@ -26,6 +26,7 @@ import {
   generateStorageKey,
   uploadBufferToStorage,
 } from "../services/storage.service.js";
+import User from "../models/users/User.js";
 
 /**
  * Get liked content IDs for a user (bulk query for efficiency)
@@ -406,7 +407,8 @@ export const getUserProfile = async (req, res) => {
     // Handle custom errors
     if (
       error.message === "User not found" ||
-      error.message === "User account has been deleted"
+      error.message === "User account has been deleted" ||
+      error.message === "User account is not verified"
     ) {
       return sendNotFound(res, error.message);
     }
@@ -430,6 +432,34 @@ export const getUserProfile = async (req, res) => {
 };
 
 /**
+ * Validate user ID - Check if user exists, is not deleted, and is verified
+ * @param {string} userId - User ID to validate
+ * @returns {Promise<Object>} User object if valid
+ * @throws {Error} If user is invalid
+ */
+const validateUserId = async (userId) => {
+  if (!userId) {
+    return null;
+  }
+
+  const user = await User.findById(userId).select("isDeleted isAccountVerified");
+  
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  if (user.isDeleted) {
+    throw new Error("User account has been deleted");
+  }
+
+  if (!user.isAccountVerified) {
+    throw new Error("User account is not verified");
+  }
+
+  return user;
+};
+
+/**
  * Get user posts
  */
 export const getUserPost = async (req, res) => {
@@ -437,7 +467,13 @@ export const getUserPost = async (req, res) => {
     const filter = {};
     const { date, userId } = req.query;
 
-    filter.userId = userId ? new mongoose.Types.ObjectId(userId) : req.user._id;
+    // Validate userId if provided
+    if (userId) {
+      await validateUserId(userId);
+      filter.userId = new mongoose.Types.ObjectId(userId);
+    } else {
+      filter.userId = req.user._id;
+    }
 
     if (date) {
       // date format: YYYY-MM-DD
@@ -510,6 +546,15 @@ export const getUserPost = async (req, res) => {
       StatusCodes.OK
     );
   } catch (error) {
+    // Handle validation errors
+    if (
+      error.message === "User not found" ||
+      error.message === "User account has been deleted" ||
+      error.message === "User account is not verified"
+    ) {
+      return sendBadRequest(res, error.message);
+    }
+
     return sendError(
       res,
       "Failed to get user posts",
@@ -528,7 +573,13 @@ export const getUserWritePosts = async (req, res) => {
     const filter = {};
     const { date, userId } = req.query;
 
-    filter.userId = userId ? new mongoose.Types.ObjectId(userId) : req.user._id;
+    // Validate userId if provided
+    if (userId) {
+      await validateUserId(userId);
+      filter.userId = new mongoose.Types.ObjectId(userId);
+    } else {
+      filter.userId = req.user._id;
+    }
 
     if (date) {
       // date format: YYYY-MM-DD
@@ -601,6 +652,15 @@ export const getUserWritePosts = async (req, res) => {
       StatusCodes.OK
     );
   } catch (error) {
+    // Handle validation errors
+    if (
+      error.message === "User not found" ||
+      error.message === "User account has been deleted" ||
+      error.message === "User account is not verified"
+    ) {
+      return sendBadRequest(res, error.message);
+    }
+
     return sendError(
       res,
       "Failed to get user posts",
@@ -619,9 +679,13 @@ export const getUserPolls = async (req, res) => {
     const filter = {};
     const { date, createdBy } = req.query;
 
-    filter.createdBy = createdBy
-      ? new mongoose.Types.ObjectId(createdBy)
-      : req.user._id;
+    // Validate createdBy (userId) if provided
+    if (createdBy) {
+      await validateUserId(createdBy);
+      filter.createdBy = new mongoose.Types.ObjectId(createdBy);
+    } else {
+      filter.createdBy = req.user._id;
+    }
 
     if (date) {
       // date format: YYYY-MM-DD
@@ -667,6 +731,15 @@ export const getUserPolls = async (req, res) => {
       StatusCodes.OK
     );
   } catch (error) {
+    // Handle validation errors
+    if (
+      error.message === "User not found" ||
+      error.message === "User account has been deleted" ||
+      error.message === "User account is not verified"
+    ) {
+      return sendBadRequest(res, error.message);
+    }
+
     return sendError(
       res,
       "Failed to get user posts",
@@ -683,9 +756,14 @@ export const getUserPolls = async (req, res) => {
 export const getMentionedPosts = async (req, res) => {
   try {
     // Get userId from query or use logged-in user's ID
-    const targetUserId = req.query.userId
-      ? new mongoose.Types.ObjectId(req.query.userId)
-      : req.user._id;
+    let targetUserId;
+    if (req.query.userId) {
+      // Validate userId if provided
+      await validateUserId(req.query.userId);
+      targetUserId = new mongoose.Types.ObjectId(req.query.userId);
+    } else {
+      targetUserId = req.user._id;
+    }
 
     // Get pagination parameters
     const { page, limit, skip } = getPagination(req);

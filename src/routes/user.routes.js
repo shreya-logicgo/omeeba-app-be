@@ -14,7 +14,7 @@ import {
   getUserPolls,
   getMentionedPosts,
 } from "../controllers/user.controller.js";
-import { protect } from "../middleware/auth.js";
+import { protect, verifyAccountStatus } from "../middleware/auth.js";
 import {
   searchUsers,
   searchUsersForMentionsHandler,
@@ -36,6 +36,7 @@ const router = express.Router();
 router.put(
   "/profile",
   protect,
+  verifyAccountStatus,
   uploadProfileImages,
   validateBody(updateProfileSchema),
   updateProfile
@@ -46,7 +47,7 @@ router.put(
  * @desc    Get own user profile
  * @access  Private
  */
-router.get("/profile", protect, getUserProfile);
+router.get("/profile", protect, verifyAccountStatus, getUserProfile);
 
 /**
  * @route   GET /api/v1/users/:userId/profile
@@ -56,6 +57,7 @@ router.get("/profile", protect, getUserProfile);
 router.get(
   "/:userId/profile",
   protect,
+  verifyAccountStatus,
   validateParams(getUserProfileParamsSchema),
   getUserProfile
 );
@@ -68,6 +70,7 @@ router.get(
 router.get(
   "/search",
   protect,
+  verifyAccountStatus,
   validateQuery(searchUsersQuerySchema),
   searchUsers
 );
@@ -80,6 +83,7 @@ router.get(
 router.get(
   "/mentions/search",
   protect,
+  verifyAccountStatus,
   validateQuery(searchMentionsQuerySchema),
   searchUsersForMentionsHandler
 );
@@ -89,7 +93,7 @@ router.get(
  * @desc    Search users by userId
  * @access  Private
  */
-router.get("/posts", protect, validateQuery(getUserPostQueries), getUserPost);
+router.get("/posts", protect, verifyAccountStatus, validateQuery(getUserPostQueries), getUserPost);
 
 /*
  * @route   GET / api / v1 / users / write-posts
@@ -99,6 +103,7 @@ router.get("/posts", protect, validateQuery(getUserPostQueries), getUserPost);
 router.get(
   "/write-posts",
   protect,
+  verifyAccountStatus,
   validateQuery(getUserPostQueries),
   getUserWritePosts
 );
@@ -108,7 +113,7 @@ router.get(
  * @desc    Search users by userId
  * @access  Private
  */
-router.get("/polls", protect, validateQuery(getUserPostQueries), getUserPolls);
+router.get("/polls", protect, verifyAccountStatus, validateQuery(getUserPostQueries), getUserPolls);
 
 /*
  * @route   GET /api/v1/users/mentioned-posts
@@ -118,6 +123,7 @@ router.get("/polls", protect, validateQuery(getUserPostQueries), getUserPolls);
 router.get(
   "/mentioned-posts",
   protect,
+  verifyAccountStatus,
   validateQuery(getMentionedPostsQuerySchema),
   getMentionedPosts
 );

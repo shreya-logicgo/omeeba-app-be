@@ -138,6 +138,30 @@ export const optionalProtect = async (req, res, next) => {
 };
 
 /**
+ * Verify account status - Check if user account is verified and not deleted
+ * Must be used after protect middleware
+ */
+export const verifyAccountStatus = (req, res, next) => {
+  if (!req.user) {
+    return sendUnauthorized(res, "User not authenticated");
+  }
+
+  // Check if account is deleted
+  if (req.user.isDeleted) {
+    logger.warn(`Deleted user attempted to access: ${req.user.email}`);
+    return sendUnauthorized(res, "User account has been deleted");
+  }
+
+  // Check if account is verified
+  if (!req.user.isAccountVerified) {
+    logger.warn(`Unverified user attempted to access: ${req.user.email}`);
+    return sendUnauthorized(res, "Please verify your account to access this feature");
+  }
+
+  next();
+};
+
+/**
  * Authorize specific roles
  */
 export const authorize = (...roles) => {
