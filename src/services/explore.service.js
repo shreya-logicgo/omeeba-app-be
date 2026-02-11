@@ -1131,8 +1131,6 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
       limit = 20,
     } = options;
 
-    const skip = (page - 1) * limit;
-
     if (!query || query.trim().length === 0) {
       return {
         results: {

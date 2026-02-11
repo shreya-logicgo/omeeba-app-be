@@ -191,7 +191,6 @@ export const toggleSaveContent = async (userId, contentType, contentId) => {
     const existingSave = await SavedContent.findOne({
       contentType,
       contentId,
-      userId,
     });
 
     if (existingSave) {
