@@ -7,10 +7,10 @@ import { createSchema } from "../utils/validation.js";
 export const getTrendingSchema = createSchema(
   {
     contentType: Joi.string()
-      .valid("all", "post", "write", "zeal", "poll")
+      .valid("all", "post", "write", "zeal", "poll", "explore")
       .optional()
       .messages({
-        "any.only": "contentType must be one of: all, post, write, zeal, poll",
+        "any.only": "contentType must be one of: all, post, write, zeal, poll, explore",
       }),
     page: Joi.number().integer().min(1).optional().messages({
       "number.base": "page must be a number",
@@ -38,18 +38,18 @@ export const searchSchema = createSchema(
       "string.max": "query cannot exceed 200 characters",
     }),
     type: Joi.string()
-      .valid("explore", "trending", "polls", "users", "hashtag")
+      .valid("explore", "trending", "polls", "users", "hashtag", "posts", "zeals")
       .required()
       .messages({
         "any.only":
-          "type must be one of: explore, trending, polls, users, hashtag",
+          "type must be one of: explore, trending, polls, users, hashtag, posts, zeals",
         "any.required": "type is required",
       }),
     contentType: Joi.string()
-      .valid("zeal", "post")
+      .valid("post", "zeal", "users", "hashtag")
       .optional()
       .messages({
-        "any.only": "contentType must be one of: zeal, post (only for explore type)",
+        "any.only": "contentType must be one of: post, zeal, users, hashtag",
       }),
   },
   ["query", "type", "contentType"]

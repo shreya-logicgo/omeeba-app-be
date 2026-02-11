@@ -656,7 +656,7 @@ const formatPollForFeed = (poll) => ({
  * @param {Object} options - Query options
  * @param {number} options.page - Page number (default: 1)
  * @param {number} options.limit - Items per page (default: 20)
- * @param {string} options.contentType - Filter by content type: 'all', 'post', 'write', 'zeal', 'poll' (default: 'all')
+ * @param {string} options.contentType - Filter by content type: 'all', 'post', 'write', 'zeal', 'poll', 'explore' (default: 'all')
  * @returns {Promise<Object>} Trending content with pagination
  */
 export const getTrendingContent = async (userId = null, options = {}) => {
@@ -716,7 +716,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     const contentQueries = [];
 
     // Posts query
-    if (contentType === "all" || contentType === "post") {
+    if (contentType === "all" || contentType === "post" || contentType === "explore") {
       const postQuery = {
         userId: { $in: validUserIds },
       };
@@ -775,7 +775,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     }
 
     // Zeal Posts query (only published/ready)
-    if (contentType === "all" || contentType === "zeal") {
+    if (contentType === "all" || contentType === "zeal" || contentType === "explore") {
       const zealQuery = {
         userId: { $in: validUserIds },
         status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
@@ -1966,6 +1966,19 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
       // Explore: zeals and posts
       const contentQueries = [];
 
+      // If searching by username/name, find matching users first
+      let matchingUserIds = [];
+      if (safeSearchTerm && !isHashtagQuery) {
+        const matchingUsers = await User.find({
+          ...baseUserQuery,
+          $or: [
+            { name: { $regex: safeSearchTerm, $options: "i" } },
+            { username: { $regex: safeSearchTerm, $options: "i" } },
+          ],
+        }).select("_id");
+        matchingUserIds = matchingUsers.map((u) => u._id);
+      }
+
       // Search Posts (if contentType is 'post' or not specified)
       if (!contentType || contentType === "post") {
         const postQuery = {
@@ -1985,8 +1998,15 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
             // Hashtag search: match hashtag with partial word support
             postQuery.caption = { $regex: `#${safeSearchTerm}`, $options: "i" };
           } else {
-            // Text search: use regex for partial word matching (e.g., "h" matches "hello")
-            postQuery.caption = { $regex: safeSearchTerm, $options: "i" };
+            // Text search: search in caption OR username/name
+            // Build $or condition: caption matches OR userId is in matching users
+            const orConditions = [
+              { caption: { $regex: safeSearchTerm, $options: "i" } },
+            ];
+            if (matchingUserIds.length > 0) {
+              orConditions.push({ userId: { $in: matchingUserIds } });
+            }
+            postQuery.$or = orConditions;
           }
         }
 
@@ -2028,8 +2048,15 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
             // Hashtag search: match hashtag with partial word support
             zealQuery.caption = { $regex: `#${safeSearchTerm}`, $options: "i" };
           } else {
-            // Text search: use regex for partial word matching (e.g., "h" matches "hello")
-            zealQuery.caption = { $regex: safeSearchTerm, $options: "i" };
+            // Text search: search in caption OR username/name
+            // Build $or condition: caption matches OR userId is in matching users
+            const orConditions = [
+              { caption: { $regex: safeSearchTerm, $options: "i" } },
+            ];
+            if (matchingUserIds.length > 0) {
+              orConditions.push({ userId: { $in: matchingUserIds } });
+            }
+            zealQuery.$or = orConditions;
           }
         }
 

@@ -15,15 +15,16 @@ import {
 const router = express.Router();
 
 /**
- * @route   GET /api/v1/explore/trending
+ * @route   GET /api/v1/explore
  * @desc    Get trending/popular content for Explore landing screen
  * @access  Public (optional auth - works without auth but filters better with auth)
- * @query   contentType - Filter by type: 'all', 'post', 'write', 'zeal', 'poll' (default: 'all')
+ * @query   contentType - Filter by type: 'all', 'post', 'write', 'zeal', 'poll', 'explore' (default: 'all')
+ *                        'explore' returns mixed zeals and posts
  * @query   page - Page number (default: 1)
  * @query   limit - Items per page (default: 20)
  */
 router.get(
-  "/trending",
+  "/",
   optionalProtect, // Optional auth - attaches user if token provided, but doesn't fail if missing
   validateQuery(getTrendingSchema),
   getTrending
@@ -36,16 +37,27 @@ router.get(
  * @query   query - Search query (optional, can be empty)
  * @query   type - Filter by type (required)
  *                - 'explore': Search zeals and posts (use contentType to filter: 'zeal' or 'post')
+ *                - 'posts': Search only posts (searches captions, username, name)
+ *                - 'zeals': Search only zeals (searches captions, username, name)
  *                - 'trending': Search only write posts
  *                - 'polls': Search only polls (status: ACTIVE)
  *                - 'users': Search users by username or name
  *                - 'hashtag': Search hashtags (returns tag + contentCount)
- * @query   contentType - For explore type only: 'zeal' or 'post' (optional)
+ * @query   contentType - Filter search results (optional)
+ *                - For 'explore' type: 'post' (searches captions, username, name) or 'zeal' (searches captions, username, name)
+ *                - For 'users' type: 'users' (searches username, name)
+ *                - For 'hashtag' type: 'hashtag' (searches tag)
+ *                - Note: 'posts' and 'zeals' types automatically set contentType, so this parameter is ignored
  * 
  * @filter_details
  * Type-specific filters:
- * - explore: ZealPost.caption (PUBLISHED/READY) + Post.caption
+ * - explore: Searches in ZealPost.caption + Post.caption + User.username + User.name
  *            Use contentType='zeal' for only zeals, contentType='post' for only posts
+ *            When searching, matches caption OR username/name
+ * - posts: Searches in Post.caption + User.username + User.name
+ *          When searching, matches caption OR username/name
+ * - zeals: Searches in ZealPost.caption + User.username + User.name
+ *          When searching, matches caption OR username/name
  * - trending: WritePost.content (text index)
  * - polls: Poll.caption (text index, status: ACTIVE)
  * - users: User.name, User.username (case-insensitive regex)

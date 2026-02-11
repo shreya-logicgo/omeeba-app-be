@@ -15,7 +15,7 @@ import { getPagination } from "../utils/pagination.js";
 
 /**
  * Get Trending Content
- * @route GET /api/v1/explore/trending
+ * @route GET /api/v1/explore
  * @access Private (optional - can work without auth for public explore)
  */
 export const getTrending = async (req, res) => {
@@ -25,11 +25,11 @@ export const getTrending = async (req, res) => {
     const { contentType = "all" } = req.query;
 
     // Validate contentType
-    const validContentTypes = ["all", "post", "write", "zeal", "poll"];
+    const validContentTypes = ["all", "post", "write", "zeal", "poll", "explore"];
     if (!validContentTypes.includes(contentType)) {
       return sendError(
         res,
-        "Invalid contentType. Must be one of: all, post, write, zeal, poll",
+        "Invalid contentType. Must be one of: all, post, write, zeal, poll, explore",
         "Validation Error",
         "Invalid contentType parameter",
         StatusCodes.BAD_REQUEST
@@ -73,24 +73,44 @@ export const search = async (req, res) => {
     const { query = "", type, contentType } = req.query;
 
     // Validate type
-    const validTypes = ["explore", "trending", "polls", "users", "hashtag"];
+    const validTypes = ["explore", "trending", "polls", "users", "hashtag", "posts", "zeals"];
     if (!validTypes.includes(type)) {
       return sendError(
         res,
-        "Invalid type. Must be one of: explore, trending, polls, users, hashtag",
+        "Invalid type. Must be one of: explore, trending, polls, users, hashtag, posts, zeals",
         "Validation Error",
         "Invalid type parameter",
         StatusCodes.BAD_REQUEST
       );
     }
 
-    // Validate contentType for explore type
-    if (type === "explore" && contentType) {
-      const validContentTypes = ["zeal", "post"];
-      if (!validContentTypes.includes(contentType)) {
+    // Map posts and zeals to explore with contentType
+    let mappedType = type;
+    let mappedContentType = contentType;
+    
+    if (type === "posts") {
+      mappedType = "explore";
+      mappedContentType = "post";
+    } else if (type === "zeals") {
+      mappedType = "explore";
+      mappedContentType = "zeal";
+    }
+
+    // Validate contentType based on type
+    if (mappedContentType) {
+      let validContentTypes = [];
+      if (mappedType === "explore") {
+        validContentTypes = ["post", "zeal"];
+      } else if (mappedType === "users") {
+        validContentTypes = ["users"];
+      } else if (mappedType === "hashtag") {
+        validContentTypes = ["hashtag"];
+      }
+
+      if (validContentTypes.length > 0 && !validContentTypes.includes(mappedContentType)) {
         return sendError(
           res,
-          "Invalid contentType. Must be one of: zeal, post (only for explore type)",
+          `Invalid contentType. For type '${type}', contentType must be one of: ${validContentTypes.join(", ")}`,
           "Validation Error",
           "Invalid contentType parameter",
           StatusCodes.BAD_REQUEST
@@ -101,8 +121,8 @@ export const search = async (req, res) => {
     // Perform simplified search
     const result = await simplifiedSearch(userId, {
       query,
-      type,
-      contentType,
+      type: mappedType,
+      contentType: mappedContentType,
     });
 
     return res.status(StatusCodes.OK).json({
