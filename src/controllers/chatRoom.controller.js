@@ -79,7 +79,7 @@ export const getChatRoomsHandler = async (req, res) => {
 
     return sendPaginated(
       res,
-      result.rooms,
+      { rooms: result.rooms },
       result.pagination,
       "Chat rooms retrieved successfully",
       StatusCodes.OK
