@@ -695,18 +695,19 @@ export const initializeSocket = (server) => {
 
     /**
      * Handle: View snap (ack + listen: snap_viewed). Returns viewUrl etc.
+     * Accepts snapId OR messageId (id from chat message list)
      */
     socket.on("view_snap", async (data, ack) => {
       const cb = typeof ack === "function" ? ack : () => {};
       try {
-        const { snapId } = data || {};
-        if (!snapId) {
-          const res = { success: false, error: "snapId required" };
+        const { snapId, messageId } = data || {};
+        if (!snapId && !messageId) {
+          const res = { success: false, error: "snapId or messageId is required" };
           cb(res);
           socket.emit("snap_viewed", res);
           return;
         }
-        const result = await viewSnap(snapId, userId);
+        const result = await viewSnap(snapId || null, userId, { messageId: messageId || null });
         const res = { success: true, data: result };
         cb(res);
         socket.emit("snap_viewed", res);

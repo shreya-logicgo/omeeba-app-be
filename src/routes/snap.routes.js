@@ -8,6 +8,7 @@ import {
   createSnapHandler,
   confirmSnapUploadHandler,
   viewSnapHandler,
+  viewSnapByMessageIdHandler,
   getSnapsInboxHandler,
   getSentSnapsHandler,
 } from "../controllers/snap.controller.js";
@@ -15,6 +16,7 @@ import { validateQuery, validateBody, validateParams } from "../utils/validation
 import {
   createSnapBodySchema,
   snapIdParamsSchema,
+  messageIdParamsSchema,
   getSnapsQuerySchema,
 } from "../validators/snap.validator.js";
 import { protect } from "../middleware/auth.js";
@@ -52,6 +54,18 @@ router.post(
   protect,
   validateParams(snapIdParamsSchema),
   confirmSnapUploadHandler
+);
+
+/**
+ * @route   GET /api/v1/snaps/view-by-message/:messageId
+ * @desc    View a snap by chat message id (from get_messages list)
+ * @access  Private
+ */
+router.get(
+  "/view-by-message/:messageId",
+  protect,
+  validateParams(messageIdParamsSchema),
+  viewSnapByMessageIdHandler
 );
 
 /**

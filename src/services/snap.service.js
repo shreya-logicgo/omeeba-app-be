@@ -278,14 +278,60 @@ export const confirmSnapUpload = async (snapId, userId) => {
 };
 
 /**
+ * Resolve snapId from messageId (chat message list id)
+ * @param {string} messageId - ChatMessage ID from get_messages list
+ * @param {string} userId - User ID (must be room participant)
+ * @returns {Promise<string>} snapId
+ */
+const resolveSnapIdFromMessageId = async (messageId, userId) => {
+  const ChatMessage = (await import("../models/chat/ChatMessage.js")).default;
+  const ChatRoom = (await import("../models/chat/ChatRoom.js")).default;
+
+  const message = await ChatMessage.findOne({
+    _id: messageId,
+    messageType: "Snap",
+  });
+
+  if (!message) {
+    throw new Error("Message not found or is not a snap");
+  }
+
+  if (!message.snapId) {
+    throw new Error("Snap not linked to this message");
+  }
+
+  const room = await ChatRoom.findOne({
+    _id: message.roomId,
+    $or: [{ userA: userId }, { userB: userId }],
+  });
+
+  if (!room) {
+    throw new Error("Unauthorized: You are not in this chat");
+  }
+
+  return message.snapId.toString();
+};
+
+/**
  * Get secure view URL for a snap (time-limited pre-signed URL)
- * @param {string} snapId - Snap ID
+ * @param {string} snapId - Snap ID (optional if messageId provided)
  * @param {string} userId - User ID (must be recipient)
+ * @param {Object} options - { messageId?: string } - message ID from chat list
  * @returns {Promise<Object>} Snap data with secure view URL
  */
-export const viewSnap = async (snapId, userId) => {
+export const viewSnap = async (snapId, userId, options = {}) => {
   try {
-    const snap = await Snap.findById(snapId);
+    let resolvedSnapId = snapId;
+
+    if (options.messageId) {
+      resolvedSnapId = await resolveSnapIdFromMessageId(options.messageId, userId);
+    }
+
+    if (!resolvedSnapId) {
+      throw new Error("snapId or messageId is required");
+    }
+
+    const snap = await Snap.findById(resolvedSnapId);
 
     if (!snap) {
       throw new Error("Snap not found");
@@ -330,7 +376,7 @@ export const viewSnap = async (snapId, userId) => {
       (r) => r.userId.toString() === userId.toString()
     );
 
-    logger.info(`Snap viewed: ${snapId} by user ${userId} (wasViewed: ${wasViewed})`);
+    logger.info(`Snap viewed: ${resolvedSnapId} by user ${userId} (wasViewed: ${wasViewed})`);
 
     return {
       snap: formatSnapResponse(snap, userId),
@@ -493,6 +539,7 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
           messageType: MessageType.SNAP,
           mediaUrl: snap.mediaUrl,
           thumbnailUrl: snap.thumbnailUrl,
+          snapId: snap._id,
           status: MessageStatus.SENT,
         });
 

@@ -36,6 +36,11 @@ const chatMessageSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    snapId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Snap",
+      default: null, // for messageType SNAP - link to Snap document
+    },
     contentId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null, // postId / writePostId / zealId (when shared)

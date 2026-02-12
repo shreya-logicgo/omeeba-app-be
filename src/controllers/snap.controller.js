@@ -107,6 +107,47 @@ export const confirmSnapUploadHandler = async (req, res) => {
 };
 
 /**
+ * View Snap by Chat Message ID (from get_messages list)
+ * @route GET /api/v1/snaps/view-by-message/:messageId
+ * @access Private
+ */
+export const viewSnapByMessageIdHandler = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.user._id.toString();
+
+    const result = await viewSnap(null, userId, { messageId });
+
+    return sendSuccess(
+      res,
+      result,
+      "Snap retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("View snap by message error:", error);
+
+    if (
+      error.message === "Snap not found" ||
+      error.message === "Snap has expired" ||
+      error.message.includes("Unauthorized") ||
+      error.message.includes("Message not found") ||
+      error.message.includes("Snap not linked")
+    ) {
+      return sendBadRequest(res, error.message);
+    }
+
+    return sendError(
+      res,
+      "Failed to view snap",
+      "View Snap Error",
+      error.message || "An error occurred while viewing snap",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
  * View Snap
  * @route GET /api/v1/snaps/:snapId/view
  * @access Private

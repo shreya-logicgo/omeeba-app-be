@@ -68,6 +68,19 @@ export const snapIdParamsSchema = Joi.object({
 });
 
 /**
+ * Message ID Params Schema (for view by chat message id)
+ */
+export const messageIdParamsSchema = Joi.object({
+  messageId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/)
+    .required()
+    .messages({
+      "string.pattern.base": "Message ID is invalid. Please check and try again",
+      "any.required": "Message ID is required",
+    }),
+});
+
+/**
  * Get Snaps Query Schema
  */
 export const getSnapsQuerySchema = Joi.object({
