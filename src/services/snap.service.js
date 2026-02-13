@@ -352,6 +352,31 @@ export const viewSnap = async (snapId, userId, options = {}) => {
     const wasViewed = snap.markAsViewed(userId);
     await snap.save();
 
+    // Update ChatMessage status to SEEN so get_messages shows viewed
+    const ChatMessage = (await import("../models/chat/ChatMessage.js")).default;
+    const ChatRoom = (await import("../models/chat/ChatRoom.js")).default;
+    const { MessageStatus } = await import("../models/enums.js");
+
+    if (options.messageId) {
+      await ChatMessage.findOneAndUpdate(
+        { _id: options.messageId, messageType: "Snap" },
+        { status: MessageStatus.SEEN }
+      );
+    } else {
+      const room = await ChatRoom.findOne({
+        $or: [
+          { userA: snap.senderId._id || snap.senderId, userB: userId },
+          { userA: userId, userB: snap.senderId._id || snap.senderId },
+        ],
+      });
+      if (room) {
+        await ChatMessage.updateOne(
+          { roomId: room._id, snapId: resolvedSnapId },
+          { status: MessageStatus.SEEN }
+        );
+      }
+    }
+
     // Generate secure pre-signed URL for viewing (expires in 1 minute)
     const client = initializeS3Client();
     let viewUrl = null;
