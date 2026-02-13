@@ -367,7 +367,12 @@ export const initializeSocket = (server) => {
       try {
         const { page = 1, limit = 20, search = "" } = data || {};
         const result = await getChatRooms(userId, page, limit, (search && search.trim()) || "");
-        const res = { success: true, data: result };
+        const res = {
+          success: true,
+          message: "Chat rooms retrieved successfully",
+          data: { rooms: result.rooms },
+          pagination: result.pagination,
+        };
         cb(res);
         socket.emit("rooms_list", res);
       } catch (e) {
@@ -463,7 +468,12 @@ export const initializeSocket = (server) => {
       try {
         const { page = 1, limit = 20, search = "" } = data || {};
         const result = await getMessageRequests(userId, page, limit, (search && search.trim()) || "");
-        const res = { success: true, data: result };
+        const res = {
+          success: true,
+          message: "Message requests retrieved successfully",
+          data: { requests: result.requests },
+          pagination: result.pagination,
+        };
         cb(res);
         socket.emit("message_requests_list", res);
       } catch (e) {

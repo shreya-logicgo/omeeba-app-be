@@ -214,38 +214,43 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         lastMessage.senderId.toString() === otherUserId;
 
       // Format last message preview with status indicator
+      // lastMessageStatus: "new" = from other, unread (dot); "new_byte" = snap from other, unread; "delivered" = sent by me, delivered; "open" = sent by me, recipient saw
       let lastMessagePreview = null;
       let lastMessageStatus = null;
-      
+      const hasUnread = participant && participant.unreadCount > 0;
+
       if (room.lastMessage) {
-        // Determine message status indicator
-        if (lastMessageFromOther && participant && participant.unreadCount > 0) {
-          lastMessageStatus = "new"; // "➡️ New Byte" indicator
+        if (lastMessageFromOther && hasUnread) {
+          lastMessageStatus = "new"; // orange dot = new msg, view karna baki
+          if (room.lastMessageType === MessageType.SNAP) {
+            lastMessagePreview = "New Byte"; // snap from other, unread
+          }
         } else if (!lastMessageFromOther && lastMessage) {
-          // Last message is from current user, show status
           if (lastMessage.status === MessageStatus.SEEN) {
-            lastMessageStatus = "seen"; // "✓ Seen" indicator
+            lastMessageStatus = "open"; // samne wale ne dekha
           } else if (lastMessage.status === MessageStatus.DELIVERED) {
-            lastMessageStatus = "delivered"; // "▷ Delivered" indicator
+            lastMessageStatus = "delivered"; // sent by me, delivered
           } else {
-            lastMessageStatus = "sent"; // "Sent" indicator
+            lastMessageStatus = "sent"; // sent
           }
         }
 
-        if (room.lastMessageType === MessageType.TEXT) {
-          lastMessagePreview = room.lastMessage;
-        } else if (room.lastMessageType === MessageType.IMAGE) {
-          lastMessagePreview = "📷 Image";
-        } else if (room.lastMessageType === MessageType.SNAP) {
-          lastMessagePreview = "📸 Snap";
-        } else if (room.lastMessageType === MessageType.POST) {
-          lastMessagePreview = "📌 Post";
-        } else if (room.lastMessageType === MessageType.WRITE_POST) {
-          lastMessagePreview = "✍️ Write Post";
-        } else if (room.lastMessageType === MessageType.ZEAL) {
-          lastMessagePreview = "🎬 Zeal";
-        } else {
-          lastMessagePreview = room.lastMessage;
+        if (!lastMessagePreview) {
+          if (room.lastMessageType === MessageType.TEXT) {
+            lastMessagePreview = room.lastMessage;
+          } else if (room.lastMessageType === MessageType.IMAGE) {
+            lastMessagePreview = "📷 Image";
+          } else if (room.lastMessageType === MessageType.SNAP) {
+            lastMessagePreview = "📸 Snap";
+          } else if (room.lastMessageType === MessageType.POST) {
+            lastMessagePreview = "📌 Post";
+          } else if (room.lastMessageType === MessageType.WRITE_POST) {
+            lastMessagePreview = "✍️ Write Post";
+          } else if (room.lastMessageType === MessageType.ZEAL) {
+            lastMessagePreview = "🎬 Zeal";
+          } else {
+            lastMessagePreview = room.lastMessage;
+          }
         }
       }
 
@@ -458,14 +463,29 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
       const requesterIdStr = requester._id.toString();
       const followersCount = followersMap.get(requesterIdStr) || 0;
       const lastMessage = lastMessageMap.get(roomId);
-      let lastMessagePreview = room.lastMessage;
-      if (room.lastMessageType === MessageType.TEXT) {
-        lastMessagePreview = room.lastMessage;
-      } else if (room.lastMessageType === MessageType.IMAGE) lastMessagePreview = "📷 Image";
-      else if (room.lastMessageType === MessageType.SNAP) lastMessagePreview = "📸 Snap";
-      else if (room.lastMessageType === MessageType.POST) lastMessagePreview = "📌 Post";
-      else if (room.lastMessageType === MessageType.WRITE_POST) lastMessagePreview = "✍️ Write Post";
-      else if (room.lastMessageType === MessageType.ZEAL) lastMessagePreview = "🎬 Zeal";
+      const hasUnread = participant && participant.unreadCount > 0;
+
+      // Same logic as getChatRooms: dot = new msg from requester, view karna baki; New Byte = snap unread
+      let lastMessagePreview = null;
+      let lastMessageStatus = null;
+      if (room.lastMessage) {
+        if (hasUnread) {
+          lastMessageStatus = "new"; // dot = requester ne msg bheja, maine abhi dekha nahi
+          if (room.lastMessageType === MessageType.SNAP) {
+            lastMessagePreview = "New Byte";
+          }
+        }
+        if (!lastMessagePreview) {
+          if (room.lastMessageType === MessageType.TEXT) {
+            lastMessagePreview = room.lastMessage;
+          } else if (room.lastMessageType === MessageType.IMAGE) lastMessagePreview = "📷 Image";
+          else if (room.lastMessageType === MessageType.SNAP) lastMessagePreview = "📸 Snap";
+          else if (room.lastMessageType === MessageType.POST) lastMessagePreview = "📌 Post";
+          else if (room.lastMessageType === MessageType.WRITE_POST) lastMessagePreview = "✍️ Write Post";
+          else if (room.lastMessageType === MessageType.ZEAL) lastMessagePreview = "🎬 Zeal";
+          else lastMessagePreview = room.lastMessage;
+        }
+      }
 
       return {
         id: roomId,
@@ -482,6 +502,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
         },
         lastMessage: lastMessagePreview,
         lastMessageType: room.lastMessageType,
+        lastMessageStatus,
         lastMessageAt: room.lastMessageAt,
         timestamp: room.lastMessageAt ? formatChatListTime(room.lastMessageAt) : null,
         unreadCount: participant ? participant.unreadCount : 0,
