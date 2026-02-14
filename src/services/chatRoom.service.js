@@ -269,7 +269,8 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         },
         lastMessage: lastMessagePreview,
         lastMessageType: room.lastMessageType,
-        lastMessageStatus: lastMessageStatus, // Add status indicator
+        lastMessageStatus: lastMessageStatus,
+        lastMessageFromMe: room.lastMessage ? !lastMessageFromOther : null, // true = mere, false = other ne
         lastMessageAt: room.lastMessageAt,
         timestamp: room.lastMessageAt ? formatChatListTime(room.lastMessageAt) : null, // 12-hour format "11:02 AM"
         timeAgo: room.lastMessageAt ? getTimeAgo(room.lastMessageAt) : null, // Keep for backward compatibility
@@ -503,6 +504,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
         lastMessage: lastMessagePreview,
         lastMessageType: room.lastMessageType,
         lastMessageStatus,
+        lastMessageFromMe: false, // requests mein sirf requester bhejta hai
         lastMessageAt: room.lastMessageAt,
         timestamp: room.lastMessageAt ? formatChatListTime(room.lastMessageAt) : null,
         unreadCount: participant ? participant.unreadCount : 0,
