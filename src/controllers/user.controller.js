@@ -15,12 +15,13 @@ import logger from "../utils/logger.js";
 import Post from "../models/content/Post.js";
 import mongoose from "mongoose";
 import WritePost from "../models/content/WritePost.js";
+import ZealPost from "../models/content/ZealPost.js";
 import { getPagination, getPaginationMeta } from "../utils/pagination.js";
 import Poll from "../models/content/Poll.js";
 import ContentLike from "../models/interactions/ContentLike.js";
 import Comment from "../models/comments/Comment.js";
 import SavedContent from "../models/interactions/SavedContent.js";
-import { ContentType } from "../models/enums.js";
+import { ContentType, ZealStatus } from "../models/enums.js";
 import { generateShareableLink } from "../utils/shareableLink.js";
 import {
   generateStorageKey,
@@ -751,6 +752,116 @@ export const getUserPolls = async (req, res) => {
 };
 
 /**
+ * Get user's zeal posts
+ */
+export const getUserZeals = async (req, res) => {
+  try {
+    const filter = {};
+    const { date, userId } = req.query;
+
+    // Validate userId if provided
+    if (userId) {
+      await validateUserId(userId);
+      filter.userId = new mongoose.Types.ObjectId(userId);
+    } else {
+      filter.userId = req.user._id;
+    }
+
+    // Only return published or ready zeals (not drafts, processing, or failed)
+    filter.status = { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] };
+
+    if (date) {
+      // date format: YYYY-MM-DD
+      const startDate = new Date(`${date}T00:00:00.000Z`);
+      const endDate = new Date(`${date}T23:59:59.999Z`);
+
+      filter.createdAt = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+
+    // Get pagination parameters
+    const { page, limit, skip } = getPagination(req);
+
+    // Get total count for pagination
+    const total = await ZealPost.countDocuments(filter);
+
+    // Get paginated zeals
+    const userZeals = await ZealPost.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate(
+        "userId",
+        "name username profileImage isAccountVerified isVerifiedBadge"
+      )
+      .populate(
+        "mentionedUserIds",
+        "name username profileImage isAccountVerified isVerifiedBadge"
+      )
+      .populate("musicId", "title artist coverImage")
+      .lean();
+
+    // Add contentType to each zeal for helper functions
+    const zealsWithType = userZeals.map((zeal) => ({
+      ...zeal,
+      contentType: ContentType.ZEAL,
+    }));
+
+    // Get engagement metrics, liked and saved status
+    const currentUserId = req.user._id;
+    const [metricsMap, likedIds, savedIds] = await Promise.all([
+      getEngagementMetrics(zealsWithType),
+      getLikedContentIds(currentUserId, zealsWithType),
+      getSavedContentIds(currentUserId, zealsWithType),
+    ]);
+
+    // Add shareable link, engagement metrics, and status to each zeal
+    const zealsWithMetadata = zealsWithType.map((zeal) => {
+      const zealId = zeal._id.toString();
+      const metrics = metricsMap.get(zealId) || { likeCount: 0, commentCount: 0 };
+      return {
+        ...zeal,
+        likeCount: metrics.likeCount,
+        commentCount: metrics.commentCount,
+        isLiked: likedIds.has(zealId),
+        isSaved: savedIds.has(zealId),
+        shareableLink: generateShareableLink(ContentType.ZEAL, zeal._id),
+      };
+    });
+
+    // Get pagination metadata
+    const pagination = getPaginationMeta(total, page, limit);
+
+    return sendPaginated(
+      res,
+      zealsWithMetadata,
+      pagination,
+      "User zeals fetch successfully.",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    // Handle validation errors
+    if (
+      error.message === "User not found" ||
+      error.message === "User account has been deleted" ||
+      error.message === "User account is not verified"
+    ) {
+      return sendBadRequest(res, error.message);
+    }
+
+    return sendError(
+      res,
+      "Failed to get user zeals",
+      "Get user zeals",
+      error.message || "An error occurred while retrieving user zeals.",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
  * Get posts where user is mentioned
  */
 export const getMentionedPosts = async (req, res) => {
@@ -926,6 +1037,7 @@ export default {
   searchUsers,
   getUserPost,
   getUserWritePosts,
+  getUserZeals,
   getUserPolls,
   getMentionedPosts,
   searchUsersForMentionsHandler,

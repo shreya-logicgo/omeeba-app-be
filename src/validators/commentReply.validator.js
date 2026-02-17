@@ -35,6 +35,13 @@ export const commentIdParamsSchema = Joi.object({
 });
 
 /**
+ * Schema for reply ID in params
+ */
+export const replyIdParamsSchema = Joi.object({
+  replyId: commonValidations.objectId.label("Reply ID"),
+});
+
+/**
  * Schema for getting replies query
  */
 export const getRepliesQuerySchema = createSchema(

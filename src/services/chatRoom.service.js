@@ -495,7 +495,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
         id: roomId,
         roomId,
         chatType: ChatType.REQUEST,
-        fromUser: {
+        otherUser: {
           id: requesterIdStr,
           name: requester.name,
           username: requester.username,
@@ -513,7 +513,9 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
         lastMessageThumbnailUrl: lastMessage?.thumbnailUrl || null,
         lastMessageAt: room.lastMessageAt,
         timestamp: room.lastMessageAt ? formatChatListTime(room.lastMessageAt) : null,
+        timeAgo: room.lastMessageAt ? getTimeAgo(room.lastMessageAt) : null,
         unreadCount: participant ? participant.unreadCount : 0,
+        isBlocked: room.isBlocked ?? false,
         createdAt: room.createdAt,
         updatedAt: room.updatedAt,
       };

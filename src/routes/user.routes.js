@@ -11,6 +11,7 @@ import {
   getUserProfile,
   getUserPost,
   getUserWritePosts,
+  getUserZeals,
   getUserPolls,
   getMentionedPosts,
 } from "../controllers/user.controller.js";
@@ -107,6 +108,13 @@ router.get(
   validateQuery(getUserPostQueries),
   getUserWritePosts
 );
+
+/*
+ * @route   GET /api/v1/users/zeals
+ * @desc    Get user's zeal posts
+ * @access  Private
+ */
+router.get("/zeals", protect, verifyAccountStatus, validateQuery(getUserPostQueries), getUserZeals);
 
 /*
  * @route   GET / api / v1 / users / polls

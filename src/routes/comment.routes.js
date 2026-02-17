@@ -9,11 +9,16 @@ import { commentRateLimiter } from "../middleware/rateLimiter.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validator.js";
 import { createCommentBodySchema } from "../validators/comment.validator.js";
 import { commentIdParamsSchema } from "../validators/commentLike.validator.js";
-import { createReplyBodySchema, getRepliesQuerySchema } from "../validators/commentReply.validator.js";
+import {
+  createReplyBodySchema,
+  getRepliesQuerySchema,
+  replyIdParamsSchema,
+} from "../validators/commentReply.validator.js";
 import { getCommentsQuerySchema } from "../validators/commentListing.validator.js";
 import { reportCommentBodySchema } from "../validators/commentReport.validator.js";
 import { createComment } from "../controllers/comment.controller.js";
 import { toggleLike } from "../controllers/commentLike.controller.js";
+import { toggleReplyLike } from "../controllers/replyCommentLike.controller.js";
 import { createReplyHandler, getRepliesHandler } from "../controllers/commentReply.controller.js";
 import { deleteCommentHandler } from "../controllers/commentDeletion.controller.js";
 import { reportCommentHandler } from "../controllers/commentReport.controller.js";
@@ -122,6 +127,18 @@ router.post(
   validateParams(commentIdParamsSchema),
   validateBody(createReplyBodySchema),
   createReplyHandler
+);
+
+/**
+ * @route   POST /api/v1/comments/replies/:replyId/like
+ * @desc    Toggle like on a reply comment (like if not liked, unlike if already liked)
+ * @access  Private
+ */
+router.post(
+  "/replies/:replyId/like",
+  protect,
+  validateParams(replyIdParamsSchema),
+  toggleReplyLike
 );
 
 export default router;
