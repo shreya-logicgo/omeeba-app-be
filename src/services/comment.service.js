@@ -113,7 +113,7 @@ export const createComment = async (userId, commentData) => {
           }
 
           if (notificationType) {
-            await createNotification({
+            const notification = await createNotification({
               receiverId: contentOwnerId,
               senderId: userId,
               type: notificationType,
@@ -124,38 +124,63 @@ export const createComment = async (userId, commentData) => {
                 commentText: newComment.comment,
               },
             });
+
+            if (notification) {
+              logger.info(`Comment notification created successfully: ${notification._id} for comment ${newComment._id}`);
+            } else {
+              logger.error(`Failed to create comment notification for comment ${newComment._id}, receiverId: ${contentOwnerId}, senderId: ${userId}, type: ${notificationType}`);
+            }
+          } else {
+            logger.warn(`No notification type found for contentType: ${contentType}`);
           }
+        } else {
+          logger.info(`Skipping notification - self comment by user ${userId}`);
         }
 
         // Notify mentioned users
         if (mentionedUserIds.length > 0) {
-          const notificationPromises = mentionedUserIds.map((mentionedUserId) => {
+          const notificationPromises = mentionedUserIds.map(async (mentionedUserId) => {
             // Don't notify if mentioned user is the commenter or content owner
             if (
               mentionedUserId.toString() !== userId.toString() &&
               mentionedUserId.toString() !== contentOwnerId.toString()
             ) {
-              return createNotification({
-                receiverId: mentionedUserId,
-                senderId: userId,
-                type: NotificationType.MENTION_IN_COMMENT,
-                contentType,
-                contentId,
-                metadata: { 
-                  commentId: newComment._id.toString(),
-                  commentText: newComment.comment,
-                },
-              });
+              try {
+                const notification = await createNotification({
+                  receiverId: mentionedUserId,
+                  senderId: userId,
+                  type: NotificationType.MENTION_IN_COMMENT,
+                  contentType,
+                  contentId,
+                  metadata: { 
+                    commentId: newComment._id.toString(),
+                    commentText: newComment.comment,
+                  },
+                });
+
+                if (notification) {
+                  logger.info(`Mention notification created successfully: ${notification._id} for user ${mentionedUserId}`);
+                } else {
+                  logger.error(`Failed to create mention notification for user ${mentionedUserId}, comment ${newComment._id}`);
+                }
+                return notification;
+              } catch (mentionError) {
+                logger.error(`Error creating mention notification for user ${mentionedUserId}:`, mentionError);
+                return null;
+              }
             }
-            return Promise.resolve(null);
+            return null;
           });
 
           await Promise.all(notificationPromises);
         }
+      } else {
+        logger.warn(`Content not found for contentType: ${contentType}, contentId: ${contentId}`);
       }
     } catch (notificationError) {
       // Log error but don't fail the comment creation
       logger.error("Error creating comment notifications:", notificationError);
+      logger.error("Error stack:", notificationError.stack);
     }
 
     // Get like count and user's like status

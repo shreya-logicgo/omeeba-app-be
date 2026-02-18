@@ -269,16 +269,33 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
     }).populate("aggregatedUserIds", "name username profileImage");
 
     if (existingNotification) {
-    // Check if sender already in aggregated list
-    const senderExists = existingNotification.aggregatedUserIds.some(
-      (userId) => userId._id.toString() === senderId.toString()
-    );
+      // Check if sender already in aggregated list
+      const senderExists = existingNotification.aggregatedUserIds.some(
+        (userId) => userId._id.toString() === senderId.toString()
+      );
 
-    if (!senderExists) {
-      // Get latest sender details
-      const latestSender = await User.findById(senderId).select("name username profileImage");
-      
-      if (latestSender) {
+      // For comment notifications, if same user comments again, create new notification instead of updating
+      const isCommentType = type === NotificationType.POST_COMMENT || 
+                           type === NotificationType.ZEAL_COMMENT || 
+                           type === NotificationType.WRITE_COMMENT ||
+                           type === NotificationType.COMMENT_REPLY;
+
+      if (senderExists && isCommentType) {
+        // Same user commenting again - create new individual notification instead of updating
+        logger.info(`Same user ${senderId} commenting again on ${contentType} ${contentId}, creating new notification instead of updating`);
+        return null; // Return null to trigger individual notification creation
+      }
+
+      if (!senderExists) {
+        // Get latest sender details
+        let latestSender = null;
+        try {
+          latestSender = await User.findById(senderId).select("name username profileImage");
+        } catch (senderError) {
+          logger.warn(`Error fetching latest sender ${senderId}:`, senderError);
+        }
+        
+        // Even if sender not found, we should still update the notification
         // Add new sender to aggregation
         existingNotification.aggregatedUserIds.push(senderId);
         existingNotification.aggregatedCount += 1;
@@ -295,12 +312,14 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
               ...metadata, // Include all new metadata, prioritizing latest
             };
           }
-          // Update imageUrl to latest sender's profileImage
-          existingNotification.imageUrl = latestSender.profileImage || existingNotification.imageUrl || null;
+          // Update imageUrl to latest sender's profileImage (if available)
+          if (latestSender) {
+            existingNotification.imageUrl = latestSender.profileImage || existingNotification.imageUrl || null;
+          }
           existingNotification.message = generateAggregatedMessage(
             existingNotification.type,
             firstSender,
-            latestSender,
+            latestSender || firstSender, // Use firstSender as fallback
             totalCount,
             existingNotification.contentType,
             existingNotification.metadata
@@ -311,27 +330,47 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         existingNotification.updatedAt = new Date();
         await existingNotification.save();
 
-        // Send push notification for aggregated update (non-blocking)
-        sendPushNotificationAsync(
-          receiver,
-          latestSender,
-          existingNotification.message,
-          {
-            notificationId: existingNotification._id.toString(),
-            type: existingNotification.type,
-            contentType: existingNotification.contentType || null,
-            contentId: existingNotification.contentId
-              ? existingNotification.contentId.toString()
-              : null,
-            isAggregated: true,
-            aggregatedCount: existingNotification.aggregatedCount,
-            ...existingNotification.metadata,
-          }
-        ).catch((error) => {
-          logger.error("Failed to send push notification for aggregated update:", error);
-        });
+        // Verify notification was saved
+        if (!existingNotification._id) {
+          logger.error(`CRITICAL: Aggregated notification save failed - no _id`);
+          throw new Error("Failed to save aggregated notification");
+        }
+
+        // Verify it exists in database
+        const savedNotification = await Notification.findById(existingNotification._id);
+        if (!savedNotification) {
+          logger.error(`CRITICAL: Aggregated notification saved but not found in database: ${existingNotification._id}`);
+          throw new Error("Notification was saved but not found in database");
+        }
+
+        logger.info(`Aggregated notification updated and saved: ${existingNotification._id}`);
+
+        // Send push notification for aggregated update (non-blocking) - only after save
+        if (receiver && latestSender) {
+          sendPushNotificationAsync(
+            receiver,
+            latestSender,
+            existingNotification.message,
+            {
+              notificationId: existingNotification._id.toString(),
+              type: existingNotification.type,
+              contentType: existingNotification.contentType || null,
+              contentId: existingNotification.contentId
+                ? existingNotification.contentId.toString()
+                : null,
+              isAggregated: true,
+              aggregatedCount: existingNotification.aggregatedCount,
+              ...existingNotification.metadata,
+            }
+          ).catch((error) => {
+            logger.error("Failed to send push notification for aggregated update:", error);
+          });
+        } else if (receiver && !latestSender) {
+          logger.warn(`Notification saved but push not sent - sender not found: ${senderId}`);
+        }
+      } else {
+        logger.info(`Sender ${senderId} already exists in aggregated notification ${existingNotification._id}`);
       }
-    }
 
       return existingNotification;
     } else {
@@ -363,10 +402,33 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         aggregatedUserIds: [senderId],
         metadata,
         status: NotificationStatus.UNREAD,
-        imageUrl: sender.profileImage || null,
+        imageUrl: sender ? sender.profileImage : null,
       });
 
-      // Send push notification for new aggregated notification (non-blocking) - only if we have receiver and sender
+      // Verify notification was saved
+      if (!notification || !notification._id) {
+        logger.error(`CRITICAL: New aggregated notification save failed - no _id`);
+        throw new Error("Failed to save new aggregated notification");
+      }
+
+      // Explicitly save to ensure persistence (Notification.create already saves, but double-check)
+      try {
+        await notification.save();
+      } catch (saveError) {
+        logger.error(`Error saving aggregated notification:`, saveError);
+        throw saveError;
+      }
+      
+      // Verify it exists in database
+      const savedNotification = await Notification.findById(notification._id);
+      if (!savedNotification) {
+        logger.error(`CRITICAL: Aggregated notification created but not found in database: ${notification._id}`);
+        throw new Error("Notification was created but not found in database");
+      }
+
+      logger.info(`New aggregated notification created and saved: ${notification._id} for type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}`);
+
+      // Send push notification for new aggregated notification (non-blocking) - only after save
       if (receiver && sender) {
         sendPushNotificationAsync(receiver, sender, message, {
           notificationId: notification._id.toString(),
@@ -380,7 +442,12 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
           logger.error("Failed to send push notification for new aggregated notification:", error);
         });
       } else {
-        logger.warn(`Notification created but push not sent - missing receiver or sender`);
+        if (!receiver) {
+          logger.warn(`Notification saved but push not sent - receiver not found: ${receiverId}`);
+        }
+        if (!sender) {
+          logger.warn(`Notification saved but push not sent - sender not found: ${senderId}`);
+        }
       }
 
       return notification;
@@ -422,6 +489,9 @@ export const createNotification = async (notificationData) => {
       metadata = {},
       imageUrl = null,
     } = notificationData;
+
+    // Log incoming request for debugging
+    logger.info(`Creating notification - type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}, contentType: ${contentType}, contentId: ${contentId}`);
 
     // Validate required fields
     if (!receiverId || !senderId || !type) {
@@ -493,18 +563,47 @@ export const createNotification = async (notificationData) => {
         // If aggregation returns null, create individual notification
         if (!notification) {
           logger.warn(`Aggregated notification returned null, creating individual notification for type: ${type}`);
-          notification = await Notification.create({
-            receiverId,
-            senderId,
-            type,
-            contentType,
-            contentId,
-            message: notificationMessage,
-            metadata,
-            status: NotificationStatus.UNREAD,
-            imageUrl: notificationImageUrl,
-          });
-          logger.info(`Created individual notification (fallback from aggregation) for type: ${type} from ${senderId} to ${receiverId}`);
+          try {
+            notification = await Notification.create({
+              receiverId,
+              senderId,
+              type,
+              contentType,
+              contentId,
+              message: notificationMessage,
+              metadata,
+              status: NotificationStatus.UNREAD,
+              imageUrl: notificationImageUrl,
+            });
+            // Verify it was saved
+            if (!notification || !notification._id) {
+              throw new Error("Failed to create fallback notification - no _id");
+            }
+            // Explicitly save to ensure persistence
+            await notification.save();
+            // Verify it exists in database
+            const savedNotification = await Notification.findById(notification._id);
+            if (!savedNotification) {
+              throw new Error("Notification was created but not found in database");
+            }
+            logger.info(`Created individual notification (fallback from aggregation) for type: ${type} from ${senderId} to ${receiverId}, ID: ${notification._id}`);
+          } catch (fallbackError) {
+            logger.error(`Failed to create fallback notification:`, fallbackError);
+            throw fallbackError;
+          }
+        } else {
+          // Verify aggregated notification was saved
+          if (!notification._id) {
+            logger.error(`CRITICAL: Aggregated notification has no _id`);
+            throw new Error("Aggregated notification has no _id");
+          }
+          // Verify it exists in database
+          const savedNotification = await Notification.findById(notification._id);
+          if (!savedNotification) {
+            logger.error(`CRITICAL: Aggregated notification not found in database: ${notification._id}`);
+            throw new Error("Aggregated notification not found in database");
+          }
+          logger.info(`Using aggregated notification: ${notification._id} for type: ${type}`);
         }
       } catch (aggError) {
         logger.error(`Error in createOrUpdateAggregatedNotification:`, aggError);
@@ -521,7 +620,18 @@ export const createNotification = async (notificationData) => {
             status: NotificationStatus.UNREAD,
             imageUrl: notificationImageUrl,
           });
-          logger.info(`Created individual notification (fallback from error) for type: ${type} from ${senderId} to ${receiverId}`);
+          // Verify it was saved
+          if (!notification || !notification._id) {
+            throw new Error("Failed to create fallback notification - no _id");
+          }
+          // Explicitly save to ensure persistence
+          await notification.save();
+          // Verify it exists in database
+          const savedNotification = await Notification.findById(notification._id);
+          if (!savedNotification) {
+            throw new Error("Notification was created but not found in database");
+          }
+          logger.info(`Created individual notification (fallback from error) for type: ${type} from ${senderId} to ${receiverId}, ID: ${notification._id}`);
         } catch (createError) {
           logger.error(`Failed to create fallback notification:`, createError);
           throw createError;
@@ -541,15 +651,67 @@ export const createNotification = async (notificationData) => {
           status: NotificationStatus.UNREAD,
           imageUrl: notificationImageUrl,
         });
-        logger.info(`Notification created: ${type} from ${senderId} to ${receiverId}`);
+        // Verify it was saved
+        if (!notification || !notification._id) {
+          throw new Error("Failed to create individual notification - no _id");
+        }
+        // Explicitly save to ensure persistence
+        await notification.save();
+        // Verify it exists in database
+        const savedNotification = await Notification.findById(notification._id);
+        if (!savedNotification) {
+          throw new Error("Notification was created but not found in database");
+        }
+        logger.info(`Notification created: ${type} from ${senderId} to ${receiverId}, ID: ${notification._id}`);
       } catch (createError) {
         logger.error(`Failed to create individual notification:`, createError);
         throw createError;
       }
     }
 
-    // Send push notification (non-blocking) - only if we have receiver
-    if (notification && receiver && sender) {
+    // CRITICAL: Ensure notification is saved before sending push
+    if (!notification) {
+      logger.error(`CRITICAL: Notification was not created for type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}`);
+      // Try one more time to create notification
+      try {
+        notification = await Notification.create({
+          receiverId,
+          senderId,
+          type,
+          contentType,
+          contentId,
+          message: notificationMessage || `New ${type} notification`,
+          metadata,
+          status: NotificationStatus.UNREAD,
+          imageUrl: notificationImageUrl,
+        });
+        // Explicitly save to ensure persistence
+        await notification.save();
+        // Verify it exists in database
+        const savedNotification = await Notification.findById(notification._id);
+        if (!savedNotification) {
+          logger.error(`CRITICAL: Notification created but not found in database: ${notification._id}`);
+          return null;
+        }
+        logger.warn(`Created notification in final check: ${notification._id}`);
+      } catch (finalCreateError) {
+        logger.error(`CRITICAL: Failed to create notification in final check:`, finalCreateError);
+        return null;
+      }
+    }
+
+    // Verify notification was actually saved by checking if it has an _id
+    if (!notification || !notification._id) {
+      logger.error(`CRITICAL: Notification object is invalid - no _id:`, notification);
+      return null;
+    }
+
+    // Log successful notification creation
+    logger.info(`Notification successfully created and saved: ${notification._id} for type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}`);
+
+    // Send push notification (non-blocking) - only if we have receiver and sender
+    // But notification MUST be saved first
+    if (receiver && sender) {
       sendPushNotificationAsync(receiver, sender, notificationMessage, {
         notificationId: notification._id.toString(),
         type: type,
@@ -560,10 +722,13 @@ export const createNotification = async (notificationData) => {
         // Log error but don't fail notification creation
         logger.error("Failed to send push notification:", error);
       });
-    } else if (notification && !receiver) {
-      logger.warn(`Notification created but push not sent - receiver not found: ${receiverId}`);
-    } else if (notification && !sender) {
-      logger.warn(`Notification created but push not sent - sender not found: ${senderId}`);
+    } else {
+      if (!receiver) {
+        logger.warn(`Notification saved but push not sent - receiver not found: ${receiverId}`);
+      }
+      if (!sender) {
+        logger.warn(`Notification saved but push not sent - sender not found: ${senderId}`);
+      }
     }
 
     return notification;
