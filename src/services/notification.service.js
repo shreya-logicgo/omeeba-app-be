@@ -236,16 +236,27 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
 
     if (!receiverId || !senderId || !type || !message) {
       logger.error(`Missing required fields in createOrUpdateAggregatedNotification: receiverId=${receiverId}, senderId=${senderId}, type=${type}`);
-      return null;
+      // Don't return null - let the calling function handle fallback
+      throw new Error("Missing required fields in createOrUpdateAggregatedNotification");
     }
 
     const aggregationKey = generateAggregationKey(type, receiverId, contentType, contentId);
 
     // Get receiver user for push notifications
-    const receiver = await User.findById(receiverId).select("oneSignalPlayerId pushNotificationEnabled");
-    if (!receiver || receiver.isDeleted) {
-      logger.warn(`Receiver not found or deleted for notification: ${receiverId}`);
-      return null;
+    let receiver = null;
+    try {
+      receiver = await User.findById(receiverId).select("oneSignalPlayerId pushNotificationEnabled");
+      if (receiver && receiver.isDeleted) {
+        logger.warn(`Receiver is deleted: ${receiverId}`);
+        receiver = null;
+      }
+    } catch (receiverError) {
+      logger.warn(`Error fetching receiver ${receiverId}:`, receiverError);
+    }
+
+    // If receiver not found, still continue to create notification
+    if (!receiver) {
+      logger.warn(`Receiver not found for aggregated notification: ${receiverId}, but continuing...`);
     }
 
     // Find existing aggregated notification (within last 24 hours)
@@ -325,10 +336,16 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
       return existingNotification;
     } else {
       // Get sender details for imageUrl
-      const sender = await User.findById(senderId).select("name username profileImage");
+      let sender = null;
+      try {
+        sender = await User.findById(senderId).select("name username profileImage");
+      } catch (senderError) {
+        logger.warn(`Error fetching sender ${senderId}:`, senderError);
+      }
+
+      // If sender not found, still create notification with basic data
       if (!sender) {
-        logger.warn(`Sender not found for aggregated notification: ${senderId}`);
-        return null;
+        logger.warn(`Sender not found for aggregated notification: ${senderId}, but continuing...`);
       }
 
       // Create new aggregated notification
@@ -349,18 +366,22 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         imageUrl: sender.profileImage || null,
       });
 
-      // Send push notification for new aggregated notification (non-blocking)
-      sendPushNotificationAsync(receiver, sender, message, {
-        notificationId: notification._id.toString(),
-        type: notification.type,
-        contentType: contentType || null,
-        contentId: contentId ? contentId.toString() : null,
-        isAggregated: true,
-        aggregatedCount: 1,
-        ...metadata,
-      }).catch((error) => {
-        logger.error("Failed to send push notification for new aggregated notification:", error);
-      });
+      // Send push notification for new aggregated notification (non-blocking) - only if we have receiver and sender
+      if (receiver && sender) {
+        sendPushNotificationAsync(receiver, sender, message, {
+          notificationId: notification._id.toString(),
+          type: notification.type,
+          contentType: contentType || null,
+          contentId: contentId ? contentId.toString() : null,
+          isAggregated: true,
+          aggregatedCount: 1,
+          ...metadata,
+        }).catch((error) => {
+          logger.error("Failed to send push notification for new aggregated notification:", error);
+        });
+      } else {
+        logger.warn(`Notification created but push not sent - missing receiver or sender`);
+      }
 
       return notification;
     }
@@ -384,6 +405,12 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
  * @returns {Promise<Object>} Created notification
  */
 export const createNotification = async (notificationData) => {
+  let notification = null;
+  let sender = null;
+  let receiver = null;
+  let notificationMessage = null;
+  let notificationImageUrl = null;
+
   try {
     const {
       receiverId,
@@ -399,6 +426,7 @@ export const createNotification = async (notificationData) => {
     // Validate required fields
     if (!receiverId || !senderId || !type) {
       logger.error(`Missing required fields for notification: receiverId=${receiverId}, senderId=${senderId}, type=${type}`);
+      // Cannot create notification without required fields
       return null;
     }
 
@@ -408,34 +436,45 @@ export const createNotification = async (notificationData) => {
       return null;
     }
 
-    // Get sender user
-    const sender = await User.findById(senderId).select("name username profileImage");
-    if (!sender) {
-      logger.warn(`Sender not found for notification: ${senderId}`);
-      return null;
+    // Get sender user - but continue even if not found
+    try {
+      sender = await User.findById(senderId).select("name username profileImage");
+    } catch (senderError) {
+      logger.warn(`Error fetching sender ${senderId}:`, senderError);
     }
 
-    // Get receiver user (with OneSignal player ID for push notifications)
-    const receiver = await User.findById(receiverId).select("_id oneSignalPlayerId pushNotificationEnabled");
-    if (!receiver || receiver.isDeleted) {
-      logger.warn(`Receiver not found or deleted for notification: ${receiverId}`);
-      return null;
+    // Get receiver user - but continue even if not found
+    try {
+      receiver = await User.findById(receiverId).select("_id oneSignalPlayerId pushNotificationEnabled");
+      if (receiver && receiver.isDeleted) {
+        logger.warn(`Receiver is deleted: ${receiverId}`);
+        receiver = null;
+      }
+    } catch (receiverError) {
+      logger.warn(`Error fetching receiver ${receiverId}:`, receiverError);
     }
 
-    // Generate message if not provided
-    const notificationMessage =
-      message ||
-      generateNotificationMessage(type, sender, { contentType, metadata });
+    // Generate message if not provided - use fallback if generation fails
+    try {
+      if (message) {
+        notificationMessage = message;
+      } else if (sender) {
+        notificationMessage = generateNotificationMessage(type, sender, { contentType, metadata });
+      } else {
+        // Fallback message if sender not found
+        notificationMessage = `New ${type} notification`;
+      }
+    } catch (messageError) {
+      logger.warn(`Error generating message:`, messageError);
+      notificationMessage = message || `New ${type} notification`;
+    }
 
     if (!notificationMessage) {
-      logger.error(`Failed to generate notification message for type: ${type}`);
-      return null;
+      notificationMessage = `New ${type} notification`;
     }
 
     // Always use sender's profileImage for imageUrl (unless explicitly provided)
-    const notificationImageUrl = imageUrl || sender.profileImage || null;
-
-    let notification;
+    notificationImageUrl = imageUrl || (sender ? sender.profileImage : null) || null;
 
     // Check if this type supports aggregation
     if (isAggregatableType(type)) {
@@ -451,12 +490,46 @@ export const createNotification = async (notificationData) => {
           metadata,
         });
         
+        // If aggregation returns null, create individual notification
         if (!notification) {
-          logger.warn(`Aggregated notification returned null for type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}`);
+          logger.warn(`Aggregated notification returned null, creating individual notification for type: ${type}`);
+          notification = await Notification.create({
+            receiverId,
+            senderId,
+            type,
+            contentType,
+            contentId,
+            message: notificationMessage,
+            metadata,
+            status: NotificationStatus.UNREAD,
+            imageUrl: notificationImageUrl,
+          });
+          logger.info(`Created individual notification (fallback from aggregation) for type: ${type} from ${senderId} to ${receiverId}`);
         }
       } catch (aggError) {
         logger.error(`Error in createOrUpdateAggregatedNotification:`, aggError);
         // Fallback to individual notification if aggregation fails
+        try {
+          notification = await Notification.create({
+            receiverId,
+            senderId,
+            type,
+            contentType,
+            contentId,
+            message: notificationMessage,
+            metadata,
+            status: NotificationStatus.UNREAD,
+            imageUrl: notificationImageUrl,
+          });
+          logger.info(`Created individual notification (fallback from error) for type: ${type} from ${senderId} to ${receiverId}`);
+        } catch (createError) {
+          logger.error(`Failed to create fallback notification:`, createError);
+          throw createError;
+        }
+      }
+    } else {
+      // Create individual notification
+      try {
         notification = await Notification.create({
           receiverId,
           senderId,
@@ -468,27 +541,15 @@ export const createNotification = async (notificationData) => {
           status: NotificationStatus.UNREAD,
           imageUrl: notificationImageUrl,
         });
-        logger.info(`Created individual notification (fallback) for type: ${type} from ${senderId} to ${receiverId}`);
+        logger.info(`Notification created: ${type} from ${senderId} to ${receiverId}`);
+      } catch (createError) {
+        logger.error(`Failed to create individual notification:`, createError);
+        throw createError;
       }
-    } else {
-      // Create individual notification
-      notification = await Notification.create({
-        receiverId,
-        senderId,
-        type,
-        contentType,
-        contentId,
-        message: notificationMessage,
-        metadata,
-        status: NotificationStatus.UNREAD,
-        imageUrl: notificationImageUrl,
-      });
-
-      logger.info(`Notification created: ${type} from ${senderId} to ${receiverId}`);
     }
 
-    // Send push notification (non-blocking)
-    if (notification) {
+    // Send push notification (non-blocking) - only if we have receiver
+    if (notification && receiver && sender) {
       sendPushNotificationAsync(receiver, sender, notificationMessage, {
         notificationId: notification._id.toString(),
         type: type,
@@ -499,16 +560,57 @@ export const createNotification = async (notificationData) => {
         // Log error but don't fail notification creation
         logger.error("Failed to send push notification:", error);
       });
-    } else {
-      logger.error(`Notification was not created for type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}`);
+    } else if (notification && !receiver) {
+      logger.warn(`Notification created but push not sent - receiver not found: ${receiverId}`);
+    } else if (notification && !sender) {
+      logger.warn(`Notification created but push not sent - sender not found: ${senderId}`);
     }
 
     return notification;
   } catch (error) {
     logger.error("Error creating notification:", error);
     logger.error("Error stack:", error.stack);
-    // Don't throw - notifications are non-critical
-    return null;
+    
+    // Last resort: try to create a basic notification even if everything failed
+    if (!notification) {
+      try {
+        const {
+          receiverId,
+          senderId,
+          type,
+          contentType = null,
+          contentId = null,
+          message = null,
+          metadata = {},
+        } = notificationData;
+
+        // Only create if we have minimum required fields
+        if (receiverId && senderId && type) {
+          notification = await Notification.create({
+            receiverId,
+            senderId,
+            type,
+            contentType,
+            contentId,
+            message: message || notificationMessage || "Notification",
+            metadata: { ...metadata, error: error.message, errorStack: error.stack },
+            status: NotificationStatus.UNREAD,
+            imageUrl: notificationImageUrl || null,
+          });
+          logger.warn(`Created emergency fallback notification: ${notification._id}`);
+          return notification;
+        } else {
+          logger.error("CRITICAL: Cannot create emergency fallback - missing required fields");
+          return null;
+        }
+      } catch (finalError) {
+        logger.error("CRITICAL: Failed to create notification even in emergency fallback:", finalError);
+        return null;
+      }
+    }
+    
+    // If we have a notification, return it even if there was an error
+    return notification;
   }
 };
 
