@@ -54,7 +54,19 @@ const isAggregatableType = (type) => {
  */
 const generateNotificationMessage = (type, sender, data = {}) => {
   const senderName = sender.name || sender.username;
-  const { contentType } = data;
+  const { contentType, metadata = {} } = data;
+  const { commentText, replyText } = metadata;
+
+  // Helper function to truncate text if too long
+  const truncateText = (text, maxLength = 100) => {
+    if (!text) return "";
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + "...";
+  };
+
+  // Get comment/reply text to display
+  const displayText = commentText || replyText;
+  const truncatedText = displayText ? truncateText(displayText) : "";
 
   const messages = {
     [NotificationType.NEW_FOLLOWER]: `${senderName} started following you`,
@@ -67,11 +79,21 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     [NotificationType.COMMENT_LIKED]: `${senderName} liked your comment`,
     [NotificationType.AGGREGATED_LIKES]: `${senderName} and others liked your ${contentType === ContentType.POST ? "post" : contentType === ContentType.ZEAL ? "zeal" : "write"}`,
     
-    [NotificationType.POST_COMMENT]: `${senderName} commented on your post`,
-    [NotificationType.ZEAL_COMMENT]: `${senderName} commented on your zeal`,
-    [NotificationType.WRITE_COMMENT]: `${senderName} commented on your write`,
-    [NotificationType.COMMENT_REPLY]: `${senderName} replied to your comment`,
-    [NotificationType.MENTION_IN_COMMENT]: `${senderName} mentioned you in a comment`,
+    [NotificationType.POST_COMMENT]: truncatedText 
+      ? `${senderName} commented on your post: "${truncatedText}"`
+      : `${senderName} commented on your post`,
+    [NotificationType.ZEAL_COMMENT]: truncatedText 
+      ? `${senderName} commented on your zeal: "${truncatedText}"`
+      : `${senderName} commented on your zeal`,
+    [NotificationType.WRITE_COMMENT]: truncatedText 
+      ? `${senderName} commented on your write: "${truncatedText}"`
+      : `${senderName} commented on your write`,
+    [NotificationType.COMMENT_REPLY]: truncatedText 
+      ? `${senderName} replied to your comment: "${truncatedText}"`
+      : `${senderName} replied to your comment`,
+    [NotificationType.MENTION_IN_COMMENT]: truncatedText 
+      ? `${senderName} mentioned you in a comment: "${truncatedText}"`
+      : `${senderName} mentioned you in a comment`,
     
     [NotificationType.MENTION_IN_POST]: `${senderName} mentioned you in a post`,
     [NotificationType.MENTION_IN_ZEAL]: `${senderName} mentioned you in a zeal`,
@@ -104,11 +126,23 @@ const generateNotificationMessage = (type, sender, data = {}) => {
  * @param {Object} latestSender - Latest sender user object (optional)
  * @param {number} count - Total aggregated count
  * @param {string} contentType - Content type (optional)
+ * @param {Object} metadata - Notification metadata (optional)
  * @returns {string} Aggregated notification message
  */
-const generateAggregatedMessage = (type, firstSender, latestSender = null, count, contentType = null) => {
+const generateAggregatedMessage = (type, firstSender, latestSender = null, count, contentType = null, metadata = {}) => {
   const firstSenderName = firstSender.name || firstSender.username;
   const latestSenderName = latestSender ? (latestSender.name || latestSender.username) : firstSenderName;
+
+  // Helper function to truncate text if too long
+  const truncateText = (text, maxLength = 100) => {
+    if (!text) return "";
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + "...";
+  };
+
+  // Get comment/reply text to display
+  const displayText = metadata?.commentText || metadata?.replyText;
+  const truncatedText = displayText ? truncateText(displayText) : "";
 
   // Get content type label
   const getContentLabel = () => {
@@ -154,10 +188,14 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
       type === NotificationType.ZEAL_COMMENT || 
       type === NotificationType.WRITE_COMMENT) {
     if (count === 1) {
-      return `${latestSenderName} commented on your ${contentLabel}`;
+      return truncatedText 
+        ? `${latestSenderName} commented on your ${contentLabel}: "${truncatedText}"`
+        : `${latestSenderName} commented on your ${contentLabel}`;
     } else {
       const othersCount = count - 1;
-      return `${firstSenderName} and ${othersCount} ${othersCount === 1 ? "other" : "others"} commented on your ${contentLabel}`;
+      return truncatedText
+        ? `${firstSenderName} and ${othersCount} ${othersCount === 1 ? "other" : "others"} commented on your ${contentLabel}. Latest: "${truncatedText}"`
+        : `${firstSenderName} and ${othersCount} ${othersCount === 1 ? "other" : "others"} commented on your ${contentLabel}`;
     }
   }
 
@@ -185,35 +223,41 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
  * @returns {Promise<Object>} Created or updated notification
  */
 const createOrUpdateAggregatedNotification = async (notificationData) => {
-  const {
-    receiverId,
-    senderId,
-    type,
-    contentType,
-    contentId,
-    message,
-    metadata = {},
-  } = notificationData;
+  try {
+    const {
+      receiverId,
+      senderId,
+      type,
+      contentType,
+      contentId,
+      message,
+      metadata = {},
+    } = notificationData;
 
-  const aggregationKey = generateAggregationKey(type, receiverId, contentType, contentId);
+    if (!receiverId || !senderId || !type || !message) {
+      logger.error(`Missing required fields in createOrUpdateAggregatedNotification: receiverId=${receiverId}, senderId=${senderId}, type=${type}`);
+      return null;
+    }
 
-  // Get receiver user for push notifications
-  const receiver = await User.findById(receiverId).select("oneSignalPlayerId pushNotificationEnabled");
-  if (!receiver || receiver.isDeleted) {
-    logger.warn(`Receiver not found or deleted for notification: ${receiverId}`);
-    return null;
-  }
+    const aggregationKey = generateAggregationKey(type, receiverId, contentType, contentId);
 
-  // Find existing aggregated notification (within last 24 hours)
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const existingNotification = await Notification.findOne({
-    aggregationKey,
-    receiverId,
-    isAggregated: true,
-    createdAt: { $gte: oneDayAgo },
-  }).populate("aggregatedUserIds", "name username profileImage");
+    // Get receiver user for push notifications
+    const receiver = await User.findById(receiverId).select("oneSignalPlayerId pushNotificationEnabled");
+    if (!receiver || receiver.isDeleted) {
+      logger.warn(`Receiver not found or deleted for notification: ${receiverId}`);
+      return null;
+    }
 
-  if (existingNotification) {
+    // Find existing aggregated notification (within last 24 hours)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const existingNotification = await Notification.findOne({
+      aggregationKey,
+      receiverId,
+      isAggregated: true,
+      createdAt: { $gte: oneDayAgo },
+    }).populate("aggregatedUserIds", "name username profileImage");
+
+    if (existingNotification) {
     // Check if sender already in aggregated list
     const senderExists = existingNotification.aggregatedUserIds.some(
       (userId) => userId._id.toString() === senderId.toString()
@@ -233,12 +277,22 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         
         if (firstSender) {
           const totalCount = existingNotification.aggregatedCount;
+          // Update metadata with latest comment/reply text if available
+          if (metadata.commentText || metadata.replyText) {
+            existingNotification.metadata = {
+              ...(existingNotification.metadata || {}),
+              ...metadata, // Include all new metadata, prioritizing latest
+            };
+          }
+          // Update imageUrl to latest sender's profileImage
+          existingNotification.imageUrl = latestSender.profileImage || existingNotification.imageUrl || null;
           existingNotification.message = generateAggregatedMessage(
             existingNotification.type,
             firstSender,
             latestSender,
             totalCount,
-            existingNotification.contentType
+            existingNotification.contentType,
+            existingNotification.metadata
           );
         }
 
@@ -268,28 +322,34 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
       }
     }
 
-    return existingNotification;
-  } else {
-    // Create new aggregated notification
-    // Preserve the original notification type instead of always using AGGREGATED_LIKES
-    const notification = await Notification.create({
-      receiverId,
-      senderId,
-      type: type, // Preserve original type (POST_LIKED, NEW_FOLLOWER, etc.)
-      contentType,
-      contentId,
-      message,
-      aggregationKey,
-      isAggregated: true,
-      aggregatedCount: 1,
-      aggregatedUserIds: [senderId],
-      metadata,
-      status: NotificationStatus.UNREAD,
-    });
+      return existingNotification;
+    } else {
+      // Get sender details for imageUrl
+      const sender = await User.findById(senderId).select("name username profileImage");
+      if (!sender) {
+        logger.warn(`Sender not found for aggregated notification: ${senderId}`);
+        return null;
+      }
 
-    // Send push notification for new aggregated notification (non-blocking)
-    const sender = await User.findById(senderId).select("name username profileImage");
-    if (sender) {
+      // Create new aggregated notification
+      // Preserve the original notification type instead of always using AGGREGATED_LIKES
+      const notification = await Notification.create({
+        receiverId,
+        senderId,
+        type: type, // Preserve original type (POST_LIKED, NEW_FOLLOWER, etc.)
+        contentType,
+        contentId,
+        message,
+        aggregationKey,
+        isAggregated: true,
+        aggregatedCount: 1,
+        aggregatedUserIds: [senderId],
+        metadata,
+        status: NotificationStatus.UNREAD,
+        imageUrl: sender.profileImage || null,
+      });
+
+      // Send push notification for new aggregated notification (non-blocking)
       sendPushNotificationAsync(receiver, sender, message, {
         notificationId: notification._id.toString(),
         type: notification.type,
@@ -301,9 +361,13 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
       }).catch((error) => {
         logger.error("Failed to send push notification for new aggregated notification:", error);
       });
-    }
 
-    return notification;
+      return notification;
+    }
+  } catch (error) {
+    logger.error("Error in createOrUpdateAggregatedNotification:", error);
+    logger.error("Error stack:", error.stack);
+    return null;
   }
 };
 
@@ -332,8 +396,15 @@ export const createNotification = async (notificationData) => {
       imageUrl = null,
     } = notificationData;
 
+    // Validate required fields
+    if (!receiverId || !senderId || !type) {
+      logger.error(`Missing required fields for notification: receiverId=${receiverId}, senderId=${senderId}, type=${type}`);
+      return null;
+    }
+
     // Don't create notification if user is notifying themselves
     if (receiverId.toString() === senderId.toString()) {
+      logger.info(`Skipping self-notification: ${senderId}`);
       return null;
     }
 
@@ -354,22 +425,51 @@ export const createNotification = async (notificationData) => {
     // Generate message if not provided
     const notificationMessage =
       message ||
-      generateNotificationMessage(type, sender, { contentType });
+      generateNotificationMessage(type, sender, { contentType, metadata });
+
+    if (!notificationMessage) {
+      logger.error(`Failed to generate notification message for type: ${type}`);
+      return null;
+    }
+
+    // Always use sender's profileImage for imageUrl (unless explicitly provided)
+    const notificationImageUrl = imageUrl || sender.profileImage || null;
 
     let notification;
 
     // Check if this type supports aggregation
     if (isAggregatableType(type)) {
       // Use aggregation for likes, follows, comments
-      notification = await createOrUpdateAggregatedNotification({
-        receiverId,
-        senderId,
-        type,
-        contentType,
-        contentId,
-        message: notificationMessage,
-        metadata,
-      });
+      try {
+        notification = await createOrUpdateAggregatedNotification({
+          receiverId,
+          senderId,
+          type,
+          contentType,
+          contentId,
+          message: notificationMessage,
+          metadata,
+        });
+        
+        if (!notification) {
+          logger.warn(`Aggregated notification returned null for type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}`);
+        }
+      } catch (aggError) {
+        logger.error(`Error in createOrUpdateAggregatedNotification:`, aggError);
+        // Fallback to individual notification if aggregation fails
+        notification = await Notification.create({
+          receiverId,
+          senderId,
+          type,
+          contentType,
+          contentId,
+          message: notificationMessage,
+          metadata,
+          status: NotificationStatus.UNREAD,
+          imageUrl: notificationImageUrl,
+        });
+        logger.info(`Created individual notification (fallback) for type: ${type} from ${senderId} to ${receiverId}`);
+      }
     } else {
       // Create individual notification
       notification = await Notification.create({
@@ -381,7 +481,7 @@ export const createNotification = async (notificationData) => {
         message: notificationMessage,
         metadata,
         status: NotificationStatus.UNREAD,
-        imageUrl: imageUrl || sender.profileImage || null,
+        imageUrl: notificationImageUrl,
       });
 
       logger.info(`Notification created: ${type} from ${senderId} to ${receiverId}`);
@@ -399,11 +499,14 @@ export const createNotification = async (notificationData) => {
         // Log error but don't fail notification creation
         logger.error("Failed to send push notification:", error);
       });
+    } else {
+      logger.error(`Notification was not created for type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}`);
     }
 
     return notification;
   } catch (error) {
     logger.error("Error creating notification:", error);
+    logger.error("Error stack:", error.stack);
     // Don't throw - notifications are non-critical
     return null;
   }

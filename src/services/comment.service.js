@@ -119,7 +119,10 @@ export const createComment = async (userId, commentData) => {
               type: notificationType,
               contentType,
               contentId,
-              metadata: { commentId: newComment._id.toString() },
+              metadata: { 
+                commentId: newComment._id.toString(),
+                commentText: newComment.comment,
+              },
             });
           }
         }
@@ -138,7 +141,10 @@ export const createComment = async (userId, commentData) => {
                 type: NotificationType.MENTION_IN_COMMENT,
                 contentType,
                 contentId,
-                metadata: { commentId: newComment._id.toString() },
+                metadata: { 
+                  commentId: newComment._id.toString(),
+                  commentText: newComment.comment,
+                },
               });
             }
             return Promise.resolve(null);

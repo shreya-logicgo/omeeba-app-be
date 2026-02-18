@@ -107,6 +107,7 @@ export const createReply = async (userId, commentId, reply) => {
           metadata: {
             commentId: parentComment._id.toString(),
             replyId: newReply._id.toString(),
+            replyText: newReply.reply,
           },
         });
       }
@@ -128,6 +129,7 @@ export const createReply = async (userId, commentId, reply) => {
               metadata: {
                 commentId: parentComment._id.toString(),
                 replyId: newReply._id.toString(),
+                replyText: newReply.reply,
               },
             });
           }
