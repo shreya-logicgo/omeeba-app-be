@@ -889,20 +889,42 @@ export const getNotifications = async (userId, options = {}) => {
       notifications.map(async (notification) => {
         let content = null;
 
-        // Populate contentId based on contentType - only get images data
+        // Populate contentId based on contentType - get image data
         if (notification.contentType && notification.contentId) {
           try {
             const ContentModel = getContentModel(notification.contentType);
             if (ContentModel) {
-              // Only select images field from content
+              // Select relevant fields based on content type
+              let selectFields = "images videos";
+              if (notification.contentType === ContentType.ZEAL) {
+                selectFields = "images videos thumbnailUrl"; // Zeal has thumbnailUrl
+              }
+              
               content = await ContentModel.findById(notification.contentId)
-                .select("images videos") // Get images for posts/writes, videos for zeals
+                .select(selectFields)
                 .lean();
               
-              // Format content to only include images/videos
+              // Format content with image field
               if (content) {
+                let imageUrl = null;
+                
+                // Determine image URL based on content type
+                if (notification.contentType === ContentType.ZEAL) {
+                  // For Zeal: prefer thumbnailUrl, else first image, else first video
+                  imageUrl = content.thumbnailUrl || 
+                            (content.images && content.images.length > 0 ? content.images[0] : null) ||
+                            (content.videos && content.videos.length > 0 ? content.videos[0] : null);
+                } else if (notification.contentType === ContentType.POST) {
+                  // For Post: use first image
+                  imageUrl = content.images && content.images.length > 0 ? content.images[0] : null;
+                } else if (notification.contentType === ContentType.WRITE_POST) {
+                  // WritePost doesn't have images, so null
+                  imageUrl = null;
+                }
+                
                 content = {
                   _id: content._id,
+                  image: imageUrl, // Single image URL for notification display
                   images: content.images || null,
                   videos: content.videos || null,
                 };
