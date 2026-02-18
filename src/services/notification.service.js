@@ -907,6 +907,7 @@ export const getNotifications = async (userId, options = {}) => {
               // Format content with image field
               if (content) {
                 let imageUrl = null;
+                let imagesArray = content.images || [];
                 
                 // Determine image URL based on content type
                 if (notification.contentType === ContentType.ZEAL) {
@@ -914,18 +915,25 @@ export const getNotifications = async (userId, options = {}) => {
                   imageUrl = content.thumbnailUrl || 
                             (content.images && content.images.length > 0 ? content.images[0] : null) ||
                             (content.videos && content.videos.length > 0 ? content.videos[0] : null);
+                  
+                  // If thumbnailUrl exists and is not already in images array, add it to images
+                  if (content.thumbnailUrl && !imagesArray.includes(content.thumbnailUrl)) {
+                    imagesArray = [content.thumbnailUrl, ...imagesArray]; // Add thumbnail as first item
+                  }
                 } else if (notification.contentType === ContentType.POST) {
                   // For Post: use first image
                   imageUrl = content.images && content.images.length > 0 ? content.images[0] : null;
+                  imagesArray = content.images || [];
                 } else if (notification.contentType === ContentType.WRITE_POST) {
                   // WritePost doesn't have images, so null
                   imageUrl = null;
+                  imagesArray = [];
                 }
                 
                 content = {
                   _id: content._id,
                   image: imageUrl, // Single image URL for notification display
-                  images: content.images || null,
+                  images: imagesArray.length > 0 ? imagesArray : [], // Include thumbnail for Zeal Post
                   videos: content.videos || null,
                 };
               }
