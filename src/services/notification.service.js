@@ -329,6 +329,7 @@ export const createNotification = async (notificationData) => {
       contentId = null,
       message = null,
       metadata = {},
+      imageUrl = null,
     } = notificationData;
 
     // Don't create notification if user is notifying themselves
@@ -380,6 +381,7 @@ export const createNotification = async (notificationData) => {
         message: notificationMessage,
         metadata,
         status: NotificationStatus.UNREAD,
+        imageUrl: imageUrl || sender.profileImage || null,
       });
 
       logger.info(`Notification created: ${type} from ${senderId} to ${receiverId}`);
@@ -543,6 +545,7 @@ export const getNotifications = async (userId, options = {}) => {
           isVerifiedBadge: user.isVerifiedBadge,
         })),
         metadata: notification.metadata || {},
+        imageUrl: notification.imageUrl || notification.senderId.profileImage || null,
         createdAt: notification.createdAt,
         updatedAt: notification.updatedAt,
       };
