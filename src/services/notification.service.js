@@ -9,6 +9,7 @@ import { NotificationType, NotificationStatus, ContentType } from "../models/enu
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { sendPushNotificationToUser } from "./onesignal.service.js";
+import { getContentModel } from "../models/utils/contentHelper.js";
 
 /**
  * Generate aggregation key for grouping similar notifications
@@ -883,45 +884,75 @@ export const getNotifications = async (userId, options = {}) => {
     // Get total count
     const total = await Notification.countDocuments(query);
 
-    // Format notifications
-    const formattedNotifications = notifications.map((notification) => {
-      const formatted = {
-        id: notification._id.toString(),
-        type: notification.type,
-        message: notification.message,
-        status: notification.status,
-        contentType: notification.contentType,
-        contentId: notification.contentId
-          ? notification.contentId.toString()
-          : null,
-        sender: notification.senderId
-          ? {
-              id: notification.senderId._id.toString(),
-              name: notification.senderId.name,
-              username: notification.senderId.username,
-              profileImage: notification.senderId.profileImage,
-              isAccountVerified: notification.senderId.isAccountVerified,
-              isVerifiedBadge: notification.senderId.isVerifiedBadge,
-            }
-          : null,
-        isAggregated: notification.isAggregated || false,
-        aggregatedCount: notification.aggregatedCount || 0,
-        aggregatedUsers: (notification.aggregatedUserIds || []).map((user) => ({
-          id: user._id.toString(),
-          name: user.name,
-          username: user.username,
-          profileImage: user.profileImage,
-          isAccountVerified: user.isAccountVerified,
-          isVerifiedBadge: user.isVerifiedBadge,
-        })),
-        metadata: notification.metadata || {},
-        imageUrl: notification.imageUrl || notification.senderId.profileImage || null,
-        createdAt: notification.createdAt,
-        updatedAt: notification.updatedAt,
-      };
+    // Format notifications and populate contentId
+    const formattedNotifications = await Promise.all(
+      notifications.map(async (notification) => {
+        let content = null;
 
-      return formatted;
-    });
+        // Populate contentId based on contentType - only get images data
+        if (notification.contentType && notification.contentId) {
+          try {
+            const ContentModel = getContentModel(notification.contentType);
+            if (ContentModel) {
+              // Only select images field from content
+              content = await ContentModel.findById(notification.contentId)
+                .select("images videos") // Get images for posts/writes, videos for zeals
+                .lean();
+              
+              // Format content to only include images/videos
+              if (content) {
+                content = {
+                  _id: content._id,
+                  images: content.images || null,
+                  videos: content.videos || null,
+                };
+              }
+            }
+          } catch (contentError) {
+            logger.warn(`Error populating content for notification ${notification._id}:`, contentError);
+            // Continue without content if population fails
+          }
+        }
+
+        const formatted = {
+          id: notification._id.toString(),
+          type: notification.type,
+          message: notification.message,
+          status: notification.status,
+          contentType: notification.contentType,
+          contentId: notification.contentId
+            ? notification.contentId.toString()
+            : null,
+          content: content, // Populated content object
+          sender: notification.senderId
+            ? {
+                id: notification.senderId._id.toString(),
+                name: notification.senderId.name,
+                username: notification.senderId.username,
+                profileImage: notification.senderId.profileImage,
+                isAccountVerified: notification.senderId.isAccountVerified,
+                isVerifiedBadge: notification.senderId.isVerifiedBadge,
+              }
+            : null,
+          isAggregated: notification.isAggregated || false,
+          aggregatedCount: notification.aggregatedCount || 0,
+          aggregatedUsers: (notification.aggregatedUserIds || []).map((user) => ({
+            id: user._id.toString(),
+            name: user.name,
+            username: user.username,
+            profileImage: user.profileImage,
+            isAccountVerified: user.isAccountVerified,
+            isVerifiedBadge: user.isVerifiedBadge,
+          })),
+          metadata: notification.metadata || {},
+          imageUrl: notification.imageUrl || notification.senderId.profileImage || null,
+          createdAt: notification.createdAt,
+          updatedAt: notification.updatedAt,
+        };
+
+        return formatted;
+      })
+    );
 
     return {
       notifications: formattedNotifications,
