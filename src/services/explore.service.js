@@ -650,6 +650,23 @@ const formatPollForFeed = (poll) => ({
   createdAt: poll.createdAt,
 });
 
+/** Get optionId the user voted for, or null */
+const getUserSelectedOptionId = (poll, userId) => {
+  if (!userId || !poll.userVotes?.length) return null;
+  const userVote = poll.userVotes.find(
+    (v) => v.userId.toString() === userId.toString()
+  );
+  return userVote ? userVote.optionId : null;
+};
+
+/** Add selectedByAuthUser flag to each option for feed/listing responses */
+const addSelectedByAuthUserToOptions = (options, userSelectedOptionId) =>
+  (options || []).map((opt) => ({
+    ...opt,
+    selectedByAuthUser:
+      userSelectedOptionId != null && opt.optionId === userSelectedOptionId,
+  }));
+
 /**
  * Get trending content for Explore landing screen
  * @param {mongoose.Types.ObjectId} userId - User ID (optional, for filtering)
@@ -893,11 +910,15 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     const formattedContent = paginatedContent.map((item) => {
       // Handle poll formatting separately
       if (item.contentType === "Poll") {
+        const userSelectedOptionId = getUserSelectedOptionId(item, userId);
         return {
           id: item._id.toString(),
           contentType: "Poll",
           caption: item.caption || "",
-          options: item.options || [],
+          options: addSelectedByAuthUserToOptions(
+            item.options,
+            userSelectedOptionId
+          ),
           totalVotes: item.totalVotes || 0,
           status: item.status,
           duration: item.duration,
@@ -1016,31 +1037,20 @@ export const getHomeFeed = async (userId, options = {}) => {
     );
     const followedContent = await formatContentList(userId, followedRaw);
 
-    // Helper function for selectedOption
+    // Helper: add selectedByAuthUser flag on each option for logged-in user
     const attachSelectedOption = (poll) => {
       const formattedPoll = formatPollForFeed(poll);
+      const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
+      const optionsWithFlag = addSelectedByAuthUserToOptions(
+        formattedPoll.options,
+        userSelectedOptionId
+      );
 
-      let selectedOption = null;
-
-      if (userId && poll.userVotes?.length > 0) {
-        const userVote = poll.userVotes.find(
-          (vote) => vote.userId.toString() === userId.toString()
-        );
-
-        if (userVote) {
-          selectedOption = userVote.optionId;
-        }
-      }
-
-      // selectedOption should come below options
       return {
         id: formattedPoll.id,
         contentType: formattedPoll.contentType,
         caption: formattedPoll.caption,
-        options: formattedPoll.options,
-
-        selectedOption, // ✅ below options
-
+        options: optionsWithFlag,
         totalVotes: formattedPoll.totalVotes,
         status: formattedPoll.status,
         duration: formattedPoll.duration,
@@ -1467,23 +1477,29 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
       }
 
       const polls = await pollQueryBuilder.limit(limit);
-      results.polls = polls.map((poll) => ({
-        id: poll._id.toString(),
-        caption: poll.caption || "",
-        options: poll.options || [],
-        totalVotes: poll.totalVotes || 0,
-        status: poll.status,
-        duration: poll.duration,
-        createdBy: {
-          id: poll.createdBy._id.toString(),
-          name: poll.createdBy.name,
-          username: poll.createdBy.username,
-          profileImage: poll.createdBy.profileImage,
-          isAccountVerified: poll.createdBy.isAccountVerified,
-          isVerifiedBadge: poll.createdBy.isVerifiedBadge,
-        },
-        createdAt: poll.createdAt,
-      }));
+      results.polls = polls.map((poll) => {
+        const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
+        return {
+          id: poll._id.toString(),
+          caption: poll.caption || "",
+          options: addSelectedByAuthUserToOptions(
+            poll.options,
+            userSelectedOptionId
+          ),
+          totalVotes: poll.totalVotes || 0,
+          status: poll.status,
+          duration: poll.duration,
+          createdBy: {
+            id: poll.createdBy._id.toString(),
+            name: poll.createdBy.name,
+            username: poll.createdBy.username,
+            profileImage: poll.createdBy.profileImage,
+            isAccountVerified: poll.createdBy.isAccountVerified,
+            isVerifiedBadge: poll.createdBy.isVerifiedBadge,
+          },
+          createdAt: poll.createdAt,
+        };
+      });
     }
 
     // Extract and search hashtags
@@ -1905,11 +1921,15 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     // Format content
     const formattedContent = paginatedContent.map((item) => {
       if (item.contentType === "Poll") {
+        const userSelectedOptionId = getUserSelectedOptionId(item, userId);
         return {
           id: item._id.toString(),
           contentType: "poll",
           caption: item.caption || "",
-          options: item.options || [],
+          options: addSelectedByAuthUserToOptions(
+            item.options,
+            userSelectedOptionId
+          ),
           totalVotes: item.totalVotes || 0,
           status: item.status,
           duration: item.duration,
@@ -2248,23 +2268,29 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         .limit(limit)
         .lean();
 
-      const formattedPolls = polls.map((poll) => ({
-        id: poll._id.toString(),
-        caption: poll.caption || "",
-        options: poll.options || [],
-        totalVotes: poll.totalVotes || 0,
-        status: poll.status,
-        duration: poll.duration,
-        createdBy: {
-          id: poll.createdBy._id.toString(),
-          name: poll.createdBy.name,
-          username: poll.createdBy.username,
-          profileImage: poll.createdBy.profileImage,
-          isAccountVerified: poll.createdBy.isAccountVerified,
-          isVerifiedBadge: poll.createdBy.isVerifiedBadge,
-        },
-        createdAt: poll.createdAt,
-      }));
+      const formattedPolls = polls.map((poll) => {
+        const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
+        return {
+          id: poll._id.toString(),
+          caption: poll.caption || "",
+          options: addSelectedByAuthUserToOptions(
+            poll.options,
+            userSelectedOptionId
+          ),
+          totalVotes: poll.totalVotes || 0,
+          status: poll.status,
+          duration: poll.duration,
+          createdBy: {
+            id: poll.createdBy._id.toString(),
+            name: poll.createdBy.name,
+            username: poll.createdBy.username,
+            profileImage: poll.createdBy.profileImage,
+            isAccountVerified: poll.createdBy.isAccountVerified,
+            isVerifiedBadge: poll.createdBy.isVerifiedBadge,
+          },
+          createdAt: poll.createdAt,
+        };
+      });
 
       return { data: formattedPolls };
     } else if (type === "users") {

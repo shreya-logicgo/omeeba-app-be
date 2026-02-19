@@ -724,9 +724,25 @@ export const getUserPolls = async (req, res) => {
     // Get pagination metadata
     const pagination = getPaginationMeta(total, page, limit);
 
+    // Add selectedByAuthUser on each option for the logged-in user
+    const authUserId = req.user._id;
+    const formattedPolls = userPosts.map((poll) => {
+      const userVote = poll.userVotes?.find(
+        (v) => v.userId.toString() === authUserId.toString()
+      );
+      const userSelectedOptionId = userVote ? userVote.optionId : null;
+      const optionsWithFlag = (poll.options || []).map((opt) => ({
+        ...(typeof opt.toObject === "function" ? opt.toObject() : opt),
+        selectedByAuthUser:
+          userSelectedOptionId != null && opt.optionId === userSelectedOptionId,
+      }));
+      const pollObj = typeof poll.toObject === "function" ? poll.toObject() : { ...poll };
+      return { ...pollObj, options: optionsWithFlag };
+    });
+
     return sendPaginated(
       res,
-      userPosts,
+      formattedPolls,
       pagination,
       "User polls fetch successfully.",
       StatusCodes.OK
