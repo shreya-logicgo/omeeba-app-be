@@ -591,18 +591,16 @@ const CONTENT_TYPE_POLL = "poll";
  * Fetch latest polls by given users (Poll uses createdBy)
  * @param {Array<mongoose.Types.ObjectId>} userIds - User IDs (createdBy)
  * @param {number} limit - Max items to return
- * @param {mongoose.Types.ObjectId} currentUserId - Current user ID (for hasVoted check)
  * @returns {Promise<Array>} Poll items with contentType
  */
-const fetchLatestPollsByUsers = async (userIds, limit, currentUserId = null) => {
+const fetchLatestPollsByUsers = async (userIds, limit) => {
   if (!userIds || userIds.length === 0 || limit <= 0) return [];
-  const selectFields = currentUserId ? "-__v" : "-__v -userVotes";
   const polls = await Poll.find({
     createdBy: { $in: userIds },
     status: PollStatus.ACTIVE,
   })
     .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
-    .select(selectFields)
+    .select("-__v")
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
@@ -613,25 +611,23 @@ const fetchLatestPollsByUsers = async (userIds, limit, currentUserId = null) => 
  * Fetch trending polls (by totalVotes) and latest polls
  * @param {Array<mongoose.Types.ObjectId>} validUserIds - Valid user IDs
  * @param {number} limit - Max items
- * @param {mongoose.Types.ObjectId} currentUserId - Current user ID (for hasVoted check)
  * @returns {Promise<Array>} Polls sorted by totalVotes desc
  */
-const fetchTrendingPolls = async (validUserIds, limit, currentUserId = null) => {
+const fetchTrendingPolls = async (validUserIds, limit) => {
   if (!validUserIds || validUserIds.length === 0 || limit <= 0) return [];
-  const selectFields = currentUserId ? "-__v" : "-__v -userVotes";
   const polls = await Poll.find({
     createdBy: { $in: validUserIds },
     status: PollStatus.ACTIVE,
   })
     .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
-    .select(selectFields)
+    .select("-__v")
     .sort({ totalVotes: -1, createdAt: -1 })
     .limit(limit)
     .lean();
   return polls.map((p) => ({ ...p, contentType: CONTENT_TYPE_POLL }));
 };
 
-const formatPollForFeed = (poll, userId = null) => ({
+const formatPollForFeed = (poll) => ({
   id: poll._id.toString(),
   contentType: CONTENT_TYPE_POLL,
   caption: poll.caption || "",
@@ -639,9 +635,6 @@ const formatPollForFeed = (poll, userId = null) => ({
   totalVotes: poll.totalVotes || 0,
   status: poll.status,
   duration: poll.duration,
-  hasVoted: userId && poll.userVotes
-    ? poll.userVotes.some((vote) => vote.userId.toString() === userId.toString())
-    : false,
   createdBy: poll.createdBy
     ? {
         id: poll.createdBy._id.toString(),
@@ -1061,8 +1054,12 @@ export const getHomeFeed = async (userId, options = {}) => {
     // 1b) Followed users latest polls
     let followedPolls = [];
     if (includePolls) {
-      const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, fetchLimit, userId);
-      followedPolls = followedPollsRaw.map((poll) => formatPollForFeed(poll, userId));
+      const followedPollsRaw = await fetchLatestPollsByUsers(
+        followedUserIds,
+        fetchLimit
+      );
+
+      followedPolls = followedPollsRaw.map(attachSelectedOption);
     }
 
     // 2) Trending content (post/write/zeal)
@@ -1091,8 +1088,8 @@ export const getHomeFeed = async (userId, options = {}) => {
     // 2b) Trending polls
     let trendingPolls = [];
     if (includePolls) {
-      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit, userId);
-      trendingPolls = trendingPollsRaw.map((poll) => formatPollForFeed(poll, userId));
+      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit);
+      trendingPolls = trendingPollsRaw.map(attachSelectedOption);
     }
 
     // 3) Latest content (global post/write/zeal)
@@ -1107,8 +1104,8 @@ export const getHomeFeed = async (userId, options = {}) => {
     // 3b) Latest polls (global)
     let latestPolls = [];
     if (includePolls) {
-      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit, userId);
-      latestPolls = latestPollsRaw.map((poll) => formatPollForFeed(poll, userId));
+      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit);
+      latestPolls = latestPollsRaw.map(attachSelectedOption);
     }
 
     // Combine with priority: followed -> trending -> latest (dedupe)
