@@ -889,21 +889,51 @@ export const getNotifications = async (userId, options = {}) => {
       notifications.map(async (notification) => {
         let content = null;
 
-        // Populate contentId based on contentType - only get images data
+        // Populate contentId based on contentType - get image data
         if (notification.contentType && notification.contentId) {
           try {
             const ContentModel = getContentModel(notification.contentType);
             if (ContentModel) {
-              // Only select images field from content
+              // Select relevant fields based on content type
+              let selectFields = "images videos";
+              if (notification.contentType === ContentType.ZEAL) {
+                selectFields = "images videos thumbnailUrl"; // Zeal has thumbnailUrl
+              }
+              
               content = await ContentModel.findById(notification.contentId)
-                .select("images videos") // Get images for posts/writes, videos for zeals
+                .select(selectFields)
                 .lean();
               
-              // Format content to only include images/videos
+              // Format content with image field
               if (content) {
+                let imageUrl = null;
+                let imagesArray = content.images || [];
+                
+                // Determine image URL based on content type
+                if (notification.contentType === ContentType.ZEAL) {
+                  // For Zeal: prefer thumbnailUrl, else first image, else first video
+                  imageUrl = content.thumbnailUrl || 
+                            (content.images && content.images.length > 0 ? content.images[0] : null) ||
+                            (content.videos && content.videos.length > 0 ? content.videos[0] : null);
+                  
+                  // If thumbnailUrl exists and is not already in images array, add it to images
+                  if (content.thumbnailUrl && !imagesArray.includes(content.thumbnailUrl)) {
+                    imagesArray = [content.thumbnailUrl, ...imagesArray]; // Add thumbnail as first item
+                  }
+                } else if (notification.contentType === ContentType.POST) {
+                  // For Post: use first image
+                  imageUrl = content.images && content.images.length > 0 ? content.images[0] : null;
+                  imagesArray = content.images || [];
+                } else if (notification.contentType === ContentType.WRITE_POST) {
+                  // WritePost doesn't have images, so null
+                  imageUrl = null;
+                  imagesArray = [];
+                }
+                
                 content = {
                   _id: content._id,
-                  images: content.images || null,
+                  image: imageUrl, // Single image URL for notification display
+                  images: imagesArray.length > 0 ? imagesArray : [], // Include thumbnail for Zeal Post
                   videos: content.videos || null,
                 };
               }
