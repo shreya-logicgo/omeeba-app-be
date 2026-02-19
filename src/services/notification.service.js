@@ -907,23 +907,28 @@ export const getNotifications = async (userId, options = {}) => {
               // Format content with image field
               if (content) {
                 let imageUrl = null;
-                let imagesArray = content.images || [];
+                let imagesArray = Array.isArray(content.images) ? content.images : [];
                 
                 // Determine image URL based on content type
                 if (notification.contentType === ContentType.ZEAL) {
                   // For Zeal: prefer thumbnailUrl, else first image, else first video
                   imageUrl = content.thumbnailUrl || 
-                            (content.images && content.images.length > 0 ? content.images[0] : null) ||
-                            (content.videos && content.videos.length > 0 ? content.videos[0] : null);
+                            (imagesArray.length > 0 ? imagesArray[0] : null) ||
+                            (content.videos && Array.isArray(content.videos) && content.videos.length > 0 ? content.videos[0] : null);
                   
-                  // If thumbnailUrl exists and is not already in images array, add it to images
-                  if (content.thumbnailUrl && !imagesArray.includes(content.thumbnailUrl)) {
-                    imagesArray = [content.thumbnailUrl, ...imagesArray]; // Add thumbnail as first item
+                  // For Zeal: Always include thumbnailUrl in images array if it exists
+                  // Add thumbnail as first item if not already present
+                  if (content.thumbnailUrl) {
+                    const thumbnailStr = String(content.thumbnailUrl);
+                    const thumbnailExists = imagesArray.some(img => String(img) === thumbnailStr);
+                    if (!thumbnailExists) {
+                      imagesArray = [content.thumbnailUrl, ...imagesArray];
+                    }
                   }
                 } else if (notification.contentType === ContentType.POST) {
                   // For Post: use first image
-                  imageUrl = content.images && content.images.length > 0 ? content.images[0] : null;
-                  imagesArray = content.images || [];
+                  imageUrl = imagesArray.length > 0 ? imagesArray[0] : null;
+                  imagesArray = imagesArray; // Keep as is
                 } else if (notification.contentType === ContentType.WRITE_POST) {
                   // WritePost doesn't have images, so null
                   imageUrl = null;
@@ -933,7 +938,7 @@ export const getNotifications = async (userId, options = {}) => {
                 content = {
                   _id: content._id,
                   image: imageUrl, // Single image URL for notification display
-                  images: imagesArray.length > 0 ? imagesArray : [], // Include thumbnail for Zeal Post
+                  images: imagesArray, // For Zeal: includes thumbnailUrl as first item if available
                   videos: content.videos || null,
                 };
               }
