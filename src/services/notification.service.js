@@ -1043,4 +1043,3 @@ export default {
   getUnreadNotificationCount,
   deleteNotification,
 };
-
