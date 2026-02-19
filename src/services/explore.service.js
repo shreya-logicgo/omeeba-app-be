@@ -994,8 +994,9 @@ export const getHomeFeed = async (userId, options = {}) => {
       zeals: [ContentType.ZEAL],
       poll: [CONTENT_TYPE_POLL],
       polls: [CONTENT_TYPE_POLL],
-      all: [ContentType.POST, ContentType.WRITE_POST, CONTENT_TYPE_POLL], // default: post, write, poll (no zeals)
+      all: [ContentType.POST, ContentType.WRITE_POST, CONTENT_TYPE_POLL],
     };
+
     const contentTypes = itemMap[normalizedItem] || itemMap.all;
     const contentTypeSet = new Set(contentTypes);
     const includePolls = contentTypeSet.has(CONTENT_TYPE_POLL);
@@ -1006,6 +1007,7 @@ export const getHomeFeed = async (userId, options = {}) => {
       const followRows = await UserFollower.find({ followerId: userId })
         .select("userId")
         .lean();
+
       followedUserIds = followRows
         .map((row) => row.userId?.toString())
         .filter((id) => id && validUserIdSet.has(id))
@@ -1021,6 +1023,41 @@ export const getHomeFeed = async (userId, options = {}) => {
     );
     const followedContent = await formatContentList(userId, followedRaw);
 
+    // Helper function for selectedOption
+    const attachSelectedOption = (poll) => {
+      const formattedPoll = formatPollForFeed(poll);
+
+      let selectedOption = null;
+
+      if (userId && poll.userVotes?.length > 0) {
+        const userVote = poll.userVotes.find(
+          (vote) => vote.userId.toString() === userId.toString()
+        );
+
+        if (userVote) {
+          selectedOption = userVote.optionId;
+        }
+      }
+
+      // selectedOption should come below options
+      return {
+        id: formattedPoll.id,
+        contentType: formattedPoll.contentType,
+        caption: formattedPoll.caption,
+        options: formattedPoll.options,
+
+        selectedOption, // ✅ below options
+
+        totalVotes: formattedPoll.totalVotes,
+        status: formattedPoll.status,
+        duration: formattedPoll.duration,
+        createdBy: formattedPoll.createdBy,
+        likeCount: formattedPoll.likeCount,
+        commentCount: formattedPoll.commentCount,
+        createdAt: formattedPoll.createdAt,
+      };
+    };
+
     // 1b) Followed users latest polls
     let followedPolls = [];
     if (includePolls) {
@@ -1028,7 +1065,7 @@ export const getHomeFeed = async (userId, options = {}) => {
       followedPolls = followedPollsRaw.map((poll) => formatPollForFeed(poll, userId));
     }
 
-    // 2) Trending content (post/write/zeal). For zeal, skip trending → use latest only (user wants latest up)
+    // 2) Trending content (post/write/zeal)
     const singleType =
       contentTypes.length === 1 && contentTypeSet.has(ContentType.POST)
         ? "post"
@@ -1037,6 +1074,7 @@ export const getHomeFeed = async (userId, options = {}) => {
         : contentTypes.length === 1 && contentTypeSet.has(ContentType.ZEAL)
         ? "zeal"
         : "all";
+
     let trendingContent = [];
     if (singleType !== "zeal") {
       const trendingResult = await getTrendingContent(userId, {
@@ -1044,12 +1082,13 @@ export const getHomeFeed = async (userId, options = {}) => {
         limit: fetchLimit,
         contentType: singleType,
       });
+
       trendingContent = (trendingResult.content || []).filter((item) =>
         contentTypeSet.has(item.contentType)
       );
     }
 
-    // 2b) Trending polls (by totalVotes)
+    // 2b) Trending polls
     let trendingPolls = [];
     if (includePolls) {
       const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit, userId);
@@ -1075,6 +1114,7 @@ export const getHomeFeed = async (userId, options = {}) => {
     // Combine with priority: followed -> trending -> latest (dedupe)
     const combined = [];
     const seen = new Set();
+
     const addUnique = (items) => {
       items.forEach((item) => {
         const key = `${item.contentType}:${item.id}`;
@@ -1084,6 +1124,7 @@ export const getHomeFeed = async (userId, options = {}) => {
         }
       });
     };
+
     addUnique(followedContent);
     addUnique(followedPolls);
     addUnique(trendingContent);
@@ -1103,6 +1144,7 @@ export const getHomeFeed = async (userId, options = {}) => {
     throw error;
   }
 };
+
 
 /**
  * Extract hashtags from text
