@@ -95,10 +95,12 @@ export const sendMessage = async (roomId, senderId, messageData) => {
         { upsert: true, new: true }
       ),
       // Auto-mark other user's (User A) messages as READ when sender (User B) replies - reply implies they've read
+      // IMPORTANT: Exclude SNAP messages - they should only be marked as SEEN when actually viewed
       ChatMessage.updateMany(
         {
           roomId,
           senderId: otherUserId,
+          messageType: { $ne: MessageType.SNAP }, // Exclude snap messages
           status: { $in: [MessageStatus.SENT, MessageStatus.DELIVERED] },
           createdAt: { $lte: newMessage.createdAt },
         },
