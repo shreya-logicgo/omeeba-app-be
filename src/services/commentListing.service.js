@@ -138,6 +138,7 @@ export const getComments = async (contentType, contentId, currentUserId, page = 
       return {
         id: replyId,
         commentId: reply.commentId.toString(),
+        parentReplyId: reply.parentReplyId ? reply.parentReplyId.toString() : null,
         reply: reply.reply,
         user: {
           id: reply.userId._id.toString(),
@@ -273,6 +274,7 @@ export const getCommentById = async (commentId, currentUserId) => {
         return {
           id: replyId,
           commentId: reply.commentId.toString(),
+          parentReplyId: reply.parentReplyId ? reply.parentReplyId.toString() : null,
           reply: reply.reply,
           user: {
             id: reply.userId._id.toString(),
@@ -344,6 +346,7 @@ export const getCommentById = async (commentId, currentUserId) => {
       return {
         id: replyId,
         commentId: reply.commentId.toString(),
+        parentReplyId: reply.parentReplyId ? reply.parentReplyId.toString() : null,
         reply: reply.reply,
         user: {
           id: reply.userId._id.toString(),

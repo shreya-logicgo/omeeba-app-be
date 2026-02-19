@@ -7,6 +7,11 @@ const replyCommentSchema = new mongoose.Schema(
       ref: "Comment",
       required: true,
     },
+    parentReplyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ReplyComment",
+      default: null,
+    },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -48,6 +53,8 @@ const replyCommentSchema = new mongoose.Schema(
 
 // Indexes
 replyCommentSchema.index({ commentId: 1, createdAt: -1 });
+replyCommentSchema.index({ commentId: 1, parentReplyId: 1, createdAt: 1 });
+replyCommentSchema.index({ parentReplyId: 1, createdAt: 1 });
 replyCommentSchema.index({ userId: 1 });
 
 const ReplyComment = mongoose.model("ReplyComment", replyCommentSchema);

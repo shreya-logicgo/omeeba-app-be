@@ -195,9 +195,10 @@ export const getReplies = async (commentId, currentUserId, page = 1, limit = 20)
       throw new Error("Comment not found");
     }
 
-    // Get replies (exclude deleted)
+    // Get only top-level replies (no parentReplyId or parentReplyId is null)
     const replies = await ReplyComment.find({
       commentId,
+      $or: [{ parentReplyId: null }, { parentReplyId: { $exists: false } }],
       isDeleted: false,
     })
       .populate("userId", "name username profileImage bio isVerifiedBadge")
@@ -209,6 +210,7 @@ export const getReplies = async (commentId, currentUserId, page = 1, limit = 20)
 
     const total = await ReplyComment.countDocuments({
       commentId,
+      $or: [{ parentReplyId: null }, { parentReplyId: { $exists: false } }],
       isDeleted: false,
     });
 
@@ -241,6 +243,7 @@ export const getReplies = async (commentId, currentUserId, page = 1, limit = 20)
       return {
         id: replyId,
         commentId: reply.commentId.toString(),
+        parentReplyId: reply.parentReplyId ? reply.parentReplyId.toString() : null,
         reply: reply.reply,
         user: {
           id: reply.userId._id.toString(),
@@ -277,7 +280,265 @@ export const getReplies = async (commentId, currentUserId, page = 1, limit = 20)
   }
 };
 
+/**
+ * Delete a reply (soft delete) - only the reply owner can delete
+ * @param {string} userId - User ID deleting the reply
+ * @param {string} replyId - Reply ID to delete
+ * @returns {Promise<Object>} Success with replyId and message
+ */
+export const deleteReply = async (userId, replyId) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) throw new Error("User not found");
+    if (user.isDeleted) throw new Error("User account has been deleted");
+
+    const reply = await ReplyComment.findById(replyId);
+    if (!reply) throw new Error("Reply not found");
+    if (reply.isDeleted) throw new Error("Reply is already deleted");
+
+    if (reply.userId.toString() !== userId) {
+      throw new Error("You can only delete your own replies");
+    }
+
+    reply.isDeleted = true;
+    reply.deletedAt = new Date();
+    await reply.save();
+
+    logger.info(`Reply ${replyId} soft deleted by user ${userId}`);
+
+    return {
+      replyId: reply._id.toString(),
+      message: "Reply deleted successfully",
+    };
+  } catch (error) {
+    logger.error("Error in deleteReply:", error);
+    throw error;
+  }
+};
+
+/**
+ * Create a reply to a reply (nested reply)
+ * @param {string} userId - User ID creating the reply
+ * @param {string} parentReplyId - Parent reply ID to reply to
+ * @param {string} reply - Reply text
+ * @returns {Promise<Object>} Created reply with populated user data
+ */
+export const createReplyToReply = async (userId, parentReplyId, reply) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) throw new Error("User not found");
+    if (user.isDeleted) throw new Error("User account has been deleted");
+
+    const parentReply = await ReplyComment.findById(parentReplyId)
+      .populate("userId", "_id")
+      .lean();
+    if (!parentReply) throw new Error("Reply not found");
+    if (parentReply.isDeleted) throw new Error("Cannot reply to a deleted reply");
+
+    if (!reply || typeof reply !== "string" || reply.trim().length === 0) {
+      throw new Error("Reply text is required");
+    }
+    if (reply.trim().length > 1000) throw new Error("Reply must be 1000 characters or less");
+
+    const { mentionedUserIds, invalidUsernames } = await parseAndValidateMentions(reply);
+    if (invalidUsernames.length > 0) {
+      logger.info(`Invalid mentions in reply-to-reply by user ${userId}: ${invalidUsernames.join(", ")}`);
+    }
+
+    const newReply = new ReplyComment({
+      commentId: parentReply.commentId,
+      parentReplyId: parentReply._id,
+      userId,
+      reply: reply.trim(),
+      mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : [],
+    });
+    await newReply.save();
+
+    await newReply.populate([
+      { path: "userId", select: "name username profileImage bio isVerifiedBadge" },
+      { path: "mentionedUserIds", select: "name username profileImage bio isVerifiedBadge" },
+    ]);
+
+    const [likeCount, isLiked] = await Promise.all([
+      getReplyCommentLikeCount(newReply._id),
+      isReplyCommentLikedByUser(userId, newReply._id),
+    ]);
+    const formattedLikeCount = formatNumber(likeCount);
+    const timeAgo = getTimeAgo(newReply.createdAt);
+
+    logger.info(`Reply-to-reply created: ${newReply._id} by user ${userId} on reply ${parentReplyId}`);
+
+    try {
+      const parentReplyUserId = parentReply.userId?._id || parentReply.userId;
+      if (parentReplyUserId && parentReplyUserId.toString() !== userId.toString()) {
+        const parentComment = await Comment.findById(parentReply.commentId).lean();
+        if (parentComment) {
+          await createNotification({
+            receiverId: parentReplyUserId,
+            senderId: userId,
+            type: NotificationType.COMMENT_REPLY,
+            contentType: parentComment.contentType,
+            contentId: parentComment.contentId,
+            metadata: {
+              commentId: parentReply.commentId.toString(),
+              replyId: newReply._id.toString(),
+              parentReplyId: parentReplyId.toString(),
+              replyText: newReply.reply,
+            },
+          });
+        }
+      }
+      if (mentionedUserIds.length > 0) {
+        const parentComment = await Comment.findById(parentReply.commentId).lean();
+        for (const mentionedUserId of mentionedUserIds) {
+          if (
+            mentionedUserId.toString() !== userId.toString() &&
+            mentionedUserId.toString() !== (parentReply.userId?._id || parentReply.userId)?.toString()
+          ) {
+            await createNotification({
+              receiverId: mentionedUserId,
+              senderId: userId,
+              type: NotificationType.MENTION_IN_COMMENT,
+              contentType: parentComment?.contentType,
+              contentId: parentComment?.contentId,
+              metadata: {
+                commentId: parentReply.commentId.toString(),
+                replyId: newReply._id.toString(),
+                parentReplyId: parentReplyId.toString(),
+                replyText: newReply.reply,
+              },
+            });
+          }
+        }
+      }
+    } catch (notificationError) {
+      logger.error("Error creating reply-to-reply notifications:", notificationError);
+    }
+
+    return {
+      id: newReply._id.toString(),
+      commentId: newReply.commentId.toString(),
+      parentReplyId: parentReplyId.toString(),
+      reply: newReply.reply,
+      user: {
+        id: newReply.userId._id.toString(),
+        name: newReply.userId.name,
+        username: newReply.userId.username,
+        profileImage: newReply.userId.profileImage,
+        bio: newReply.userId.bio,
+        isVerifiedBadge: newReply.userId.isVerifiedBadge,
+      },
+      mentionedUsers: (newReply.mentionedUserIds || []).map((u) => ({
+        id: u._id.toString(),
+        name: u.name,
+        username: u.username,
+        profileImage: u.profileImage,
+        bio: u.bio,
+        isVerifiedBadge: u.isVerifiedBadge,
+      })),
+      likeCount,
+      likeCountFormatted: formattedLikeCount,
+      isLiked,
+      timeAgo,
+      createdAt: newReply.createdAt,
+      updatedAt: newReply.updatedAt,
+    };
+  } catch (error) {
+    logger.error("Error in createReplyToReply:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get replies to a reply (nested replies) with pagination
+ * @param {string} parentReplyId - Parent reply ID
+ * @param {string} currentUserId - Current user ID (for like status)
+ * @param {number} page - Page number (default: 1)
+ * @param {number} limit - Items per page (default: 20)
+ * @returns {Promise<Object>} Replies with pagination
+ */
+export const getRepliesToReply = async (parentReplyId, currentUserId, page = 1, limit = 20) => {
+  try {
+    const skip = (page - 1) * limit;
+
+    const parentReply = await ReplyComment.findById(parentReplyId).lean();
+    if (!parentReply) throw new Error("Reply not found");
+
+    const replies = await ReplyComment.find({
+      parentReplyId,
+      isDeleted: false,
+    })
+      .populate("userId", "name username profileImage bio isVerifiedBadge")
+      .populate("mentionedUserIds", "name username profileImage bio isVerifiedBadge")
+      .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await ReplyComment.countDocuments({
+      parentReplyId,
+      isDeleted: false,
+    });
+
+    const replyIds = replies.map((r) => r._id.toString());
+    const likeStatuses = await Promise.all(
+      replyIds.map(async (replyId) => {
+        const [likeCount, isLiked] = await Promise.all([
+          getReplyCommentLikeCount(replyId),
+          currentUserId ? isReplyCommentLikedByUser(currentUserId, replyId) : false,
+        ]);
+        return { replyId, likeCount, isLiked };
+      })
+    );
+    const likeStatusMap = new Map();
+    likeStatuses.forEach((s) => likeStatusMap.set(s.replyId, { likeCount: s.likeCount, isLiked: s.isLiked }));
+
+    const formattedReplies = replies.map((reply) => {
+      const replyId = reply._id.toString();
+      const likeStatus = likeStatusMap.get(replyId) || { likeCount: 0, isLiked: false };
+      return {
+        id: replyId,
+        commentId: reply.commentId.toString(),
+        parentReplyId: reply.parentReplyId?.toString() || null,
+        reply: reply.reply,
+        user: {
+          id: reply.userId._id.toString(),
+          name: reply.userId.name,
+          username: reply.userId.username,
+          profileImage: reply.userId.profileImage,
+          bio: reply.userId.bio,
+          isVerifiedBadge: reply.userId.isVerifiedBadge,
+        },
+        mentionedUsers: (reply.mentionedUserIds || []).map((u) => ({
+          id: u._id.toString(),
+          name: u.name,
+          username: u.username,
+          profileImage: u.profileImage,
+          bio: u.bio,
+          isVerifiedBadge: u.isVerifiedBadge,
+        })),
+        likeCount: likeStatus.likeCount,
+        likeCountFormatted: formatNumber(likeStatus.likeCount),
+        isLiked: likeStatus.isLiked,
+        timeAgo: getTimeAgo(reply.createdAt),
+        createdAt: reply.createdAt,
+        updatedAt: reply.updatedAt,
+      };
+    });
+
+    return {
+      replies: formattedReplies,
+      pagination: getPaginationMeta(total, page, limit),
+    };
+  } catch (error) {
+    logger.error("Error in getRepliesToReply:", error);
+    throw error;
+  }
+};
+
 export default {
   createReply,
   getReplies,
+  createReplyToReply,
+  getRepliesToReply,
 };
