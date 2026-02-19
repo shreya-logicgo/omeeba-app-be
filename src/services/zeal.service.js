@@ -425,22 +425,44 @@ const processZealAsync = async (zealId) => {
  */
 export const getZealStatus = async (userId, zealId) => {
   try {
+    // 1. Try to find Zeal Post
     const zealPost = await ZealPost.findOne({
       _id: zealId,
       userId,
     });
 
-    if (!zealPost) {
-      throw new Error("Zeal post not found");
+    if (zealPost) {
+      return {
+        zealId: zealPost._id.toString(),
+        status: zealPost.status,
+        processingError: zealPost.processingError,
+        isUploaded: true,
+        createdAt: zealPost.createdAt,
+        updatedAt: zealPost.updatedAt,
+        type: "post",
+      };
     }
 
-    return {
-      zealId: zealPost._id.toString(),
-      status: zealPost.status,
-      processingError: zealPost.processingError,
-      createdAt: zealPost.createdAt,
-      updatedAt: zealPost.updatedAt,
-    };
+    // 2. If not found, try to find Zeal Draft
+    const zealDraft = await ZealDraft.findOne({
+      _id: zealId,
+      userId,
+    });
+
+    if (zealDraft) {
+      return {
+        zealId: zealDraft._id.toString(),
+        status: zealDraft.status, // draft, failed
+        isUploaded: zealDraft.isUploaded,
+        uploadedParts: zealDraft.uploadedParts ? zealDraft.uploadedParts.length : 0,
+        totalChunks: zealDraft.totalChunks,
+        createdAt: zealDraft.createdAt,
+        updatedAt: zealDraft.updatedAt,
+        type: "draft",
+      };
+    }
+
+    throw new Error("Zeal not found");
   } catch (error) {
     logger.error("Error in getZealStatus:", error);
     throw error;
