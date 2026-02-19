@@ -84,7 +84,10 @@ export const votePoll = async (req, res) => {
     // Vote on poll
     const poll = await votePollService(userId, pollId, optionId);
 
-    // Format response
+    // Format response with selectedByAuthUser on each option (user just voted)
+    const userSelectedOptionId = poll.userVotes?.find(
+      (v) => v.userId.toString() === userId.toString()
+    )?.optionId ?? null;
     return sendSuccess(
       res,
       {
@@ -96,6 +99,9 @@ export const votePoll = async (req, res) => {
             optionText: option.optionText,
             voteCount: option.voteCount,
             votePercentage: option.votePercentage,
+            selectedByAuthUser:
+              userSelectedOptionId != null &&
+              option.optionId === userSelectedOptionId,
           })),
           totalVotes: poll.totalVotes,
           status: poll.status,
@@ -147,7 +153,7 @@ export const getPoll = async (req, res) => {
     // Get poll
     const { poll, userVote } = await getPollService(pollId, userId);
 
-    // Format response
+    // Format response with selectedByAuthUser on each option
     return sendSuccess(
       res,
       {
@@ -159,11 +165,12 @@ export const getPoll = async (req, res) => {
             optionText: option.optionText,
             voteCount: option.voteCount,
             votePercentage: option.votePercentage,
+            selectedByAuthUser:
+              userVote != null && option.optionId === userVote,
           })),
           totalVotes: poll.totalVotes,
           status: poll.status,
           duration: poll.duration,
-          userVote: userVote, // Option ID that user voted for, or null
           createdBy: {
             id: poll.createdBy._id,
             name: poll.createdBy.name,
