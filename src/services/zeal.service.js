@@ -12,8 +12,10 @@ import {
   verifyFileExists,
   getPublicUrl,
   initiateMultipartUpload,
+  uploadBufferToStorage,
 } from "./storage.service.js";
 import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
+import { generateThumbnailFromUrl } from "./thumbnail.service.js";
 import config from "../config/env.js";
 import logger from "../utils/logger.js";
 
@@ -315,9 +317,6 @@ export const createZeal = async (userId, zealDraftId, zealData) => {
  */
 const processZealAsync = async (zealId) => {
   try {
-    // Simulate processing delay (in production, this would be actual video/image processing)
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
     const zealPost = await ZealPost.findById(zealId);
 
     if (!zealPost) {
@@ -325,22 +324,64 @@ const processZealAsync = async (zealId) => {
       return;
     }
 
-    // Simulate processing - check if file is valid
-    // In production, you would:
-    // 1. Download file from storage
-    // 2. Validate file format
-    // 3. Generate thumbnails (for videos)
-    // 4. Transcode videos if needed
-    // 5. Upload processed files
-    // 6. Update status to READY or FAILED
+    let isProcessingSuccessful = true;
+    let processingError = null;
 
-    // For now, we'll just mark it as ready
-    // In production, you'd check for actual processing errors
-    const isProcessingSuccessful = true; // This would be determined by actual processing
+    try {
+      // Generate thumbnail for videos
+      if (zealPost.videos && zealPost.videos.length > 0 && zealPost.mediaUrl) {
+        const videoUrl = zealPost.videos[0] || zealPost.mediaUrl;
+        
+        logger.info(`Generating thumbnail for zeal ${zealId} from video: ${videoUrl}`);
+        
+        try {
+          // Generate thumbnail from video URL (1 second offset, 640px width)
+          const thumbnailBuffer = await generateThumbnailFromUrl(videoUrl, {
+            timeOffset: 1,
+            width: 640,
+          });
+
+          // Generate storage key for thumbnail
+          const thumbnailStorageKey = generateStorageKey(
+            zealPost.userId.toString(),
+            "thumbnail",
+            "image/jpeg",
+            "zeals"
+          );
+
+          // Upload thumbnail to storage
+          const thumbnailUrl = await uploadBufferToStorage(
+            thumbnailStorageKey,
+            thumbnailBuffer,
+            "image/jpeg"
+          );
+
+          // Save thumbnail URL
+          zealPost.thumbnailUrl = thumbnailUrl;
+          logger.info(`Thumbnail uploaded successfully for zeal ${zealId}: ${thumbnailUrl}`);
+        } catch (thumbnailError) {
+          logger.error(`Error generating thumbnail for zeal ${zealId}:`, thumbnailError);
+          // Don't fail the whole processing if thumbnail generation fails
+          // Continue without thumbnail
+          processingError = `Thumbnail generation failed: ${thumbnailError.message}`;
+        }
+      }
+
+      // Additional processing can be added here:
+      // - Video transcoding
+      // - Image optimization
+      // - Format validation
+      // etc.
+
+    } catch (processingErr) {
+      logger.error(`Processing error for zeal ${zealId}:`, processingErr);
+      isProcessingSuccessful = false;
+      processingError = `Processing failed: ${processingErr.message}`;
+    }
 
     if (isProcessingSuccessful) {
       zealPost.status = ZealStatus.READY;
-      zealPost.processingError = null;
+      zealPost.processingError = processingError; // May contain thumbnail warning
       logger.info(`Zeal post processed successfully: ${zealId}`);
       
       await zealPost.save();
