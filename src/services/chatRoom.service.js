@@ -214,18 +214,26 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         lastMessage.senderId.toString() === otherUserId;
 
       // Format last message preview with status indicator
-      // lastMessageStatus: "new" = from other, unread (dot); "new_byte" = snap from other, unread; "delivered" = sent by me, delivered; "open" = sent by me, recipient saw
+      // lastMessageStatus: "new" = from other, unread (dot); "read" = messages read but snap not viewed; "delivered" = sent by me, delivered; "open" = sent by me, recipient saw
       let lastMessagePreview = null;
       let lastMessageStatus = null;
       const hasUnread = participant && participant.unreadCount > 0;
+      const isLastMessageSnap = room.lastMessageType === MessageType.SNAP;
+      const isSnapUnviewed = lastMessage && lastMessage.status !== MessageStatus.SEEN;
 
       if (room.lastMessage) {
-        if (lastMessageFromOther && hasUnread) {
-          lastMessageStatus = "new"; // orange dot = new msg, view karna baki
-          if (room.lastMessageType === MessageType.SNAP) {
-            lastMessagePreview = "New Byte"; // snap from other, unread
+        if (lastMessageFromOther) {
+          // Check if last message is an unviewed snap - show "New Byte" regardless of unreadCount
+          if (isLastMessageSnap && isSnapUnviewed) {
+            lastMessagePreview = "New Byte"; // snap from other, not viewed yet
+            lastMessageStatus = hasUnread ? "new" : "read"; // "read" = messages read but snap not viewed
+          } else if (hasUnread) {
+            // Non-snap messages with unread count
+            lastMessageStatus = "new"; // orange dot = new msg, view karna baki
           }
+          // If hasUnread is false and not an unviewed snap, lastMessageStatus stays null (messages read)
         } else if (!lastMessageFromOther && lastMessage) {
+          // Message sent by current user
           if (lastMessage.status === MessageStatus.SEEN) {
             lastMessageStatus = "open"; // samne wale ne dekha
           } else if (lastMessage.status === MessageStatus.DELIVERED) {
@@ -235,13 +243,14 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
           }
         }
 
+        // Set default preview if not set yet
         if (!lastMessagePreview) {
           if (room.lastMessageType === MessageType.TEXT) {
             lastMessagePreview = room.lastMessage;
           } else if (room.lastMessageType === MessageType.IMAGE) {
             lastMessagePreview = "📷 Image";
           } else if (room.lastMessageType === MessageType.SNAP) {
-            lastMessagePreview = "📸 Snap";
+            lastMessagePreview = "📸 Snap"; // Viewed snap or sent by me
           } else if (room.lastMessageType === MessageType.POST) {
             lastMessagePreview = "📌 Post";
           } else if (room.lastMessageType === MessageType.WRITE_POST) {
@@ -469,21 +478,28 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
       const lastMessage = lastMessageMap.get(roomId);
       const hasUnread = participant && participant.unreadCount > 0;
 
-      // Same logic as getChatRooms: dot = new msg from requester, view karna baki; New Byte = snap unread
+      // Same logic as getChatRooms: dot = new msg from requester, view karna baki; New Byte = snap unviewed
       let lastMessagePreview = null;
       let lastMessageStatus = null;
+      const isLastMessageSnap = room.lastMessageType === MessageType.SNAP;
+      const isSnapUnviewed = lastMessage && lastMessage.status !== MessageStatus.SEEN;
+      
       if (room.lastMessage) {
-        if (hasUnread) {
+        // Check if last message is an unviewed snap - show "New Byte" regardless of unreadCount
+        if (isLastMessageSnap && isSnapUnviewed) {
+          lastMessagePreview = "New Byte"; // snap from requester, not viewed yet
+          lastMessageStatus = hasUnread ? "new" : "read"; // "read" = messages read but snap not viewed
+        } else if (hasUnread) {
+          // Non-snap messages with unread count
           lastMessageStatus = "new"; // dot = requester ne msg bheja, maine abhi dekha nahi
-          if (room.lastMessageType === MessageType.SNAP) {
-            lastMessagePreview = "New Byte";
-          }
         }
+        // If hasUnread is false and not an unviewed snap, lastMessageStatus stays null (messages read)
+        
         if (!lastMessagePreview) {
           if (room.lastMessageType === MessageType.TEXT) {
             lastMessagePreview = room.lastMessage;
           } else if (room.lastMessageType === MessageType.IMAGE) lastMessagePreview = "📷 Image";
-          else if (room.lastMessageType === MessageType.SNAP) lastMessagePreview = "📸 Snap";
+          else if (room.lastMessageType === MessageType.SNAP) lastMessagePreview = "📸 Snap"; // Viewed snap
           else if (room.lastMessageType === MessageType.POST) lastMessagePreview = "📌 Post";
           else if (room.lastMessageType === MessageType.WRITE_POST) lastMessagePreview = "✍️ Write Post";
           else if (room.lastMessageType === MessageType.ZEAL) lastMessagePreview = "🎬 Zeal";

@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 import ChatParticipant from "../models/chat/ChatParticipant.js";
 import ChatMessage from "../models/chat/ChatMessage.js";
 import ChatRoom from "../models/chat/ChatRoom.js";
-import { MessageStatus } from "../models/enums.js";
+import { MessageStatus, MessageType } from "../models/enums.js";
 import logger from "../utils/logger.js";
 
 /**
@@ -59,15 +59,18 @@ export const markMessagesAsRead = async (roomId, userId, lastReadMessageId = nul
     );
 
     // Update message status to SEEN for messages sent by other user
+    // IMPORTANT: Exclude SNAP messages - they should only be marked as SEEN when actually viewed
     if (lastReadMessage) {
       const otherUserId = room.userA.toString() === userId ? room.userB : room.userA;
       
-      // Update all messages from other user in this room to SEEN status
+      // Update all NON-SNAP messages from other user in this room to SEEN status
       // Only update messages that are DELIVERED or SENT (not already SEEN)
+      // Snap messages are excluded - they remain unread until actually viewed via viewSnap
       await ChatMessage.updateMany(
         {
           roomId,
           senderId: otherUserId,
+          messageType: { $ne: MessageType.SNAP }, // Exclude snap messages
           status: { $in: [MessageStatus.SENT, MessageStatus.DELIVERED] },
           createdAt: { $lte: lastReadMessage.createdAt },
         },
