@@ -12,10 +12,8 @@ import {
   verifyFileExists,
   getPublicUrl,
   initiateMultipartUpload,
-  uploadBufferToStorage,
 } from "./storage.service.js";
 import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
-import { generateThumbnailFromUrl } from "./thumbnail.service.js";
 import config from "../config/env.js";
 import logger from "../utils/logger.js";
 
@@ -327,58 +325,22 @@ const processZealAsync = async (zealId) => {
       return;
     }
 
-    // Process video: generate thumbnail
-    let isProcessingSuccessful = true;
-    let processingError = null;
+    // Simulate processing - check if file is valid
+    // In production, you would:
+    // 1. Download file from storage
+    // 2. Validate file format
+    // 3. Generate thumbnails (for videos)
+    // 4. Transcode videos if needed
+    // 5. Upload processed files
+    // 6. Update status to READY or FAILED
 
-    try {
-      // Check if it's a video and needs thumbnail generation
-      const isVideo = zealPost.videos && zealPost.videos.length > 0;
-      
-      if (isVideo && !zealPost.thumbnailUrl) {
-        const videoUrl = zealPost.videos[0] || zealPost.mediaUrl;
-        
-        if (videoUrl) {
-          logger.info(`Generating thumbnail for video zeal ${zealId}: ${videoUrl}`);
-          
-          try {
-            // Generate thumbnail (at 1 second, width 640px)
-            const thumbnailBuffer = await generateThumbnailFromUrl(videoUrl, {
-              timeOffset: 1,
-              width: 640,
-            });
-
-            // Upload thumbnail to storage
-            const thumbnailStorageKey = generateStorageKey(
-              zealPost.userId.toString(),
-              "image",
-              "image/jpeg",
-              "zeals/thumbnails"
-            );
-
-            await uploadBufferToStorage(thumbnailStorageKey, thumbnailBuffer, "image/jpeg");
-            const thumbnailUrl = getPublicUrl(thumbnailStorageKey);
-
-            // Update zeal post with thumbnail URL
-            zealPost.thumbnailUrl = thumbnailUrl;
-            logger.info(`Thumbnail uploaded successfully for zeal ${zealId}: ${thumbnailUrl}`);
-          } catch (thumbnailError) {
-            logger.error(`Failed to generate thumbnail for zeal ${zealId}:`, thumbnailError);
-            // Don't fail the whole processing if thumbnail fails, just log it
-            processingError = `Thumbnail generation failed: ${thumbnailError.message}`;
-            // Continue without thumbnail
-          }
-        }
-      }
-    } catch (error) {
-      logger.error(`Error during video processing for zeal ${zealId}:`, error);
-      isProcessingSuccessful = false;
-      processingError = `Processing error: ${error.message}`;
-    }
+    // For now, we'll just mark it as ready
+    // In production, you'd check for actual processing errors
+    const isProcessingSuccessful = true; // This would be determined by actual processing
 
     if (isProcessingSuccessful) {
       zealPost.status = ZealStatus.READY;
-      zealPost.processingError = processingError || null;
+      zealPost.processingError = null;
       logger.info(`Zeal post processed successfully: ${zealId}`);
       
       await zealPost.save();
@@ -425,22 +387,44 @@ const processZealAsync = async (zealId) => {
  */
 export const getZealStatus = async (userId, zealId) => {
   try {
+    // 1. Try to find Zeal Post
     const zealPost = await ZealPost.findOne({
       _id: zealId,
       userId,
     });
 
-    if (!zealPost) {
-      throw new Error("Zeal post not found");
+    if (zealPost) {
+      return {
+        zealId: zealPost._id.toString(),
+        status: zealPost.status,
+        processingError: zealPost.processingError,
+        isUploaded: true,
+        createdAt: zealPost.createdAt,
+        updatedAt: zealPost.updatedAt,
+        type: "post",
+      };
     }
 
-    return {
-      zealId: zealPost._id.toString(),
-      status: zealPost.status,
-      processingError: zealPost.processingError,
-      createdAt: zealPost.createdAt,
-      updatedAt: zealPost.updatedAt,
-    };
+    // 2. If not found, try to find Zeal Draft
+    const zealDraft = await ZealDraft.findOne({
+      _id: zealId,
+      userId,
+    });
+
+    if (zealDraft) {
+      return {
+        zealId: zealDraft._id.toString(),
+        status: zealDraft.status, // draft, failed
+        isUploaded: zealDraft.isUploaded,
+        uploadedParts: zealDraft.uploadedParts ? zealDraft.uploadedParts.length : 0,
+        totalChunks: zealDraft.totalChunks,
+        createdAt: zealDraft.createdAt,
+        updatedAt: zealDraft.updatedAt,
+        type: "draft",
+      };
+    }
+
+    throw new Error("Zeal not found");
   } catch (error) {
     logger.error("Error in getZealStatus:", error);
     throw error;
