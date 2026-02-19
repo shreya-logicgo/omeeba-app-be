@@ -185,7 +185,7 @@ const uploadFileInChunks = async (
     );
 
     // Start background chunk upload
-    uploadChunksInBackground(
+    await uploadChunksInBackground(
       draft._id.toString(),
       filePath,
       storageKey,
