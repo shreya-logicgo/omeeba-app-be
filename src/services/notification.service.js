@@ -5,11 +5,13 @@
 
 import Notification from "../models/notifications/Notification.js";
 import User from "../models/users/User.js";
+import UserFollower from "../models/users/UserFollower.js";
 import { NotificationType, NotificationStatus, ContentType } from "../models/enums.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { sendPushNotificationToUser } from "./onesignal.service.js";
 import { getContentModel } from "../models/utils/contentHelper.js";
+import mongoose from "mongoose";
 
 /**
  * Generate aggregation key for grouping similar notifications
@@ -884,6 +886,33 @@ export const getNotifications = async (userId, options = {}) => {
     // Get total count
     const total = await Notification.countDocuments(query);
 
+    // Batch check follow status for NEW_FOLLOWER notifications
+    const newFollowerNotifications = notifications.filter(
+      (n) => n.type === NotificationType.NEW_FOLLOWER && n.senderId
+    );
+    const senderIdsToCheck = newFollowerNotifications
+      .map((n) => n.senderId?._id?.toString())
+      .filter((id) => id);
+    
+    const followingMap = new Map();
+    if (senderIdsToCheck.length > 0) {
+      try {
+        const followRelations = await UserFollower.find({
+          userId: { $in: senderIdsToCheck.map((id) => new mongoose.Types.ObjectId(id)) },
+          followerId: userId,
+        })
+          .select("userId")
+          .lean();
+        
+        followRelations.forEach((rel) => {
+          const id = rel.userId ? rel.userId.toString() : null;
+          if (id) followingMap.set(id, true);
+        });
+      } catch (followError) {
+        logger.warn(`Error batch checking follow status:`, followError);
+      }
+    }
+
     // Format notifications and populate contentId
     const formattedNotifications = await Promise.all(
       notifications.map(async (notification) => {
@@ -949,6 +978,13 @@ export const getNotifications = async (userId, options = {}) => {
           }
         }
 
+        // Check if current user follows the sender (for NEW_FOLLOWER notifications)
+        let isFollowingSender = null;
+        if (notification.type === NotificationType.NEW_FOLLOWER && notification.senderId) {
+          const senderIdStr = notification.senderId._id?.toString();
+          isFollowingSender = senderIdStr ? followingMap.has(senderIdStr) : false;
+        }
+
         const formatted = {
           id: notification._id.toString(),
           type: notification.type,
@@ -969,6 +1005,7 @@ export const getNotifications = async (userId, options = {}) => {
                 isVerifiedBadge: notification.senderId.isVerifiedBadge,
               }
             : null,
+          isFollowingSender: isFollowingSender, // true/false/null - only for NEW_FOLLOWER type
           isAggregated: notification.isAggregated || false,
           aggregatedCount: notification.aggregatedCount || 0,
           aggregatedUsers: (notification.aggregatedUserIds || []).map((user) => ({

@@ -8,7 +8,7 @@ import {
   getContentByHashtag,
   simplifiedSearch,
 } from "../services/explore.service.js";
-import { sendPaginated, sendError } from "../utils/response.js";
+import { sendPaginated, sendError, sendSuccess } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 import { getPagination } from "../utils/pagination.js";
@@ -156,27 +156,29 @@ export const getHashtagContent = async (req, res) => {
     const { contentType = "all", sortBy = "popularity" } = req.query;
 
     // Validate contentType
-    const validContentTypes = ["all", "post", "write", "zeal", "poll"];
+    const validContentTypes = ["all", "post", "write", "zeal", "poll", "user"];
     if (!validContentTypes.includes(contentType)) {
       return sendError(
         res,
-        "Invalid contentType. Must be one of: all, post, write, zeal, poll",
+        "Invalid contentType. Must be one of: all, post, write, zeal, poll, user",
         "Validation Error",
         "Invalid contentType parameter",
         StatusCodes.BAD_REQUEST
       );
     }
 
-    // Validate sortBy
-    const validSortBy = ["relevance", "popularity", "recent"];
-    if (!validSortBy.includes(sortBy)) {
-      return sendError(
-        res,
-        "Invalid sortBy. Must be one of: relevance, popularity, recent",
-        "Validation Error",
-        "Invalid sortBy parameter",
-        StatusCodes.BAD_REQUEST
-      );
+    // Validate sortBy (not used for contentType=user)
+    if (contentType !== "user") {
+      const validSortBy = ["relevance", "popularity", "recent"];
+      if (!validSortBy.includes(sortBy)) {
+        return sendError(
+          res,
+          "Invalid sortBy. Must be one of: relevance, popularity, recent",
+          "Validation Error",
+          "Invalid sortBy parameter",
+          StatusCodes.BAD_REQUEST
+        );
+      }
     }
 
     // Get content by hashtag
@@ -187,6 +189,16 @@ export const getHashtagContent = async (req, res) => {
       page,
       limit,
     });
+
+    // For contentType=user, return without pagination
+    if (contentType === "user") {
+      return sendSuccess(
+        res,
+        result.content || [],
+        `Users for ${result.hashtag} retrieved successfully`,
+        StatusCodes.OK
+      );
+    }
 
     return sendPaginated(
       res,

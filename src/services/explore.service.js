@@ -1788,6 +1788,155 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       };
     }
 
+    // Handle contentType=user - return users who created content with this hashtag
+    if (contentType === "user") {
+      const hashtagDoc = await Hashtag.findOne({ tag: normalizedTag });
+      if (!hashtagDoc) {
+        return {
+          content: [],
+          hashtag: `#${normalizedHashtag}`,
+          pagination: null, // No pagination for users
+        };
+      }
+
+      // Get all content linked to this hashtag
+      const allContentLinks = await HashtagContent.find({
+        hashtagId: hashtagDoc._id,
+      })
+        .select("contentType contentId")
+        .lean();
+
+      if (allContentLinks.length === 0) {
+        return {
+          content: [],
+          hashtag: `#${normalizedHashtag}`,
+          pagination: null,
+        };
+      }
+
+      // Group content IDs by type
+      const contentIdsByType = {
+        [ContentType.POST]: [],
+        [ContentType.WRITE_POST]: [],
+        [ContentType.ZEAL]: [],
+        Poll: [],
+      };
+
+      allContentLinks.forEach((link) => {
+        if (contentIdsByType[link.contentType]) {
+          contentIdsByType[link.contentType].push(link.contentId);
+        }
+      });
+
+      // Fetch all content and extract unique user IDs
+      const userIdSet = new Set();
+      
+      // Get Post creators
+      if (contentIdsByType[ContentType.POST].length > 0) {
+        const posts = await Post.find({
+          _id: { $in: contentIdsByType[ContentType.POST] },
+          userId: { $in: validUserIds },
+        })
+          .select("userId")
+          .lean();
+        posts.forEach((p) => userIdSet.add(p.userId.toString()));
+      }
+
+      // Get WritePost creators
+      if (contentIdsByType[ContentType.WRITE_POST].length > 0) {
+        const writes = await WritePost.find({
+          _id: { $in: contentIdsByType[ContentType.WRITE_POST] },
+          userId: { $in: validUserIds },
+        })
+          .select("userId")
+          .lean();
+        writes.forEach((w) => userIdSet.add(w.userId.toString()));
+      }
+
+      // Get ZealPost creators
+      if (contentIdsByType[ContentType.ZEAL].length > 0) {
+        const zeals = await ZealPost.find({
+          _id: { $in: contentIdsByType[ContentType.ZEAL] },
+          userId: { $in: validUserIds },
+          status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
+        })
+          .select("userId")
+          .lean();
+        zeals.forEach((z) => userIdSet.add(z.userId.toString()));
+      }
+
+      // Get Poll creators
+      if (contentIdsByType.Poll.length > 0) {
+        const polls = await Poll.find({
+          _id: { $in: contentIdsByType.Poll },
+          createdBy: { $in: validUserIds },
+          status: PollStatus.ACTIVE,
+        })
+          .select("createdBy")
+          .lean();
+        polls.forEach((p) => userIdSet.add(p.createdBy.toString()));
+      }
+
+      const uniqueUserIds = Array.from(userIdSet).map((id) => new mongoose.Types.ObjectId(id));
+
+      if (uniqueUserIds.length === 0) {
+        return {
+          content: [],
+          hashtag: `#${normalizedHashtag}`,
+          pagination: null,
+        };
+      }
+
+      // Fetch users with follower counts
+      const users = await User.find({
+        _id: { $in: uniqueUserIds },
+        isDeleted: false,
+      })
+        .select("name username profileImage bio isAccountVerified isVerifiedBadge")
+        .lean();
+
+      // Get follower counts for all users
+      const followerCounts = await UserFollower.aggregate([
+        {
+          $match: {
+            userId: { $in: uniqueUserIds },
+          },
+        },
+        {
+          $group: {
+            _id: "$userId",
+            followerCount: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const followerCountMap = new Map();
+      followerCounts.forEach((item) => {
+        followerCountMap.set(item._id.toString(), item.followerCount);
+      });
+
+      // Format users
+      const formattedUsers = users.map((user) => ({
+        id: user._id.toString(),
+        name: user.name,
+        username: user.username,
+        profileImage: user.profileImage || null,
+        bio: user.bio || "",
+        isAccountVerified: user.isAccountVerified || false,
+        isVerifiedBadge: user.isVerifiedBadge || false,
+        followerCount: followerCountMap.get(user._id.toString()) || 0,
+      }));
+
+      // Sort by followerCount descending
+      formattedUsers.sort((a, b) => b.followerCount - a.followerCount);
+
+      return {
+        content: formattedUsers,
+        hashtag: `#${normalizedHashtag}`,
+        pagination: null, // No pagination for users
+      };
+    }
+
     // Map query contentType to stored content types
     const contentTypeMap = {
       post: ContentType.POST,
