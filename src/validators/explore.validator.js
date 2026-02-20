@@ -61,10 +61,10 @@ export const searchSchema = createSchema(
 export const getHashtagContentSchema = createSchema(
   {
     contentType: Joi.string()
-      .valid("all", "post", "write", "zeal", "poll")
+      .valid("all", "post", "write", "zeal", "poll", "user")
       .optional()
       .messages({
-        "any.only": "contentType must be one of: all, post, write, zeal, poll",
+        "any.only": "contentType must be one of: all, post, write, zeal, poll, user",
       }),
     sortBy: Joi.string()
       .valid("relevance", "popularity", "recent")
