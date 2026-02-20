@@ -225,6 +225,26 @@ const calculateTrendingScore = (metrics, createdAt) => {
 };
 
 /**
+ * Home feed engagement score: (likes × 5) + (comments × 10) + (shares × 15) + recencyScore
+ * recencyScore: higher for newer content, decay over ~7 days
+ * @param {Object} metrics - { likeCount, commentCount, shareCount }
+ * @param {Date} createdAt - Content creation date
+ * @returns {number} Engagement score for home feed ordering
+ */
+const calculateHomeFeedEngagementScore = (metrics, createdAt) => {
+  const { likeCount = 0, commentCount = 0, shareCount = 0 } = metrics;
+  const now = new Date();
+  const ageInHours = (now - new Date(createdAt)) / (1000 * 60 * 60);
+  const recencyScore = Math.max(0, 100 - ageInHours * (100 / 168)); // Decay over 168 hrs (7 days)
+  return (
+    likeCount * 5 +
+    commentCount * 10 +
+    shareCount * 15 +
+    recencyScore
+  );
+};
+
+/**
  * Get liked content IDs for a user (bulk query for efficiency)
  * @param {mongoose.Types.ObjectId} userId - User ID
  * @param {Array} contentItems - Array of content items with contentType and _id
@@ -583,6 +603,95 @@ const fetchLatestContentByUsers = async (
   const allContent = contentArrays.flat();
   allContent.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   return allContent.slice(0, limit);
+};
+
+/**
+ * Fetch own recent content (last 48 hrs) for home feed priority
+ * @param {mongoose.Types.ObjectId} userId - Current user ID
+ * @param {Object} reportedContentIds - Reported content IDs by type
+ * @param {number} limit - Max items to return
+ * @param {Array<string>} contentTypes - Content types to include
+ * @returns {Promise<Array>} Content items with contentType
+ */
+const fetchOwnRecentContent = async (
+  userId,
+  reportedContentIds,
+  limit,
+  contentTypes = null
+) => {
+  if (!userId || limit <= 0) return [];
+  const typeSet = Array.isArray(contentTypes) && contentTypes.length > 0 ? new Set(contentTypes) : null;
+  const includePost = !typeSet || typeSet.has(ContentType.POST);
+  const includeWrite = !typeSet || typeSet.has(ContentType.WRITE_POST);
+  const includeZeal = !typeSet || typeSet.has(ContentType.ZEAL);
+  const now = new Date();
+  const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+  const contentQueries = [];
+  if (includePost) {
+    const postQuery = {
+      userId,
+      createdAt: { $gte: fortyEightHoursAgo },
+    };
+    if (reportedContentIds[ContentType.POST]?.length > 0) {
+      postQuery._id = { $nin: reportedContentIds[ContentType.POST].map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    contentQueries.push(
+      Post.find(postQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("musicId", "title artist album coverImage duration")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((posts) => posts.map((p) => ({ ...p, contentType: ContentType.POST })))
+    );
+  }
+  if (includeWrite) {
+    const writeQuery = {
+      userId,
+      createdAt: { $gte: fortyEightHoursAgo },
+    };
+    if (reportedContentIds[ContentType.WRITE_POST]?.length > 0) {
+      writeQuery._id = { $nin: reportedContentIds[ContentType.WRITE_POST].map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    contentQueries.push(
+      WritePost.find(writeQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((writes) => writes.map((w) => ({ ...w, contentType: ContentType.WRITE_POST })))
+    );
+  }
+  if (includeZeal) {
+    const zealQuery = {
+      userId,
+      status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
+      createdAt: { $gte: fortyEightHoursAgo },
+    };
+    if (reportedContentIds[ContentType.ZEAL]?.length > 0) {
+      zealQuery._id = { $nin: reportedContentIds[ContentType.ZEAL].map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    contentQueries.push(
+      ZealPost.find(zealQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("musicId", "title artist album coverImage duration")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((zeals) => zeals.map((z) => ({ ...z, contentType: ContentType.ZEAL })))
+    );
+  }
+  if (contentQueries.length === 0) return [];
+  const arrays = await Promise.all(contentQueries);
+  const all = arrays.flat();
+  all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return all.slice(0, limit);
 };
 
 const CONTENT_TYPE_POLL = "poll";
@@ -957,7 +1066,9 @@ export const getTrendingContent = async (userId = null, options = {}) => {
 };
 
 /**
- * Get home feed content (followed -> trending -> latest)
+ * Get home feed content
+ * Order: 1) Own recent (24–48 hrs), 2) Following (engagement weighted), 3) Suggested/trending, 4) Recent fallback
+ * engagementScore = (likes × 5) + (comments × 10) + (shares × 15) + recencyScore
  * @param {mongoose.Types.ObjectId} userId - User ID (required)
  * @param {Object} options - Query options
  * @param {number} options.page - Page number (default: 1)
@@ -1015,28 +1126,6 @@ export const getHomeFeed = async (userId, options = {}) => {
     const contentTypeSet = new Set(contentTypes);
     const includePolls = contentTypeSet.has(CONTENT_TYPE_POLL);
 
-    // Followed user IDs
-    let followedUserIds = [];
-    if (userId) {
-      const followRows = await UserFollower.find({ followerId: userId })
-        .select("userId")
-        .lean();
-
-      followedUserIds = followRows
-        .map((row) => row.userId?.toString())
-        .filter((id) => id && validUserIdSet.has(id))
-        .map((id) => new mongoose.Types.ObjectId(id));
-    }
-
-    // 1) Followed users latest (post/write/zeal)
-    const followedRaw = await fetchLatestContentByUsers(
-      followedUserIds,
-      reportedContentIds,
-      fetchLimit,
-      contentTypes
-    );
-    const followedContent = await formatContentList(userId, followedRaw);
-
     // Helper: add selectedByAuthUser flag on each option for logged-in user
     const attachSelectedOption = (poll) => {
       const formattedPoll = formatPollForFeed(poll);
@@ -1045,7 +1134,6 @@ export const getHomeFeed = async (userId, options = {}) => {
         formattedPoll.options,
         userSelectedOptionId
       );
-
       return {
         id: formattedPoll.id,
         contentType: formattedPoll.contentType,
@@ -1061,67 +1149,8 @@ export const getHomeFeed = async (userId, options = {}) => {
       };
     };
 
-    // 1b) Followed users latest polls
-    let followedPolls = [];
-    if (includePolls) {
-      const followedPollsRaw = await fetchLatestPollsByUsers(
-        followedUserIds,
-        fetchLimit
-      );
-
-      followedPolls = followedPollsRaw.map(attachSelectedOption);
-    }
-
-    // 2) Trending content (post/write/zeal)
-    const singleType =
-      contentTypes.length === 1 && contentTypeSet.has(ContentType.POST)
-        ? "post"
-        : contentTypes.length === 1 && contentTypeSet.has(ContentType.WRITE_POST)
-        ? "write"
-        : contentTypes.length === 1 && contentTypeSet.has(ContentType.ZEAL)
-        ? "zeal"
-        : "all";
-
-    let trendingContent = [];
-    if (singleType !== "zeal") {
-      const trendingResult = await getTrendingContent(userId, {
-        page: 1,
-        limit: fetchLimit,
-        contentType: singleType,
-      });
-
-      trendingContent = (trendingResult.content || []).filter((item) =>
-        contentTypeSet.has(item.contentType)
-      );
-    }
-
-    // 2b) Trending polls
-    let trendingPolls = [];
-    if (includePolls) {
-      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit);
-      trendingPolls = trendingPollsRaw.map(attachSelectedOption);
-    }
-
-    // 3) Latest content (global post/write/zeal)
-    const latestRaw = await fetchLatestContentByUsers(
-      validUserIds,
-      reportedContentIds,
-      fetchLimit,
-      contentTypes
-    );
-    const latestContent = await formatContentList(userId, latestRaw);
-
-    // 3b) Latest polls (global)
-    let latestPolls = [];
-    if (includePolls) {
-      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit);
-      latestPolls = latestPollsRaw.map(attachSelectedOption);
-    }
-
-    // Combine with priority: followed -> trending -> latest (dedupe)
     const combined = [];
     const seen = new Set();
-
     const addUnique = (items) => {
       items.forEach((item) => {
         const key = `${item.contentType}:${item.id}`;
@@ -1132,12 +1161,101 @@ export const getHomeFeed = async (userId, options = {}) => {
       });
     };
 
+    // 1) Own recent posts (last 24–48 hrs / 48 hrs)
+    let ownRecentContent = [];
+    if (userId) {
+      const ownRaw = await fetchOwnRecentContent(
+        userId,
+        reportedContentIds,
+        fetchLimit,
+        contentTypes.filter((t) => t !== CONTENT_TYPE_POLL)
+      );
+      ownRecentContent = await formatContentList(userId, ownRaw);
+    }
+    addUnique(ownRecentContent);
+
+    // Followed user IDs
+    let followedUserIds = [];
+    if (userId) {
+      const followRows = await UserFollower.find({ followerId: userId })
+        .select("userId")
+        .lean();
+      followedUserIds = followRows
+        .map((row) => row.userId?.toString())
+        .filter((id) => id && validUserIdSet.has(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+    }
+
+    // 2) Following users' posts (engagement weighted)
+    let followedContent = [];
+    if (followedUserIds.length > 0) {
+      const followedRaw = await fetchLatestContentByUsers(
+        followedUserIds,
+        reportedContentIds,
+        fetchLimit,
+        contentTypes
+      );
+      const metricsMap = await getEngagementMetrics(followedRaw);
+      const withScore = followedRaw.map((item) => {
+        const metrics = metricsMap.get(item._id.toString()) || {
+          likeCount: 0,
+          commentCount: 0,
+          shareCount: 0,
+        };
+        const engagementScore = calculateHomeFeedEngagementScore(metrics, item.createdAt);
+        return { ...item, _engagementScore: engagementScore };
+      });
+      withScore.sort((a, b) => (b._engagementScore || 0) - (a._engagementScore || 0));
+      const sortedFollowed = withScore.slice(0, fetchLimit).map(({ _engagementScore, ...item }) => item);
+      followedContent = await formatContentList(userId, sortedFollowed);
+    }
     addUnique(followedContent);
-    addUnique(followedPolls);
+
+    // 2b) Followed users' polls (latest)
+    if (includePolls && followedUserIds.length > 0) {
+      const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, fetchLimit);
+      addUnique(followedPollsRaw.map(attachSelectedOption));
+    }
+
+    // 3) Suggested/trending posts
+    const singleType =
+      contentTypes.length === 1 && contentTypeSet.has(ContentType.POST)
+        ? "post"
+        : contentTypes.length === 1 && contentTypeSet.has(ContentType.WRITE_POST)
+        ? "write"
+        : contentTypes.length === 1 && contentTypeSet.has(ContentType.ZEAL)
+        ? "zeal"
+        : "all";
+    let trendingContent = [];
+    if (singleType !== "zeal") {
+      const trendingResult = await getTrendingContent(userId, {
+        page: 1,
+        limit: fetchLimit,
+        contentType: singleType,
+      });
+      trendingContent = (trendingResult.content || []).filter((c) =>
+        contentTypeSet.has(c.contentType)
+      );
+    }
     addUnique(trendingContent);
-    addUnique(trendingPolls);
+    if (includePolls) {
+      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit);
+      addUnique(trendingPollsRaw.map(attachSelectedOption));
+    }
+
+    // 4) Recent fallback (global latest)
+    const latestRaw = await fetchLatestContentByUsers(
+      validUserIds,
+      reportedContentIds,
+      fetchLimit,
+      contentTypes
+    );
+    const latestContent = await formatContentList(userId, latestRaw);
     addUnique(latestContent);
-    addUnique(latestPolls);
+    if (includePolls) {
+      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit);
+      addUnique(latestPollsRaw.map(attachSelectedOption));
+    }
 
     const paginated = combined.slice(skip, skip + limit);
     const total = combined.length;

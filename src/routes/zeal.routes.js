@@ -9,12 +9,14 @@ import {
   create,
   getStatus,
   uploadFile,
+  deleteZeal,
 } from "../controllers/zeal.controller.js";
 import { validateBody, validateParams } from "../utils/validation.js";
 import {
   startZealUploadSchema,
   createZealSchema,
   getZealStatusParamsSchema,
+  deleteZealParamsSchema,
 } from "../validators/zeal.validator.js";
 import { protect } from "../middleware/auth.js";
 import { uploadSingle } from "../middleware/upload.js";
@@ -58,6 +60,18 @@ router.get(
   protect,
   validateParams(getZealStatusParamsSchema),
   getStatus
+);
+
+/**
+ * @route   DELETE /api/v1/zeals/:zealId
+ * @desc    Delete a Zeal post (owner only)
+ * @access  Private
+ */
+router.delete(
+  "/:zealId",
+  protect,
+  validateParams(deleteZealParamsSchema),
+  deleteZeal
 );
 
 export default router;
