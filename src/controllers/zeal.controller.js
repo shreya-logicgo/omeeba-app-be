@@ -8,8 +8,9 @@ import {
   createZeal,
   getZealStatus,
 } from "../services/zeal.service.js";
+import { deleteZeal as deleteZealService } from "../services/contentDeletion.service.js";
 import { uploadFileWithChunking } from "../services/zeal-upload.service.js";
-import { sendSuccess, sendError, sendBadRequest, sendNotFound } from "../utils/response.js";
+import { sendSuccess, sendError, sendBadRequest, sendNotFound, sendForbidden } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -192,10 +193,41 @@ export const uploadFile = async (req, res) => {
   }
 };
 
+/**
+ * Delete Zeal
+ * @route DELETE /api/v1/zeals/:zealId
+ * @access Private
+ */
+export const deleteZeal = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { zealId } = req.params;
+    const result = await deleteZealService(userId, zealId);
+    return sendSuccess(res, result, "Zeal deleted successfully", StatusCodes.OK);
+  } catch (error) {
+    logger.error("Delete zeal error:", error);
+    if (error.message === "Zeal not found" || error.message === "User not found") {
+      return sendNotFound(res, error.message);
+    }
+    if (error.message === "You can only delete your own zeals") {
+      return sendForbidden(res, error.message);
+    }
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to delete zeal",
+      "Delete Zeal Error",
+      error.message || "An error occurred while deleting zeal",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   startUpload,
   create,
   getStatus,
   uploadFile,
+  deleteZeal,
 };
 

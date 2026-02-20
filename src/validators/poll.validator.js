@@ -1,5 +1,5 @@
 import Joi from "joi";
-import { createSchema } from "../utils/validation.js";
+import { createSchema, commonValidations } from "../utils/validation.js";
 
 /**
  * Create Poll validation schema
@@ -55,8 +55,17 @@ export const votePollSchema = createSchema(
   ["optionId"]
 );
 
+/**
+ * Delete Poll - params (pollId)
+ */
+export const deletePollParamsSchema = createSchema(
+  { pollId: commonValidations.objectId.label("Poll ID") },
+  ["pollId"]
+);
+
 export default {
   createPollSchema,
   votePollSchema,
+  deletePollParamsSchema,
 };
 

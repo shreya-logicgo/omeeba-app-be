@@ -1,8 +1,8 @@
 import express from "express";
 import { protect } from "../middleware/auth.js";
-import { validateBody } from "../utils/validation.js";
-import { createWritePostSchema } from "../validators/writePost.validator.js";
-import { createWritePost } from "../controllers/writePost.controller.js";
+import { validateBody, validateParams } from "../utils/validation.js";
+import { createWritePostSchema, deleteWritePostParamsSchema } from "../validators/writePost.validator.js";
+import { createWritePost, deleteWritePost } from "../controllers/writePost.controller.js";
 
 const router = express.Router();
 
@@ -12,6 +12,13 @@ const router = express.Router();
  * @access  Private
  */
 router.post("/", protect, validateBody(createWritePostSchema), createWritePost);
+
+/**
+ * @route   DELETE /api/v1/write-posts/:writePostId
+ * @desc    Delete a write post (owner only)
+ * @access  Private
+ */
+router.delete("/:writePostId", protect, validateParams(deleteWritePostParamsSchema), deleteWritePost);
 
 export default router;
 

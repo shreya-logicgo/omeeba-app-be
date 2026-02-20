@@ -1,9 +1,10 @@
 import { createPost as createPostService } from "../services/post.service.js";
+import { deletePost as deletePostService } from "../services/contentDeletion.service.js";
 import {
   generateStorageKey,
   uploadBufferToStorage,
 } from "../services/storage.service.js";
-import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
+import { sendSuccess, sendError, sendBadRequest, sendNotFound, sendForbidden } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -125,6 +126,37 @@ export const createPost = async (req, res) => {
   }
 };
 
+/**
+ * Delete Post
+ * @route DELETE /api/v1/posts/:postId
+ * @access Private
+ */
+export const deletePost = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { postId } = req.params;
+    const result = await deletePostService(userId, postId);
+    return sendSuccess(res, result, "Post deleted successfully", StatusCodes.OK);
+  } catch (error) {
+    logger.error("Delete post error:", error);
+    if (error.message === "Post not found" || error.message === "User not found") {
+      return sendNotFound(res, error.message);
+    }
+    if (error.message === "You can only delete your own posts") {
+      return sendForbidden(res, error.message);
+    }
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to delete post",
+      "Delete Post Error",
+      error.message || "An error occurred while deleting post",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   createPost,
+  deletePost,
 };

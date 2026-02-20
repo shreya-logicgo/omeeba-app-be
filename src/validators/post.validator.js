@@ -1,5 +1,5 @@
 import Joi from "joi";
-import { createSchema } from "../utils/validation.js";
+import { createSchema, commonValidations } from "../utils/validation.js";
 
 /**
  * Create Post validation schema
@@ -74,6 +74,15 @@ export const createPostSchema = createSchema(
   ]
 );
 
+/**
+ * Delete Post - params (postId)
+ */
+export const deletePostParamsSchema = createSchema(
+  { postId: commonValidations.objectId.label("Post ID") },
+  ["postId"]
+);
+
 export default {
   createPostSchema,
+  deletePostParamsSchema,
 };
