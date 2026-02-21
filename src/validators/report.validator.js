@@ -20,10 +20,10 @@ export const getSubCategoriesParamsSchema = createSchema({
 export const createReportBodySchema = createSchema(
   {
     contentType: Joi.string()
-      .valid(...Object.values(ContentType))
+      .valid(...Object.values(ContentType), "Poll")
       .required()
       .messages({
-        "any.only": `must be one of: ${Object.values(ContentType).join(", ")}`,
+        "any.only": `must be one of: ${Object.values(ContentType).join(", ")}, Poll`,
         "any.required": "is required",
       })
       .label("Content Type"),

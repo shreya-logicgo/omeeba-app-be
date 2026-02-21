@@ -187,10 +187,11 @@ export const unsaveContent = async (userId, contentType, contentId) => {
  */
 export const toggleSaveContent = async (userId, contentType, contentId) => {
   try {
-    // Check if already saved
+    // Check if already saved by this user
     const existingSave = await SavedContent.findOne({
       contentType,
       contentId,
+      userId, // Check for current user's save
     });
 
     if (existingSave) {
