@@ -2,13 +2,14 @@ import ContentLike from "../models/interactions/ContentLike.js";
 import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
-import { ContentType, ZealStatus, NotificationType } from "../models/enums.js";
+import Poll from "../models/content/Poll.js";
+import { ContentType, ZealStatus, PollStatus, NotificationType } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
 
 /**
  * Verify content exists and is accessible
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object|null>} - Content document or null
  */
@@ -29,6 +30,12 @@ const verifyContentExists = async (contentType, contentId) => {
           status: ZealStatus.PUBLISHED, // Only allow likes on published zeal posts
         });
         break;
+      case ContentType.POLL:
+        content = await Poll.findOne({
+          _id: contentId,
+          status: PollStatus.ACTIVE, // Only allow likes on active polls
+        });
+        break;
       default:
         return null;
     }
@@ -41,9 +48,9 @@ const verifyContentExists = async (contentType, contentId) => {
 };
 
 /**
- * Like content (Post, WritePost, or ZealPost)
+ * Like content (Post, WritePost, ZealPost, or Poll)
  * @param {mongoose.Types.ObjectId} userId - User ID
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object>} - Like operation result with action and likeCount
  */
@@ -110,7 +117,8 @@ export const likeContent = async (userId, contentType, contentId) => {
 
     // Create notification for content owner (if not self-like)
     try {
-      const contentOwnerId = content.userId;
+      // Poll uses 'createdBy' instead of 'userId'
+      const contentOwnerId = content.userId || content.createdBy;
       if (contentOwnerId.toString() !== userId.toString()) {
         let notificationType;
         if (contentType === ContentType.POST) {
@@ -119,6 +127,8 @@ export const likeContent = async (userId, contentType, contentId) => {
           notificationType = NotificationType.ZEAL_LIKED;
         } else if (contentType === ContentType.WRITE_POST) {
           notificationType = NotificationType.WRITE_LIKED;
+        } else if (contentType === ContentType.POLL) {
+          notificationType = NotificationType.POLL_LIKED;
         }
 
         if (notificationType) {
@@ -175,9 +185,9 @@ export const likeContent = async (userId, contentType, contentId) => {
 };
 
 /**
- * Unlike content (Post, WritePost, or ZealPost)
+ * Unlike content (Post, WritePost, ZealPost, or Poll)
  * @param {mongoose.Types.ObjectId} userId - User ID
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object>} - Unlike operation result with action and likeCount
  */
@@ -242,7 +252,7 @@ export const unlikeContent = async (userId, contentType, contentId) => {
 /**
  * Toggle like status (like if not liked, unlike if liked)
  * @param {mongoose.Types.ObjectId} userId - User ID
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object>} - Toggle operation result
  */
