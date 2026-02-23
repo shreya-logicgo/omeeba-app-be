@@ -936,28 +936,44 @@ export const getNotifications = async (userId, options = {}) => {
               // Format content with image field
               if (content) {
                 let imageUrl = null;
-                let imagesArray = Array.isArray(content.images) ? content.images : [];
+                let imagesArray = Array.isArray(content.images) ? [...content.images] : [];
                 
                 // Determine image URL based on content type
                 if (notification.contentType === ContentType.ZEAL) {
-                  // For Zeal: prefer thumbnailUrl, else first image, else first video
-                  imageUrl = content.thumbnailUrl || 
-                            (imagesArray.length > 0 ? imagesArray[0] : null) ||
-                            (content.videos && Array.isArray(content.videos) && content.videos.length > 0 ? content.videos[0] : null);
+                  // For Zeal: 
+                  // 1. If thumbnail exists: use it for image and images array
+                  // 2. If no thumbnail but has images: use first image for image and images array
+                  // 3. If no thumbnail and no images (only videos): image = null, images = []
                   
-                  // For Zeal: Always include thumbnailUrl in images array if it exists
-                  // Add thumbnail as first item if not already present
                   if (content.thumbnailUrl) {
+                    // Has thumbnail: use thumbnail for image and images
+                    imageUrl = content.thumbnailUrl;
                     const thumbnailStr = String(content.thumbnailUrl);
                     const thumbnailExists = imagesArray.some(img => String(img) === thumbnailStr);
                     if (!thumbnailExists) {
                       imagesArray = [content.thumbnailUrl, ...imagesArray];
+                    } else {
+                      // Ensure thumbnail is first in array
+                      imagesArray = imagesArray.filter(img => String(img) !== thumbnailStr);
+                      imagesArray = [content.thumbnailUrl, ...imagesArray];
                     }
+                  } else if (imagesArray.length > 0) {
+                    // No thumbnail but has images: use first image
+                    imageUrl = imagesArray[0];
+                    // imagesArray already contains the image, no change needed
+                  } else {
+                    // No thumbnail and no images (only videos): image = null, images = []
+                    imageUrl = null;
+                    imagesArray = [];
                   }
                 } else if (notification.contentType === ContentType.POST) {
                   // For Post: use first image
                   imageUrl = imagesArray.length > 0 ? imagesArray[0] : null;
-                  imagesArray = imagesArray; // Keep as is
+                  
+                  // Ensure that if we have a single image, it's in the images array
+                  if (imageUrl && !imagesArray.includes(imageUrl)) {
+                    imagesArray = [imageUrl, ...imagesArray];
+                  }
                 } else if (notification.contentType === ContentType.WRITE_POST) {
                   // WritePost doesn't have images, so null
                   imageUrl = null;
@@ -967,7 +983,7 @@ export const getNotifications = async (userId, options = {}) => {
                 content = {
                   _id: content._id,
                   image: imageUrl, // Single image URL for notification display
-                  images: imagesArray, // For Zeal: includes thumbnailUrl as first item if available
+                  images: imagesArray, // Array of images - ensures single images are included
                   videos: content.videos || null,
                 };
               }

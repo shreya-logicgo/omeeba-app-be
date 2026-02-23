@@ -694,8 +694,6 @@ const fetchOwnRecentContent = async (
   return all.slice(0, limit);
 };
 
-const CONTENT_TYPE_POLL = "poll";
-
 /**
  * Fetch latest polls by given users (Poll uses createdBy)
  * @param {Array<mongoose.Types.ObjectId>} userIds - User IDs (createdBy)
@@ -713,7 +711,7 @@ const fetchLatestPollsByUsers = async (userIds, limit) => {
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
-  return polls.map((p) => ({ ...p, contentType: CONTENT_TYPE_POLL }));
+  return polls.map((p) => ({ ...p, contentType: ContentType.POLL }));
 };
 
 /**
@@ -733,12 +731,12 @@ const fetchTrendingPolls = async (validUserIds, limit) => {
     .sort({ totalVotes: -1, createdAt: -1 })
     .limit(limit)
     .lean();
-  return polls.map((p) => ({ ...p, contentType: CONTENT_TYPE_POLL }));
+  return polls.map((p) => ({ ...p, contentType: ContentType.POLL }));
 };
 
 const formatPollForFeed = (poll) => ({
   id: poll._id.toString(),
-  contentType: CONTENT_TYPE_POLL,
+  contentType: ContentType.POLL,
   caption: poll.caption || "",
   options: poll.options || [],
   totalVotes: poll.totalVotes || 0,
@@ -946,7 +944,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
           .then((polls) =>
             polls.map((poll) => ({
               ...poll,
-              contentType: "Poll",
+              contentType: ContentType.POLL,
             }))
           )
       );
@@ -964,8 +962,8 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     }
 
     // Separate polls from other content for metrics calculation
-    const nonPollContent = allContent.filter((item) => item.contentType !== "Poll");
-    const pollContent = allContent.filter((item) => item.contentType === "Poll");
+    const nonPollContent = allContent.filter((item) => item.contentType !== ContentType.POLL);
+    const pollContent = allContent.filter((item) => item.contentType === ContentType.POLL);
 
     // Get engagement metrics for non-poll content
     const metricsMap = await getEngagementMetrics(nonPollContent);
@@ -1018,11 +1016,11 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     // Format content items with isLiked and isSaved status
     const formattedContent = paginatedContent.map((item) => {
       // Handle poll formatting separately
-      if (item.contentType === "Poll") {
+      if (item.contentType === ContentType.POLL) {
         const userSelectedOptionId = getUserSelectedOptionId(item, userId);
         return {
           id: item._id.toString(),
-          contentType: "Poll",
+          contentType: ContentType.POLL,
           caption: item.caption || "",
           options: addSelectedByAuthUserToOptions(
             item.options,
@@ -1117,14 +1115,14 @@ export const getHomeFeed = async (userId, options = {}) => {
       zeal: [ContentType.ZEAL],
       zeels: [ContentType.ZEAL],
       zeals: [ContentType.ZEAL],
-      poll: [CONTENT_TYPE_POLL],
-      polls: [CONTENT_TYPE_POLL],
-      all: [ContentType.POST, ContentType.WRITE_POST, CONTENT_TYPE_POLL],
+      poll: [ContentType.POLL],
+      polls: [ContentType.POLL],
+      all: [ContentType.POST, ContentType.WRITE_POST, ContentType.POLL],
     };
 
     const contentTypes = itemMap[normalizedItem] || itemMap.all;
     const contentTypeSet = new Set(contentTypes);
-    const includePolls = contentTypeSet.has(CONTENT_TYPE_POLL);
+    const includePolls = contentTypeSet.has(ContentType.POLL);
 
     // Helper: add selectedByAuthUser flag on each option for logged-in user
     const attachSelectedOption = (poll) => {
@@ -1168,7 +1166,7 @@ export const getHomeFeed = async (userId, options = {}) => {
         userId,
         reportedContentIds,
         fetchLimit,
-        contentTypes.filter((t) => t !== CONTENT_TYPE_POLL)
+        contentTypes.filter((t) => t !== ContentType.POLL)
       );
       ownRecentContent = await formatContentList(userId, ownRaw);
     }
@@ -1942,7 +1940,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       post: ContentType.POST,
       write: ContentType.WRITE_POST,
       zeal: ContentType.ZEAL,
-      poll: "Poll",
+      poll: ContentType.POLL,
     };
 
     const allowedKeys =
@@ -2107,7 +2105,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
           .then((polls) =>
             polls.map((poll) => ({
               ...poll,
-              contentType: "Poll",
+              contentType: ContentType.POLL,
             }))
           )
       );
@@ -2126,7 +2124,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
 
     // Get engagement metrics for content (not polls)
     const contentItems = allContentItems.filter(
-      (item) => item.contentType !== "Poll"
+      (item) => item.contentType !== ContentType.POLL
     );
     const metricsMap = await getEngagementMetrics(contentItems);
 
@@ -2140,7 +2138,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
 
     // Attach metrics and calculate scores
     const contentWithMetrics = allContentItems.map((item) => {
-      if (item.contentType === "Poll") {
+      if (item.contentType === ContentType.POLL) {
         return {
           ...item,
           popularityScore: item.totalVotes || 0,
@@ -2187,11 +2185,11 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
 
     // Format content
     const formattedContent = paginatedContent.map((item) => {
-      if (item.contentType === "Poll") {
+      if (item.contentType === ContentType.POLL) {
         const userSelectedOptionId = getUserSelectedOptionId(item, userId);
         return {
           id: item._id.toString(),
-          contentType: "poll",
+          contentType: ContentType.POLL,
           caption: item.caption || "",
           options: addSelectedByAuthUserToOptions(
             item.options,
