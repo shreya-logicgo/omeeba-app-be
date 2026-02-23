@@ -345,7 +345,7 @@ const verifyContentForShare = async (contentType, contentId) => {
     case ContentType.WRITE_POST:
       return WritePost.findById(contentId).lean();
     case ContentType.ZEAL:
-      return ZealPost.findOne({ _id: contentId, status: ZealStatus.PUBLISHED }).lean();
+      return ZealPost.findOne({ _id: contentId, status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] } }).lean();
     default:
       return null;
   }

@@ -30,7 +30,7 @@ const verifyContentExists = async (contentType, contentId) => {
       case ContentType.ZEAL:
         content = await ZealPost.findOne({
           _id: contentId,
-          status: ZealStatus.PUBLISHED, // Only allow sharing published zeal posts
+          status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] }, // Allow sharing published or ready zeal posts
         });
         break;
       case ContentType.POLL:
