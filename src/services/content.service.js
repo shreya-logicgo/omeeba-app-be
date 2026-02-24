@@ -5,6 +5,47 @@ import ContentLike from "../models/interactions/ContentLike.js";
 import Comment from "../models/comments/Comment.js";
 
 /**
+ * Helper: Apply conditional population safely
+ */
+const applyPopulation = (query, contentType) => {
+  const ownerField =
+    contentType === ContentType.POLL ? "createdBy" : "userId";
+
+  // Populate owner
+  query = query.populate({
+    path: ownerField,
+    select:
+      "name username profileImage isAccountVerified isVerifiedBadge",
+  });
+
+  // POST, ZEAL, WRITE_POST → mentioned users
+  if (
+    contentType === ContentType.POST ||
+    contentType === ContentType.ZEAL ||
+    contentType === ContentType.WRITE_POST
+  ) {
+    query = query.populate({
+      path: "mentionedUserIds",
+      select:
+        "name username profileImage isAccountVerified isVerifiedBadge",
+    });
+  }
+
+  // Only POST & ZEAL → music
+  if (
+    contentType === ContentType.POST ||
+    contentType === ContentType.ZEAL
+  ) {
+    query = query.populate({
+      path: "musicId",
+      select: "title artist album coverImage duration",
+    });
+  }
+
+  return query;
+};
+
+/**
  * Helper: format content item JSON for all content types
  */
 const formatContent = (
@@ -109,6 +150,7 @@ const formatContent = (
       return baseItem;
   }
 };
+
 /**
  * Get single content
  */
@@ -119,24 +161,11 @@ export const getSingleContent = async (
 ) => {
   try {
     const Model = getContentModel(contentType);
-    const userField =
-      contentType === ContentType.POLL ? "createdBy" : "userId";
 
-    const content = await Model.findById(contentId)
-      .populate({
-        path: userField,
-        select:
-          "name username profileImage isAccountVerified isVerifiedBadge",
-      })
-      .populate({
-        path: "mentionedUserIds",
-        select:
-          "name username profileImage isAccountVerified isVerifiedBadge",
-      })
-      .populate({
-        path: "musicId",
-        select: "title artist album coverImage duration",
-      });
+    let query = Model.findById(contentId);
+    query = applyPopulation(query, contentType);
+
+    const content = await query;
 
     if (!content) throw new Error(`${contentType} not found`);
 
@@ -171,6 +200,7 @@ export const getSingleContent = async (
     throw error;
   }
 };
+
 /**
  * Update content
  */
@@ -236,30 +266,17 @@ export const updateContent = async (
   Object.assign(item, updateData);
   await item.save();
 
-  // ✅ RE-FETCH WITH FULL POPULATION
-  const updatedItem = await Model.findById(contentId)
-    .populate({
-      path: ownerField,
-      select:
-        "name username profileImage isAccountVerified isVerifiedBadge",
-    })
-    .populate({
-      path: "mentionedUserIds",
-      select:
-        "name username profileImage isAccountVerified isVerifiedBadge",
-    })
-    .populate({
-      path: "musicId",
-      select: "title artist album coverImage duration",
-    });
+  // Re-fetch with safe population
+  let query = Model.findById(contentId);
+  query = applyPopulation(query, contentType);
 
-  // ✅ FETCH COUNTS
+  const updatedItem = await query;
+
   const [likeCount, commentCount] = await Promise.all([
     ContentLike.countDocuments({ contentType, contentId }),
     Comment.countDocuments({ contentType, contentId }),
   ]);
 
-  // ✅ CHECK IF LIKED
   let isLiked = false;
 
   if (currentUserId) {
@@ -304,7 +321,6 @@ export const deleteContent = async (
     throw new Error("You are not authorized to delete this content");
   }
 
-  // FIXED ZEAL CHECK
   if (
     contentType === ContentType.ZEAL &&
     item.status === "processing"
