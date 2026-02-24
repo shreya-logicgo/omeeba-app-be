@@ -3,7 +3,8 @@ import {
   votePoll as votePollService,
   getPoll as getPollService,
 } from "../services/poll.service.js";
-import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
+import { deletePoll as deletePollService } from "../services/contentDeletion.service.js";
+import { sendSuccess, sendError, sendBadRequest, sendNotFound, sendForbidden } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -84,7 +85,10 @@ export const votePoll = async (req, res) => {
     // Vote on poll
     const poll = await votePollService(userId, pollId, optionId);
 
-    // Format response
+    // Format response with selectedByAuthUser on each option (user just voted)
+    const userSelectedOptionId = poll.userVotes?.find(
+      (v) => v.userId.toString() === userId.toString()
+    )?.optionId ?? null;
     return sendSuccess(
       res,
       {
@@ -96,6 +100,9 @@ export const votePoll = async (req, res) => {
             optionText: option.optionText,
             voteCount: option.voteCount,
             votePercentage: option.votePercentage,
+            selectedByAuthUser:
+              userSelectedOptionId != null &&
+              option.optionId === userSelectedOptionId,
           })),
           totalVotes: poll.totalVotes,
           status: poll.status,
@@ -147,7 +154,7 @@ export const getPoll = async (req, res) => {
     // Get poll
     const { poll, userVote } = await getPollService(pollId, userId);
 
-    // Format response
+    // Format response with selectedByAuthUser on each option
     return sendSuccess(
       res,
       {
@@ -159,11 +166,12 @@ export const getPoll = async (req, res) => {
             optionText: option.optionText,
             voteCount: option.voteCount,
             votePercentage: option.votePercentage,
+            selectedByAuthUser:
+              userVote != null && option.optionId === userVote,
           })),
           totalVotes: poll.totalVotes,
           status: poll.status,
           duration: poll.duration,
-          userVote: userVote, // Option ID that user voted for, or null
           createdBy: {
             id: poll.createdBy._id,
             name: poll.createdBy.name,
@@ -198,8 +206,39 @@ export const getPoll = async (req, res) => {
   }
 };
 
+/**
+ * Delete Poll
+ * @route DELETE /api/v1/polls/:pollId
+ * @access Private
+ */
+export const deletePoll = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { pollId } = req.params;
+    const result = await deletePollService(userId, pollId);
+    return sendSuccess(res, result, "Poll deleted successfully", StatusCodes.OK);
+  } catch (error) {
+    logger.error("Delete poll error:", error);
+    if (error.message === "Poll not found" || error.message === "User not found") {
+      return sendNotFound(res, error.message);
+    }
+    if (error.message === "You can only delete your own polls") {
+      return sendForbidden(res, error.message);
+    }
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to delete poll",
+      "Delete Poll Error",
+      error.message || "An error occurred while deleting poll",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   createPoll,
   votePoll,
   getPoll,
+  deletePoll,
 };

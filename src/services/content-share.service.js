@@ -2,8 +2,9 @@ import ContentShare from "../models/interactions/ContentShare.js";
 import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
+import Poll from "../models/content/Poll.js";
 import User from "../models/users/User.js";
-import { ContentType, ZealStatus, NotificationType } from "../models/enums.js";
+import { ContentType, ZealStatus, PollStatus, NotificationType } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
@@ -11,7 +12,7 @@ import mongoose from "mongoose";
 
 /**
  * Verify content exists and is accessible
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object|null>} - Content document or null
  */
@@ -30,6 +31,12 @@ const verifyContentExists = async (contentType, contentId) => {
         content = await ZealPost.findOne({
           _id: contentId,
           status: ZealStatus.PUBLISHED, // Only allow sharing published zeal posts
+        });
+        break;
+      case ContentType.POLL:
+        content = await Poll.findOne({
+          _id: contentId,
+          status: PollStatus.ACTIVE, // Only allow sharing active polls
         });
         break;
       default:
@@ -107,7 +114,7 @@ const validateReceivers = async (receiverIds, senderId) => {
 /**
  * Share content with one or more users
  * @param {mongoose.Types.ObjectId} senderId - User ID of the sender
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @param {Array<mongoose.Types.ObjectId>} receiverIds - Array of receiver user IDs
  * @returns {Promise<Object>} - Share operation result
@@ -177,6 +184,10 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
             { new: true }
           ).select("shareCount");
           break;
+        case ContentType.POLL:
+          // Polls don't have shareCount field, so we skip incrementing
+          // Share count is tracked via ContentShare collection only
+          break;
       }
     } catch (updateError) {
       // Log error but don't fail the share operation
@@ -207,7 +218,8 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
 
     // Create notifications
     try {
-      const contentOwnerId = content.userId;
+      // Poll uses 'createdBy' instead of 'userId'
+      const contentOwnerId = content.userId || content.createdBy;
 
       // Notify content owner (if not self-share)
       if (contentOwnerId.toString() !== senderId.toString()) {
@@ -365,6 +377,9 @@ export const getContentShareCount = async (contentType, contentId, useCached = f
           break;
         case ContentType.ZEAL:
           content = await ZealPost.findById(contentId).select("shareCount").lean();
+          break;
+        case ContentType.POLL:
+          // Polls don't have shareCount field, so we skip cached lookup
           break;
       }
       

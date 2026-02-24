@@ -317,9 +317,6 @@ export const createZeal = async (userId, zealDraftId, zealData) => {
  */
 const processZealAsync = async (zealId) => {
   try {
-    // Simulate processing delay (in production, this would be actual video/image processing)
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
     const zealPost = await ZealPost.findById(zealId);
 
     if (!zealPost) {
@@ -327,58 +324,64 @@ const processZealAsync = async (zealId) => {
       return;
     }
 
-    // Process video: generate thumbnail
     let isProcessingSuccessful = true;
     let processingError = null;
 
     try {
-      // Check if it's a video and needs thumbnail generation
-      const isVideo = zealPost.videos && zealPost.videos.length > 0;
-      
-      if (isVideo && !zealPost.thumbnailUrl) {
+      // Generate thumbnail for videos
+      if (zealPost.videos && zealPost.videos.length > 0 && zealPost.mediaUrl) {
         const videoUrl = zealPost.videos[0] || zealPost.mediaUrl;
         
-        if (videoUrl) {
-          logger.info(`Generating thumbnail for video zeal ${zealId}: ${videoUrl}`);
-          
-          try {
-            // Generate thumbnail (at 1 second, width 640px)
-            const thumbnailBuffer = await generateThumbnailFromUrl(videoUrl, {
-              timeOffset: 1,
-              width: 640,
-            });
+        logger.info(`Generating thumbnail for zeal ${zealId} from video: ${videoUrl}`);
+        
+        try {
+          // Generate thumbnail from video URL (1 second offset, 640px width)
+          const thumbnailBuffer = await generateThumbnailFromUrl(videoUrl, {
+            timeOffset: 1,
+            width: 640,
+          });
 
-            // Upload thumbnail to storage
-            const thumbnailStorageKey = generateStorageKey(
-              zealPost.userId.toString(),
-              "image",
-              "image/jpeg",
-              "zeals/thumbnails"
-            );
+          // Generate storage key for thumbnail
+          const thumbnailStorageKey = generateStorageKey(
+            zealPost.userId.toString(),
+            "thumbnail",
+            "image/jpeg",
+            "zeals"
+          );
 
-            await uploadBufferToStorage(thumbnailStorageKey, thumbnailBuffer, "image/jpeg");
-            const thumbnailUrl = getPublicUrl(thumbnailStorageKey);
+          // Upload thumbnail to storage
+          const thumbnailUrl = await uploadBufferToStorage(
+            thumbnailStorageKey,
+            thumbnailBuffer,
+            "image/jpeg"
+          );
 
-            // Update zeal post with thumbnail URL
-            zealPost.thumbnailUrl = thumbnailUrl;
-            logger.info(`Thumbnail uploaded successfully for zeal ${zealId}: ${thumbnailUrl}`);
-          } catch (thumbnailError) {
-            logger.error(`Failed to generate thumbnail for zeal ${zealId}:`, thumbnailError);
-            // Don't fail the whole processing if thumbnail fails, just log it
-            processingError = `Thumbnail generation failed: ${thumbnailError.message}`;
-            // Continue without thumbnail
-          }
+          // Save thumbnail URL
+          zealPost.thumbnailUrl = thumbnailUrl;
+          logger.info(`Thumbnail uploaded successfully for zeal ${zealId}: ${thumbnailUrl}`);
+        } catch (thumbnailError) {
+          logger.error(`Error generating thumbnail for zeal ${zealId}:`, thumbnailError);
+          // Don't fail the whole processing if thumbnail generation fails
+          // Continue without thumbnail
+          processingError = `Thumbnail generation failed: ${thumbnailError.message}`;
         }
       }
-    } catch (error) {
-      logger.error(`Error during video processing for zeal ${zealId}:`, error);
+
+      // Additional processing can be added here:
+      // - Video transcoding
+      // - Image optimization
+      // - Format validation
+      // etc.
+
+    } catch (processingErr) {
+      logger.error(`Processing error for zeal ${zealId}:`, processingErr);
       isProcessingSuccessful = false;
-      processingError = `Processing error: ${error.message}`;
+      processingError = `Processing failed: ${processingErr.message}`;
     }
 
     if (isProcessingSuccessful) {
       zealPost.status = ZealStatus.READY;
-      zealPost.processingError = processingError || null;
+      zealPost.processingError = processingError; // May contain thumbnail warning
       logger.info(`Zeal post processed successfully: ${zealId}`);
       
       await zealPost.save();

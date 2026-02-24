@@ -1,5 +1,6 @@
 import { createWritePost as createWritePostService } from "../services/writePost.service.js";
-import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
+import { deleteWritePost as deleteWritePostService } from "../services/contentDeletion.service.js";
+import { sendSuccess, sendError, sendBadRequest, sendNotFound, sendForbidden } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
 
@@ -66,7 +67,38 @@ export const createWritePost = async (req, res) => {
   }
 };
 
+/**
+ * Delete Write Post
+ * @route DELETE /api/v1/write-posts/:writePostId
+ * @access Private
+ */
+export const deleteWritePost = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { writePostId } = req.params;
+    const result = await deleteWritePostService(userId, writePostId);
+    return sendSuccess(res, result, "Write post deleted successfully", StatusCodes.OK);
+  } catch (error) {
+    logger.error("Delete write post error:", error);
+    if (error.message === "Write post not found" || error.message === "User not found") {
+      return sendNotFound(res, error.message);
+    }
+    if (error.message === "You can only delete your own write posts") {
+      return sendForbidden(res, error.message);
+    }
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to delete write post",
+      "Delete Write Post Error",
+      error.message || "An error occurred while deleting write post",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   createWritePost,
+  deleteWritePost,
 };
 

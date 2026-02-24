@@ -19,7 +19,13 @@ import { reportCommentBodySchema } from "../validators/commentReport.validator.j
 import { createComment } from "../controllers/comment.controller.js";
 import { toggleLike } from "../controllers/commentLike.controller.js";
 import { toggleReplyLike } from "../controllers/replyCommentLike.controller.js";
-import { createReplyHandler, getRepliesHandler } from "../controllers/commentReply.controller.js";
+import {
+  createReplyHandler,
+  getRepliesHandler,
+  deleteReplyHandler,
+  createReplyToReplyHandler,
+  getRepliesToReplyHandler,
+} from "../controllers/commentReply.controller.js";
 import { deleteCommentHandler } from "../controllers/commentDeletion.controller.js";
 import { reportCommentHandler } from "../controllers/commentReport.controller.js";
 import { getCommentsHandler, getCommentByIdHandler } from "../controllers/commentListing.controller.js";
@@ -139,6 +145,46 @@ router.post(
   protect,
   validateParams(replyIdParamsSchema),
   toggleReplyLike
+);
+
+/**
+ * @route   DELETE /api/v1/comments/replies/:replyId
+ * @desc    Delete a reply (soft delete - only own replies)
+ * @access  Private
+ */
+router.delete(
+  "/replies/:replyId",
+  protect,
+  validateParams(replyIdParamsSchema),
+  deleteReplyHandler
+);
+
+/**
+ * @route   GET /api/v1/comments/replies/:replyId/replies
+ * @desc    Get nested replies (replies to a reply) with pagination
+ * @access  Private
+ */
+router.get(
+  "/replies/:replyId/replies",
+  protect,
+  validateParams(replyIdParamsSchema),
+  validateQuery(getRepliesQuerySchema),
+  getRepliesToReplyHandler
+);
+
+/**
+ * @route   POST /api/v1/comments/replies/:replyId/replies
+ * @desc    Create a reply to a reply (nested reply)
+ * @access  Private
+ * @rateLimit 10 requests per minute per user
+ */
+router.post(
+  "/replies/:replyId/replies",
+  protect,
+  commentRateLimiter,
+  validateParams(replyIdParamsSchema),
+  validateBody(createReplyBodySchema),
+  createReplyToReplyHandler
 );
 
 export default router;

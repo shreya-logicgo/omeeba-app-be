@@ -9,7 +9,7 @@ const contentReportSchema = new mongoose.Schema(
   {
     contentType: {
       type: String,
-      enum: Object.values(ContentType),
+      enum: [...Object.values(ContentType), "Poll"], // Support Poll in addition to ContentType enum
       required: true,
     },
     contentId: {

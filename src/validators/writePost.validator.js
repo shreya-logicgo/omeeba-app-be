@@ -1,5 +1,5 @@
 import Joi from "joi";
-import { createSchema } from "../utils/validation.js";
+import { createSchema, commonValidations } from "../utils/validation.js";
 
 /**
  * Create Write Post validation schema
@@ -28,6 +28,15 @@ export const createWritePostSchema = createSchema(
   ["title", "content", "mentionedUserIds"]
 );
 
+/**
+ * Delete Write Post - params (writePostId)
+ */
+export const deleteWritePostParamsSchema = createSchema(
+  { writePostId: commonValidations.objectId.label("Write Post ID") },
+  ["writePostId"]
+);
+
 export default {
   createWritePostSchema,
+  deleteWritePostParamsSchema,
 };

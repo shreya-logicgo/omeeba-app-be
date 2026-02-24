@@ -225,6 +225,26 @@ const calculateTrendingScore = (metrics, createdAt) => {
 };
 
 /**
+ * Home feed engagement score: (likes × 5) + (comments × 10) + (shares × 15) + recencyScore
+ * recencyScore: higher for newer content, decay over ~7 days
+ * @param {Object} metrics - { likeCount, commentCount, shareCount }
+ * @param {Date} createdAt - Content creation date
+ * @returns {number} Engagement score for home feed ordering
+ */
+const calculateHomeFeedEngagementScore = (metrics, createdAt) => {
+  const { likeCount = 0, commentCount = 0, shareCount = 0 } = metrics;
+  const now = new Date();
+  const ageInHours = (now - new Date(createdAt)) / (1000 * 60 * 60);
+  const recencyScore = Math.max(0, 100 - ageInHours * (100 / 168)); // Decay over 168 hrs (7 days)
+  return (
+    likeCount * 5 +
+    commentCount * 10 +
+    shareCount * 15 +
+    recencyScore
+  );
+};
+
+/**
  * Get liked content IDs for a user (bulk query for efficiency)
  * @param {mongoose.Types.ObjectId} userId - User ID
  * @param {Array} contentItems - Array of content items with contentType and _id
@@ -585,63 +605,143 @@ const fetchLatestContentByUsers = async (
   return allContent.slice(0, limit);
 };
 
-const CONTENT_TYPE_POLL = "poll";
+/**
+ * Fetch own recent content (last 48 hrs) for home feed priority
+ * @param {mongoose.Types.ObjectId} userId - Current user ID
+ * @param {Object} reportedContentIds - Reported content IDs by type
+ * @param {number} limit - Max items to return
+ * @param {Array<string>} contentTypes - Content types to include
+ * @returns {Promise<Array>} Content items with contentType
+ */
+const fetchOwnRecentContent = async (
+  userId,
+  reportedContentIds,
+  limit,
+  contentTypes = null
+) => {
+  if (!userId || limit <= 0) return [];
+  const typeSet = Array.isArray(contentTypes) && contentTypes.length > 0 ? new Set(contentTypes) : null;
+  const includePost = !typeSet || typeSet.has(ContentType.POST);
+  const includeWrite = !typeSet || typeSet.has(ContentType.WRITE_POST);
+  const includeZeal = !typeSet || typeSet.has(ContentType.ZEAL);
+  const now = new Date();
+  const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+  const contentQueries = [];
+  if (includePost) {
+    const postQuery = {
+      userId,
+      createdAt: { $gte: fortyEightHoursAgo },
+    };
+    if (reportedContentIds[ContentType.POST]?.length > 0) {
+      postQuery._id = { $nin: reportedContentIds[ContentType.POST].map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    contentQueries.push(
+      Post.find(postQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("musicId", "title artist album coverImage duration")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((posts) => posts.map((p) => ({ ...p, contentType: ContentType.POST })))
+    );
+  }
+  if (includeWrite) {
+    const writeQuery = {
+      userId,
+      createdAt: { $gte: fortyEightHoursAgo },
+    };
+    if (reportedContentIds[ContentType.WRITE_POST]?.length > 0) {
+      writeQuery._id = { $nin: reportedContentIds[ContentType.WRITE_POST].map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    contentQueries.push(
+      WritePost.find(writeQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((writes) => writes.map((w) => ({ ...w, contentType: ContentType.WRITE_POST })))
+    );
+  }
+  if (includeZeal) {
+    const zealQuery = {
+      userId,
+      status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
+      createdAt: { $gte: fortyEightHoursAgo },
+    };
+    if (reportedContentIds[ContentType.ZEAL]?.length > 0) {
+      zealQuery._id = { $nin: reportedContentIds[ContentType.ZEAL].map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    contentQueries.push(
+      ZealPost.find(zealQuery)
+        .populate("userId", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("mentionedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+        .populate("musicId", "title artist album coverImage duration")
+        .select("-__v")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean()
+        .then((zeals) => zeals.map((z) => ({ ...z, contentType: ContentType.ZEAL })))
+    );
+  }
+  if (contentQueries.length === 0) return [];
+  const arrays = await Promise.all(contentQueries);
+  const all = arrays.flat();
+  all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return all.slice(0, limit);
+};
 
 /**
  * Fetch latest polls by given users (Poll uses createdBy)
  * @param {Array<mongoose.Types.ObjectId>} userIds - User IDs (createdBy)
  * @param {number} limit - Max items to return
- * @param {mongoose.Types.ObjectId} currentUserId - Current user ID (for hasVoted check)
  * @returns {Promise<Array>} Poll items with contentType
  */
-const fetchLatestPollsByUsers = async (userIds, limit, currentUserId = null) => {
+const fetchLatestPollsByUsers = async (userIds, limit) => {
   if (!userIds || userIds.length === 0 || limit <= 0) return [];
-  const selectFields = currentUserId ? "-__v" : "-__v -userVotes";
   const polls = await Poll.find({
     createdBy: { $in: userIds },
     status: PollStatus.ACTIVE,
   })
     .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
-    .select(selectFields)
+    .select("-__v")
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
-  return polls.map((p) => ({ ...p, contentType: CONTENT_TYPE_POLL }));
+  return polls.map((p) => ({ ...p, contentType: ContentType.POLL }));
 };
 
 /**
  * Fetch trending polls (by totalVotes) and latest polls
  * @param {Array<mongoose.Types.ObjectId>} validUserIds - Valid user IDs
  * @param {number} limit - Max items
- * @param {mongoose.Types.ObjectId} currentUserId - Current user ID (for hasVoted check)
  * @returns {Promise<Array>} Polls sorted by totalVotes desc
  */
-const fetchTrendingPolls = async (validUserIds, limit, currentUserId = null) => {
+const fetchTrendingPolls = async (validUserIds, limit) => {
   if (!validUserIds || validUserIds.length === 0 || limit <= 0) return [];
-  const selectFields = currentUserId ? "-__v" : "-__v -userVotes";
   const polls = await Poll.find({
     createdBy: { $in: validUserIds },
     status: PollStatus.ACTIVE,
   })
     .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
-    .select(selectFields)
+    .select("-__v")
     .sort({ totalVotes: -1, createdAt: -1 })
     .limit(limit)
     .lean();
-  return polls.map((p) => ({ ...p, contentType: CONTENT_TYPE_POLL }));
+  return polls.map((p) => ({ ...p, contentType: ContentType.POLL }));
 };
 
-const formatPollForFeed = (poll, userId = null) => ({
+const formatPollForFeed = (poll) => ({
   id: poll._id.toString(),
-  contentType: CONTENT_TYPE_POLL,
+  contentType: ContentType.POLL,
   caption: poll.caption || "",
   options: poll.options || [],
   totalVotes: poll.totalVotes || 0,
   status: poll.status,
   duration: poll.duration,
-  hasVoted: userId && poll.userVotes
-    ? poll.userVotes.some((vote) => vote.userId.toString() === userId.toString())
-    : false,
   createdBy: poll.createdBy
     ? {
         id: poll.createdBy._id.toString(),
@@ -656,6 +756,23 @@ const formatPollForFeed = (poll, userId = null) => ({
   commentCount: 0,
   createdAt: poll.createdAt,
 });
+
+/** Get optionId the user voted for, or null */
+const getUserSelectedOptionId = (poll, userId) => {
+  if (!userId || !poll.userVotes?.length) return null;
+  const userVote = poll.userVotes.find(
+    (v) => v.userId.toString() === userId.toString()
+  );
+  return userVote ? userVote.optionId : null;
+};
+
+/** Add selectedByAuthUser flag to each option for feed/listing responses */
+const addSelectedByAuthUserToOptions = (options, userSelectedOptionId) =>
+  (options || []).map((opt) => ({
+    ...opt,
+    selectedByAuthUser:
+      userSelectedOptionId != null && opt.optionId === userSelectedOptionId,
+  }));
 
 /**
  * Get trending content for Explore landing screen
@@ -827,7 +944,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
           .then((polls) =>
             polls.map((poll) => ({
               ...poll,
-              contentType: "Poll",
+              contentType: ContentType.POLL,
             }))
           )
       );
@@ -845,8 +962,8 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     }
 
     // Separate polls from other content for metrics calculation
-    const nonPollContent = allContent.filter((item) => item.contentType !== "Poll");
-    const pollContent = allContent.filter((item) => item.contentType === "Poll");
+    const nonPollContent = allContent.filter((item) => item.contentType !== ContentType.POLL);
+    const pollContent = allContent.filter((item) => item.contentType === ContentType.POLL);
 
     // Get engagement metrics for non-poll content
     const metricsMap = await getEngagementMetrics(nonPollContent);
@@ -899,12 +1016,16 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     // Format content items with isLiked and isSaved status
     const formattedContent = paginatedContent.map((item) => {
       // Handle poll formatting separately
-      if (item.contentType === "Poll") {
+      if (item.contentType === ContentType.POLL) {
+        const userSelectedOptionId = getUserSelectedOptionId(item, userId);
         return {
           id: item._id.toString(),
-          contentType: "Poll",
+          contentType: ContentType.POLL,
           caption: item.caption || "",
-          options: item.options || [],
+          options: addSelectedByAuthUserToOptions(
+            item.options,
+            userSelectedOptionId
+          ),
           totalVotes: item.totalVotes || 0,
           status: item.status,
           duration: item.duration,
@@ -943,7 +1064,9 @@ export const getTrendingContent = async (userId = null, options = {}) => {
 };
 
 /**
- * Get home feed content (followed -> trending -> latest)
+ * Get home feed content
+ * Order: 1) Own recent (24–48 hrs), 2) Following (engagement weighted), 3) Suggested/trending, 4) Recent fallback
+ * engagementScore = (likes × 5) + (comments × 10) + (shares × 15) + recencyScore
  * @param {mongoose.Types.ObjectId} userId - User ID (required)
  * @param {Object} options - Query options
  * @param {number} options.page - Page number (default: 1)
@@ -992,62 +1115,28 @@ export const getHomeFeed = async (userId, options = {}) => {
       zeal: [ContentType.ZEAL],
       zeels: [ContentType.ZEAL],
       zeals: [ContentType.ZEAL],
-      poll: [CONTENT_TYPE_POLL],
-      polls: [CONTENT_TYPE_POLL],
-      all: [ContentType.POST, ContentType.WRITE_POST, CONTENT_TYPE_POLL],
+      poll: [ContentType.POLL],
+      polls: [ContentType.POLL],
+      all: [ContentType.POST, ContentType.WRITE_POST, ContentType.POLL],
     };
 
     const contentTypes = itemMap[normalizedItem] || itemMap.all;
     const contentTypeSet = new Set(contentTypes);
-    const includePolls = contentTypeSet.has(CONTENT_TYPE_POLL);
+    const includePolls = contentTypeSet.has(ContentType.POLL);
 
-    // Followed user IDs
-    let followedUserIds = [];
-    if (userId) {
-      const followRows = await UserFollower.find({ followerId: userId })
-        .select("userId")
-        .lean();
-
-      followedUserIds = followRows
-        .map((row) => row.userId?.toString())
-        .filter((id) => id && validUserIdSet.has(id))
-        .map((id) => new mongoose.Types.ObjectId(id));
-    }
-
-    // 1) Followed users latest (post/write/zeal)
-    const followedRaw = await fetchLatestContentByUsers(
-      followedUserIds,
-      reportedContentIds,
-      fetchLimit,
-      contentTypes
-    );
-    const followedContent = await formatContentList(userId, followedRaw);
-
-    // Helper function for selectedOption
+    // Helper: add selectedByAuthUser flag on each option for logged-in user
     const attachSelectedOption = (poll) => {
       const formattedPoll = formatPollForFeed(poll);
-
-      let selectedOption = null;
-
-      if (userId && poll.userVotes?.length > 0) {
-        const userVote = poll.userVotes.find(
-          (vote) => vote.userId.toString() === userId.toString()
-        );
-
-        if (userVote) {
-          selectedOption = userVote.optionId;
-        }
-      }
-
-      // selectedOption should come below options
+      const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
+      const optionsWithFlag = addSelectedByAuthUserToOptions(
+        formattedPoll.options,
+        userSelectedOptionId
+      );
       return {
         id: formattedPoll.id,
         contentType: formattedPoll.contentType,
         caption: formattedPoll.caption,
-        options: formattedPoll.options,
-
-        selectedOption, // ✅ below options
-
+        options: optionsWithFlag,
         totalVotes: formattedPoll.totalVotes,
         status: formattedPoll.status,
         duration: formattedPoll.duration,
@@ -1058,63 +1147,8 @@ export const getHomeFeed = async (userId, options = {}) => {
       };
     };
 
-    // 1b) Followed users latest polls
-    let followedPolls = [];
-    if (includePolls) {
-      const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, fetchLimit, userId);
-      followedPolls = followedPollsRaw.map((poll) => formatPollForFeed(poll, userId));
-    }
-
-    // 2) Trending content (post/write/zeal)
-    const singleType =
-      contentTypes.length === 1 && contentTypeSet.has(ContentType.POST)
-        ? "post"
-        : contentTypes.length === 1 && contentTypeSet.has(ContentType.WRITE_POST)
-        ? "write"
-        : contentTypes.length === 1 && contentTypeSet.has(ContentType.ZEAL)
-        ? "zeal"
-        : "all";
-
-    let trendingContent = [];
-    if (singleType !== "zeal") {
-      const trendingResult = await getTrendingContent(userId, {
-        page: 1,
-        limit: fetchLimit,
-        contentType: singleType,
-      });
-
-      trendingContent = (trendingResult.content || []).filter((item) =>
-        contentTypeSet.has(item.contentType)
-      );
-    }
-
-    // 2b) Trending polls
-    let trendingPolls = [];
-    if (includePolls) {
-      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit, userId);
-      trendingPolls = trendingPollsRaw.map((poll) => formatPollForFeed(poll, userId));
-    }
-
-    // 3) Latest content (global post/write/zeal)
-    const latestRaw = await fetchLatestContentByUsers(
-      validUserIds,
-      reportedContentIds,
-      fetchLimit,
-      contentTypes
-    );
-    const latestContent = await formatContentList(userId, latestRaw);
-
-    // 3b) Latest polls (global)
-    let latestPolls = [];
-    if (includePolls) {
-      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit, userId);
-      latestPolls = latestPollsRaw.map((poll) => formatPollForFeed(poll, userId));
-    }
-
-    // Combine with priority: followed -> trending -> latest (dedupe)
     const combined = [];
     const seen = new Set();
-
     const addUnique = (items) => {
       items.forEach((item) => {
         const key = `${item.contentType}:${item.id}`;
@@ -1125,12 +1159,101 @@ export const getHomeFeed = async (userId, options = {}) => {
       });
     };
 
+    // 1) Own recent posts (last 24–48 hrs / 48 hrs)
+    let ownRecentContent = [];
+    if (userId) {
+      const ownRaw = await fetchOwnRecentContent(
+        userId,
+        reportedContentIds,
+        fetchLimit,
+        contentTypes.filter((t) => t !== ContentType.POLL)
+      );
+      ownRecentContent = await formatContentList(userId, ownRaw);
+    }
+    addUnique(ownRecentContent);
+
+    // Followed user IDs
+    let followedUserIds = [];
+    if (userId) {
+      const followRows = await UserFollower.find({ followerId: userId })
+        .select("userId")
+        .lean();
+      followedUserIds = followRows
+        .map((row) => row.userId?.toString())
+        .filter((id) => id && validUserIdSet.has(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+    }
+
+    // 2) Following users' posts (engagement weighted)
+    let followedContent = [];
+    if (followedUserIds.length > 0) {
+      const followedRaw = await fetchLatestContentByUsers(
+        followedUserIds,
+        reportedContentIds,
+        fetchLimit,
+        contentTypes
+      );
+      const metricsMap = await getEngagementMetrics(followedRaw);
+      const withScore = followedRaw.map((item) => {
+        const metrics = metricsMap.get(item._id.toString()) || {
+          likeCount: 0,
+          commentCount: 0,
+          shareCount: 0,
+        };
+        const engagementScore = calculateHomeFeedEngagementScore(metrics, item.createdAt);
+        return { ...item, _engagementScore: engagementScore };
+      });
+      withScore.sort((a, b) => (b._engagementScore || 0) - (a._engagementScore || 0));
+      const sortedFollowed = withScore.slice(0, fetchLimit).map(({ _engagementScore, ...item }) => item);
+      followedContent = await formatContentList(userId, sortedFollowed);
+    }
     addUnique(followedContent);
-    addUnique(followedPolls);
+
+    // 2b) Followed users' polls (latest)
+    if (includePolls && followedUserIds.length > 0) {
+      const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, fetchLimit);
+      addUnique(followedPollsRaw.map(attachSelectedOption));
+    }
+
+    // 3) Suggested/trending posts
+    const singleType =
+      contentTypes.length === 1 && contentTypeSet.has(ContentType.POST)
+        ? "post"
+        : contentTypes.length === 1 && contentTypeSet.has(ContentType.WRITE_POST)
+        ? "write"
+        : contentTypes.length === 1 && contentTypeSet.has(ContentType.ZEAL)
+        ? "zeal"
+        : "all";
+    let trendingContent = [];
+    if (singleType !== "zeal") {
+      const trendingResult = await getTrendingContent(userId, {
+        page: 1,
+        limit: fetchLimit,
+        contentType: singleType,
+      });
+      trendingContent = (trendingResult.content || []).filter((c) =>
+        contentTypeSet.has(c.contentType)
+      );
+    }
     addUnique(trendingContent);
-    addUnique(trendingPolls);
+    if (includePolls) {
+      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit);
+      addUnique(trendingPollsRaw.map(attachSelectedOption));
+    }
+
+    // 4) Recent fallback (global latest)
+    const latestRaw = await fetchLatestContentByUsers(
+      validUserIds,
+      reportedContentIds,
+      fetchLimit,
+      contentTypes
+    );
+    const latestContent = await formatContentList(userId, latestRaw);
     addUnique(latestContent);
-    addUnique(latestPolls);
+    if (includePolls) {
+      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit);
+      addUnique(latestPollsRaw.map(attachSelectedOption));
+    }
 
     const paginated = combined.slice(skip, skip + limit);
     const total = combined.length;
@@ -1470,23 +1593,29 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
       }
 
       const polls = await pollQueryBuilder.limit(limit);
-      results.polls = polls.map((poll) => ({
-        id: poll._id.toString(),
-        caption: poll.caption || "",
-        options: poll.options || [],
-        totalVotes: poll.totalVotes || 0,
-        status: poll.status,
-        duration: poll.duration,
-        createdBy: {
-          id: poll.createdBy._id.toString(),
-          name: poll.createdBy.name,
-          username: poll.createdBy.username,
-          profileImage: poll.createdBy.profileImage,
-          isAccountVerified: poll.createdBy.isAccountVerified,
-          isVerifiedBadge: poll.createdBy.isVerifiedBadge,
-        },
-        createdAt: poll.createdAt,
-      }));
+      results.polls = polls.map((poll) => {
+        const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
+        return {
+          id: poll._id.toString(),
+          caption: poll.caption || "",
+          options: addSelectedByAuthUserToOptions(
+            poll.options,
+            userSelectedOptionId
+          ),
+          totalVotes: poll.totalVotes || 0,
+          status: poll.status,
+          duration: poll.duration,
+          createdBy: {
+            id: poll.createdBy._id.toString(),
+            name: poll.createdBy.name,
+            username: poll.createdBy.username,
+            profileImage: poll.createdBy.profileImage,
+            isAccountVerified: poll.createdBy.isAccountVerified,
+            isVerifiedBadge: poll.createdBy.isVerifiedBadge,
+          },
+          createdAt: poll.createdAt,
+        };
+      });
     }
 
     // Extract and search hashtags
@@ -1657,12 +1786,161 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       };
     }
 
+    // Handle contentType=user - return users who created content with this hashtag
+    if (contentType === "user") {
+      const hashtagDoc = await Hashtag.findOne({ tag: normalizedTag });
+      if (!hashtagDoc) {
+        return {
+          content: [],
+          hashtag: `#${normalizedHashtag}`,
+          pagination: null, // No pagination for users
+        };
+      }
+
+      // Get all content linked to this hashtag
+      const allContentLinks = await HashtagContent.find({
+        hashtagId: hashtagDoc._id,
+      })
+        .select("contentType contentId")
+        .lean();
+
+      if (allContentLinks.length === 0) {
+        return {
+          content: [],
+          hashtag: `#${normalizedHashtag}`,
+          pagination: null,
+        };
+      }
+
+      // Group content IDs by type
+      const contentIdsByType = {
+        [ContentType.POST]: [],
+        [ContentType.WRITE_POST]: [],
+        [ContentType.ZEAL]: [],
+        Poll: [],
+      };
+
+      allContentLinks.forEach((link) => {
+        if (contentIdsByType[link.contentType]) {
+          contentIdsByType[link.contentType].push(link.contentId);
+        }
+      });
+
+      // Fetch all content and extract unique user IDs
+      const userIdSet = new Set();
+      
+      // Get Post creators
+      if (contentIdsByType[ContentType.POST].length > 0) {
+        const posts = await Post.find({
+          _id: { $in: contentIdsByType[ContentType.POST] },
+          userId: { $in: validUserIds },
+        })
+          .select("userId")
+          .lean();
+        posts.forEach((p) => userIdSet.add(p.userId.toString()));
+      }
+
+      // Get WritePost creators
+      if (contentIdsByType[ContentType.WRITE_POST].length > 0) {
+        const writes = await WritePost.find({
+          _id: { $in: contentIdsByType[ContentType.WRITE_POST] },
+          userId: { $in: validUserIds },
+        })
+          .select("userId")
+          .lean();
+        writes.forEach((w) => userIdSet.add(w.userId.toString()));
+      }
+
+      // Get ZealPost creators
+      if (contentIdsByType[ContentType.ZEAL].length > 0) {
+        const zeals = await ZealPost.find({
+          _id: { $in: contentIdsByType[ContentType.ZEAL] },
+          userId: { $in: validUserIds },
+          status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
+        })
+          .select("userId")
+          .lean();
+        zeals.forEach((z) => userIdSet.add(z.userId.toString()));
+      }
+
+      // Get Poll creators
+      if (contentIdsByType.Poll.length > 0) {
+        const polls = await Poll.find({
+          _id: { $in: contentIdsByType.Poll },
+          createdBy: { $in: validUserIds },
+          status: PollStatus.ACTIVE,
+        })
+          .select("createdBy")
+          .lean();
+        polls.forEach((p) => userIdSet.add(p.createdBy.toString()));
+      }
+
+      const uniqueUserIds = Array.from(userIdSet).map((id) => new mongoose.Types.ObjectId(id));
+
+      if (uniqueUserIds.length === 0) {
+        return {
+          content: [],
+          hashtag: `#${normalizedHashtag}`,
+          pagination: null,
+        };
+      }
+
+      // Fetch users with follower counts
+      const users = await User.find({
+        _id: { $in: uniqueUserIds },
+        isDeleted: false,
+      })
+        .select("name username profileImage bio isAccountVerified isVerifiedBadge")
+        .lean();
+
+      // Get follower counts for all users
+      const followerCounts = await UserFollower.aggregate([
+        {
+          $match: {
+            userId: { $in: uniqueUserIds },
+          },
+        },
+        {
+          $group: {
+            _id: "$userId",
+            followerCount: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const followerCountMap = new Map();
+      followerCounts.forEach((item) => {
+        followerCountMap.set(item._id.toString(), item.followerCount);
+      });
+
+      // Format users
+      const formattedUsers = users.map((user) => ({
+        id: user._id.toString(),
+        name: user.name,
+        username: user.username,
+        profileImage: user.profileImage || null,
+        bio: user.bio || "",
+        isAccountVerified: user.isAccountVerified || false,
+        isVerifiedBadge: user.isVerifiedBadge || false,
+        followerCount: followerCountMap.get(user._id.toString()) || 0,
+      }));
+
+      // Sort by followerCount descending
+      formattedUsers.sort((a, b) => b.followerCount - a.followerCount);
+
+      return {
+        content: formattedUsers,
+        hashtag: `#${normalizedHashtag}`,
+        pagination: null, // No pagination for users
+      };
+    }
+
     // Map query contentType to stored content types
     const contentTypeMap = {
       post: ContentType.POST,
       write: ContentType.WRITE_POST,
       zeal: ContentType.ZEAL,
-      poll: "Poll",
+      poll: ContentType.POLL,
     };
 
     const allowedKeys =
@@ -1827,7 +2105,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
           .then((polls) =>
             polls.map((poll) => ({
               ...poll,
-              contentType: "Poll",
+              contentType: ContentType.POLL,
             }))
           )
       );
@@ -1846,7 +2124,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
 
     // Get engagement metrics for content (not polls)
     const contentItems = allContentItems.filter(
-      (item) => item.contentType !== "Poll"
+      (item) => item.contentType !== ContentType.POLL
     );
     const metricsMap = await getEngagementMetrics(contentItems);
 
@@ -1860,7 +2138,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
 
     // Attach metrics and calculate scores
     const contentWithMetrics = allContentItems.map((item) => {
-      if (item.contentType === "Poll") {
+      if (item.contentType === ContentType.POLL) {
         return {
           ...item,
           popularityScore: item.totalVotes || 0,
@@ -1907,12 +2185,16 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
 
     // Format content
     const formattedContent = paginatedContent.map((item) => {
-      if (item.contentType === "Poll") {
+      if (item.contentType === ContentType.POLL) {
+        const userSelectedOptionId = getUserSelectedOptionId(item, userId);
         return {
           id: item._id.toString(),
-          contentType: "poll",
+          contentType: ContentType.POLL,
           caption: item.caption || "",
-          options: item.options || [],
+          options: addSelectedByAuthUserToOptions(
+            item.options,
+            userSelectedOptionId
+          ),
           totalVotes: item.totalVotes || 0,
           status: item.status,
           duration: item.duration,
@@ -2251,23 +2533,29 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         .limit(limit)
         .lean();
 
-      const formattedPolls = polls.map((poll) => ({
-        id: poll._id.toString(),
-        caption: poll.caption || "",
-        options: poll.options || [],
-        totalVotes: poll.totalVotes || 0,
-        status: poll.status,
-        duration: poll.duration,
-        createdBy: {
-          id: poll.createdBy._id.toString(),
-          name: poll.createdBy.name,
-          username: poll.createdBy.username,
-          profileImage: poll.createdBy.profileImage,
-          isAccountVerified: poll.createdBy.isAccountVerified,
-          isVerifiedBadge: poll.createdBy.isVerifiedBadge,
-        },
-        createdAt: poll.createdAt,
-      }));
+      const formattedPolls = polls.map((poll) => {
+        const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
+        return {
+          id: poll._id.toString(),
+          caption: poll.caption || "",
+          options: addSelectedByAuthUserToOptions(
+            poll.options,
+            userSelectedOptionId
+          ),
+          totalVotes: poll.totalVotes || 0,
+          status: poll.status,
+          duration: poll.duration,
+          createdBy: {
+            id: poll.createdBy._id.toString(),
+            name: poll.createdBy.name,
+            username: poll.createdBy.username,
+            profileImage: poll.createdBy.profileImage,
+            isAccountVerified: poll.createdBy.isAccountVerified,
+            isVerifiedBadge: poll.createdBy.isVerifiedBadge,
+          },
+          createdAt: poll.createdAt,
+        };
+      });
 
       return { data: formattedPolls };
     } else if (type === "users") {

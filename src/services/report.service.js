@@ -10,6 +10,7 @@ import {
   Post,
   WritePost,
   ZealPost,
+  Poll,
   User,
 } from "../models/index.js";
 import { ContentType, ContentTypeToModelName } from "../models/enums.js";
@@ -149,26 +150,31 @@ export const createReport = async (userId, reportData) => {
     const { contentType, contentId, subCategoryId, details } = reportData;
 
     // Validate content type
-    if (!Object.values(ContentType).includes(contentType)) {
+    const validContentTypes = [...Object.values(ContentType), "Poll"];
+    if (!validContentTypes.includes(contentType)) {
       throw new Error("Invalid content type");
     }
 
     // Verify content exists
-    const ContentModel = ContentTypeToModelName[contentType];
     let content;
     
-    switch (ContentModel) {
-      case "Post":
-        content = await Post.findById(contentId);
-        break;
-      case "Write Post":
-        content = await WritePost.findById(contentId);
-        break;
-      case "Zeal Post":
-        content = await ZealPost.findById(contentId);
-        break;
-      default:
-        throw new Error("Invalid content type");
+    if (contentType === "Poll") {
+      content = await Poll.findById(contentId);
+    } else {
+      const ContentModel = ContentTypeToModelName[contentType];
+      switch (ContentModel) {
+        case "Post":
+          content = await Post.findById(contentId);
+          break;
+        case "Write Post":
+          content = await WritePost.findById(contentId);
+          break;
+        case "Zeal Post":
+          content = await ZealPost.findById(contentId);
+          break;
+        default:
+          throw new Error("Invalid content type");
+      }
     }
 
     if (!content) {
