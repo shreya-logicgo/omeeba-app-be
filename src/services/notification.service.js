@@ -5,11 +5,13 @@
 
 import Notification from "../models/notifications/Notification.js";
 import User from "../models/users/User.js";
+import UserFollower from "../models/users/UserFollower.js";
 import { NotificationType, NotificationStatus, ContentType } from "../models/enums.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { sendPushNotificationToUser } from "./onesignal.service.js";
 import { getContentModel } from "../models/utils/contentHelper.js";
+import mongoose from "mongoose";
 
 /**
  * Generate aggregation key for grouping similar notifications
@@ -901,6 +903,33 @@ export const getNotifications = async (userId, options = {}) => {
     // Get total count
     const total = await Notification.countDocuments(query);
 
+    // Batch check follow status for NEW_FOLLOWER notifications
+    const newFollowerNotifications = notifications.filter(
+      (n) => n.type === NotificationType.NEW_FOLLOWER && n.senderId
+    );
+    const senderIdsToCheck = newFollowerNotifications
+      .map((n) => n.senderId?._id?.toString())
+      .filter((id) => id);
+    
+    const followingMap = new Map();
+    if (senderIdsToCheck.length > 0) {
+      try {
+        const followRelations = await UserFollower.find({
+          userId: { $in: senderIdsToCheck.map((id) => new mongoose.Types.ObjectId(id)) },
+          followerId: userId,
+        })
+          .select("userId")
+          .lean();
+        
+        followRelations.forEach((rel) => {
+          const id = rel.userId ? rel.userId.toString() : null;
+          if (id) followingMap.set(id, true);
+        });
+      } catch (followError) {
+        logger.warn(`Error batch checking follow status:`, followError);
+      }
+    }
+
     // Format notifications and populate contentId
     const formattedNotifications = await Promise.all(
       notifications.map(async (notification) => {
@@ -924,23 +953,44 @@ export const getNotifications = async (userId, options = {}) => {
               // Format content with image field
               if (content) {
                 let imageUrl = null;
-                let imagesArray = content.images || [];
+                let imagesArray = Array.isArray(content.images) ? [...content.images] : [];
                 
                 // Determine image URL based on content type
                 if (notification.contentType === ContentType.ZEAL) {
-                  // For Zeal: prefer thumbnailUrl, else first image, else first video
-                  imageUrl = content.thumbnailUrl || 
-                            (content.images && content.images.length > 0 ? content.images[0] : null) ||
-                            (content.videos && content.videos.length > 0 ? content.videos[0] : null);
+                  // For Zeal: 
+                  // 1. If thumbnail exists: use it for image and images array
+                  // 2. If no thumbnail but has images: use first image for image and images array
+                  // 3. If no thumbnail and no images (only videos): image = null, images = []
                   
-                  // If thumbnailUrl exists and is not already in images array, add it to images
-                  if (content.thumbnailUrl && !imagesArray.includes(content.thumbnailUrl)) {
-                    imagesArray = [content.thumbnailUrl, ...imagesArray]; // Add thumbnail as first item
+                  if (content.thumbnailUrl) {
+                    // Has thumbnail: use thumbnail for image and images
+                    imageUrl = content.thumbnailUrl;
+                    const thumbnailStr = String(content.thumbnailUrl);
+                    const thumbnailExists = imagesArray.some(img => String(img) === thumbnailStr);
+                    if (!thumbnailExists) {
+                      imagesArray = [content.thumbnailUrl, ...imagesArray];
+                    } else {
+                      // Ensure thumbnail is first in array
+                      imagesArray = imagesArray.filter(img => String(img) !== thumbnailStr);
+                      imagesArray = [content.thumbnailUrl, ...imagesArray];
+                    }
+                  } else if (imagesArray.length > 0) {
+                    // No thumbnail but has images: use first image
+                    imageUrl = imagesArray[0];
+                    // imagesArray already contains the image, no change needed
+                  } else {
+                    // No thumbnail and no images (only videos): image = null, images = []
+                    imageUrl = null;
+                    imagesArray = [];
                   }
                 } else if (notification.contentType === ContentType.POST) {
                   // For Post: use first image
-                  imageUrl = content.images && content.images.length > 0 ? content.images[0] : null;
-                  imagesArray = content.images || [];
+                  imageUrl = imagesArray.length > 0 ? imagesArray[0] : null;
+                  
+                  // Ensure that if we have a single image, it's in the images array
+                  if (imageUrl && !imagesArray.includes(imageUrl)) {
+                    imagesArray = [imageUrl, ...imagesArray];
+                  }
                 } else if (notification.contentType === ContentType.WRITE_POST) {
                   // WritePost doesn't have images, so null
                   imageUrl = null;
@@ -950,7 +1000,7 @@ export const getNotifications = async (userId, options = {}) => {
                 content = {
                   _id: content._id,
                   image: imageUrl, // Single image URL for notification display
-                  images: imagesArray.length > 0 ? imagesArray : [], // Include thumbnail for Zeal Post
+                  images: imagesArray, // Array of images - ensures single images are included
                   videos: content.videos || null,
                 };
               }
@@ -959,6 +1009,13 @@ export const getNotifications = async (userId, options = {}) => {
             logger.warn(`Error populating content for notification ${notification._id}:`, contentError);
             // Continue without content if population fails
           }
+        }
+
+        // Check if current user follows the sender (for NEW_FOLLOWER notifications)
+        let isFollowingSender = null;
+        if (notification.type === NotificationType.NEW_FOLLOWER && notification.senderId) {
+          const senderIdStr = notification.senderId._id?.toString();
+          isFollowingSender = senderIdStr ? followingMap.has(senderIdStr) : false;
         }
 
         const formatted = {
@@ -981,6 +1038,7 @@ export const getNotifications = async (userId, options = {}) => {
                 isVerifiedBadge: notification.senderId.isVerifiedBadge,
               }
             : null,
+          isFollowingSender: isFollowingSender, // true/false/null - only for NEW_FOLLOWER type
           isAggregated: notification.isAggregated || false,
           aggregatedCount: notification.aggregatedCount || 0,
           aggregatedUsers: (notification.aggregatedUserIds || []).map((user) => ({
@@ -1090,4 +1148,3 @@ export default {
   getUnreadNotificationCount,
   deleteNotification,
 };
-

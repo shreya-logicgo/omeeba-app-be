@@ -96,9 +96,18 @@ export const getZealStatusParamsSchema = createSchema(
   ["zealId"]
 );
 
+/**
+ * Delete Zeal - params (zealId)
+ */
+export const deleteZealParamsSchema = createSchema(
+  { zealId: commonValidations.objectId.label("Zeal ID") },
+  ["zealId"]
+);
+
 export default {
   startZealUploadSchema,
   createZealSchema,
   getZealStatusParamsSchema,
+  deleteZealParamsSchema,
 };
 

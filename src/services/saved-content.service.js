@@ -2,16 +2,17 @@ import SavedContent from "../models/interactions/SavedContent.js";
 import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
+import Poll from "../models/content/Poll.js";
 import ContentLike from "../models/interactions/ContentLike.js";
 import Comment from "../models/comments/Comment.js";
-import { ContentType, ZealStatus } from "../models/enums.js";
+import { ContentType, ZealStatus, PollStatus } from "../models/enums.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { generateShareableLink } from "../utils/shareableLink.js";
 
 /**
  * Verify content exists and is accessible
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object|null>} - Content document or null
  */
@@ -32,6 +33,12 @@ const verifyContentExists = async (contentType, contentId) => {
           status: ZealStatus.PUBLISHED, // Only allow saving published zeal posts
         });
         break;
+      case ContentType.POLL:
+        content = await Poll.findOne({
+          _id: contentId,
+          status: PollStatus.ACTIVE, // Only allow saving active polls
+        });
+        break;
       default:
         return null;
     }
@@ -44,9 +51,9 @@ const verifyContentExists = async (contentType, contentId) => {
 };
 
 /**
- * Save content (Post, WritePost, or ZealPost)
+ * Save content (Post, WritePost, ZealPost, or Poll)
  * @param {mongoose.Types.ObjectId} userId - User ID
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object>} - Save operation result with action and isSaved
  */
@@ -131,9 +138,9 @@ export const saveContent = async (userId, contentType, contentId) => {
 };
 
 /**
- * Unsave content (Post, WritePost, or ZealPost)
+ * Unsave content (Post, WritePost, ZealPost, or Poll)
  * @param {mongoose.Types.ObjectId} userId - User ID
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object>} - Unsave operation result with action and isSaved
  */
@@ -181,16 +188,17 @@ export const unsaveContent = async (userId, contentType, contentId) => {
 /**
  * Toggle save status (save if not saved, unsave if saved)
  * @param {mongoose.Types.ObjectId} userId - User ID
- * @param {string} contentType - Content type (Post, Write Post, Zeal Post)
+ * @param {string} contentType - Content type (Post, Write Post, Zeal Post, Poll)
  * @param {mongoose.Types.ObjectId} contentId - Content ID
  * @returns {Promise<Object>} - Toggle operation result
  */
 export const toggleSaveContent = async (userId, contentType, contentId) => {
   try {
-    // Check if already saved
+    // Check if already saved by this user
     const existingSave = await SavedContent.findOne({
       contentType,
       contentId,
+      userId, // Check for current user's save
     });
 
     if (existingSave) {
@@ -279,6 +287,7 @@ export const cleanupStaleSavedContent = async (userId = null) => {
         [ContentType.POST]: [],
         [ContentType.WRITE_POST]: [],
         [ContentType.ZEAL]: [],
+        [ContentType.POLL]: [],
       };
 
       savedContentBatch.forEach((record) => {
@@ -328,6 +337,18 @@ export const cleanupStaleSavedContent = async (userId = null) => {
               ).map((z) => z._id.toString())
             );
             break;
+          case ContentType.POLL:
+            existingIds = new Set(
+              (
+                await Poll.find({
+                  _id: { $in: contentIds },
+                  status: PollStatus.ACTIVE,
+                })
+                  .select("_id")
+                  .lean()
+              ).map((p) => p._id.toString())
+            );
+            break;
           default:
             continue;
         }
@@ -364,7 +385,7 @@ export const cleanupStaleSavedContent = async (userId = null) => {
  * Get user's saved content list with pagination and filtering (optimized)
  * @param {mongoose.Types.ObjectId} userId - User ID
  * @param {Object} options - Query options
- * @param {string} options.contentType - Filter by content type ('all', 'Post', 'Write Post', 'Zeal Post')
+ * @param {string} options.contentType - Filter by content type ('all', 'Post', 'Write Post', 'Zeal Post', 'Poll')
  * @param {number} options.page - Page number
  * @param {number} options.limit - Items per page
  * @returns {Promise<Object>} - Saved content list with pagination
@@ -410,6 +431,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
+      [ContentType.POLL]: [],
     };
 
     const recordMap = new Map(); // Map contentId -> savedContentRecord for quick lookup
@@ -422,7 +444,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
     });
 
     // Fetch actual content in parallel - only fetch what exists
-    const [posts, writePosts, zealPosts] = await Promise.all([
+    const [posts, writePosts, zealPosts, polls] = await Promise.all([
       savedByType[ContentType.POST].length > 0
         ? Post.find({
             _id: { $in: savedByType[ContentType.POST] },
@@ -466,6 +488,17 @@ export const getSavedContentListing = async (userId, options = {}) => {
             )
             .lean()
         : [],
+      savedByType[ContentType.POLL].length > 0
+        ? Poll.find({
+            _id: { $in: savedByType[ContentType.POLL] },
+            status: PollStatus.ACTIVE, // Only show active polls
+          })
+            .populate(
+              "createdBy",
+              "name username profileImage isAccountVerified isVerifiedBadge"
+            )
+            .lean()
+        : [],
     ]);
 
     // Track stale references for cleanup
@@ -473,7 +506,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
     const contentMap = new Map();
 
     // Build content map with savedAt timestamp
-    [...posts, ...writePosts, ...zealPosts].forEach((content) => {
+    [...posts, ...writePosts, ...zealPosts, ...polls].forEach((content) => {
       const savedRecord = recordMap.get(content._id.toString());
       if (savedRecord) {
         contentMap.set(content._id.toString(), {

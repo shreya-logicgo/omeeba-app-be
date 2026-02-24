@@ -3,6 +3,7 @@
  * Business logic for user follow/unfollow operations
  */
 
+import mongoose from "mongoose";
 import User from "../models/users/User.js";
 import UserFollower from "../models/users/UserFollower.js";
 import { createNotification } from "./notification.service.js";
@@ -270,19 +271,31 @@ export const getFollowers = async (userId, currentUserId, page = 1, limit = 20, 
     // Filter out null results (from populate match)
     const filteredFollowers = followers.filter((f) => f.followerId !== null);
 
-    // Get follower IDs to check follow status
-    const followerIds = filteredFollowers.map((f) => f.followerId._id.toString());
+    // Normalize ID for consistent map keys (ObjectId or string)
+    const toIdStr = (id) => (id && typeof id === "object" && id.toString ? id.toString() : String(id));
 
-    // Check which followers the current user is following
-    let followingMap = new Map();
+    // Get follower IDs to check follow status (people in the list)
+    const followerIds = filteredFollowers.map((f) => toIdStr(f.followerId._id));
+
+    // Check which of these users the current user is following (status = "following")
+    const followingMap = new Map();
     if (currentUserId && followerIds.length > 0) {
+      let objectIds;
+      try {
+        objectIds = followerIds.map((id) => new mongoose.Types.ObjectId(id));
+      } catch (_) {
+        objectIds = followerIds;
+      }
       const followingRelations = await UserFollower.find({
-        userId: { $in: followerIds },
+        userId: { $in: objectIds },
         followerId: currentUserId,
-      });
+      })
+        .select("userId")
+        .lean();
 
       followingRelations.forEach((rel) => {
-        followingMap.set(rel.userId.toString(), true);
+        const id = rel.userId ? toIdStr(rel.userId) : null;
+        if (id) followingMap.set(id, true);
       });
     }
 
@@ -300,20 +313,27 @@ export const getFollowers = async (userId, currentUserId, page = 1, limit = 20, 
       total = await UserFollower.countDocuments({ userId });
     }
 
+    const currentUserIdStr = currentUserId ? toIdStr(currentUserId) : null;
+
     return {
       followers: filteredFollowers.map((f) => {
-        const followerId = f.followerId._id.toString();
-        const isFollowing = currentUserId ? followingMap.has(followerId) : false;
+        const fid = toIdStr(f.followerId._id);
+        let status = "not_following";
+        if (currentUserIdStr && fid === currentUserIdStr) {
+          status = "self";
+        } else if (currentUserIdStr && followingMap.has(fid)) {
+          status = "following";
+        }
 
         return {
-          id: followerId,
+          id: fid,
           username: f.followerId.username,
           name: f.followerId.name,
           profileImage: f.followerId.profileImage,
           bio: f.followerId.bio,
           isVerifiedBadge: f.followerId.isVerifiedBadge,
           followedAt: f.createdAt,
-          status: isFollowing ? "following" : "not_following",
+          status,
         };
       }),
       pagination: getPaginationMeta(total, page, limit),
@@ -360,19 +380,31 @@ export const getFollowing = async (userId, currentUserId, page = 1, limit = 20, 
     // Filter out null results (from populate match)
     const filteredFollowing = following.filter((f) => f.userId !== null);
 
-    // Get following user IDs to check follow status
-    const followingIds = filteredFollowing.map((f) => f.userId._id.toString());
+    // Normalize ID for consistent map keys (ObjectId or string)
+    const toIdStr = (id) => (id && typeof id === "object" && id.toString ? id.toString() : String(id));
 
-    // Check which users the current user is following
-    let followingMap = new Map();
+    // Get following user IDs to check follow status (people in the list)
+    const followingIds = filteredFollowing.map((f) => toIdStr(f.userId._id));
+
+    // Check which of these users the current user is following (status = "following")
+    const followingMap = new Map();
     if (currentUserId && followingIds.length > 0) {
+      let objectIds;
+      try {
+        objectIds = followingIds.map((id) => new mongoose.Types.ObjectId(id));
+      } catch (_) {
+        objectIds = followingIds;
+      }
       const followingRelations = await UserFollower.find({
-        userId: { $in: followingIds },
+        userId: { $in: objectIds },
         followerId: currentUserId,
-      });
+      })
+        .select("userId")
+        .lean();
 
       followingRelations.forEach((rel) => {
-        followingMap.set(rel.userId.toString(), true);
+        const id = rel.userId ? toIdStr(rel.userId) : null;
+        if (id) followingMap.set(id, true);
       });
     }
 
@@ -390,20 +422,27 @@ export const getFollowing = async (userId, currentUserId, page = 1, limit = 20, 
       total = await UserFollower.countDocuments({ followerId: userId });
     }
 
+    const currentUserIdStr = currentUserId ? toIdStr(currentUserId) : null;
+
     return {
       following: filteredFollowing.map((f) => {
-        const followingUserId = f.userId._id.toString();
-        const isFollowing = currentUserId ? followingMap.has(followingUserId) : false;
+        const fid = toIdStr(f.userId._id);
+        let status = "not_following";
+        if (currentUserIdStr && fid === currentUserIdStr) {
+          status = "self";
+        } else if (currentUserIdStr && followingMap.has(fid)) {
+          status = "following";
+        }
 
         return {
-          id: followingUserId,
+          id: fid,
           username: f.userId.username,
           name: f.userId.name,
           profileImage: f.userId.profileImage,
           bio: f.userId.bio,
           isVerifiedBadge: f.userId.isVerifiedBadge,
           followedAt: f.createdAt,
-          status: isFollowing ? "following" : "not_following",
+          status,
         };
       }),
       pagination: getPaginationMeta(total, page, limit),

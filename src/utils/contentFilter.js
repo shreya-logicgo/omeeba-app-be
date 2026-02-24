@@ -25,6 +25,7 @@ export const getReportedContentIds = async (userId) => {
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
+      Poll: [],
     };
 
     reports.forEach((report) => {
@@ -43,6 +44,7 @@ export const getReportedContentIds = async (userId) => {
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
+      Poll: [],
     };
   }
 };

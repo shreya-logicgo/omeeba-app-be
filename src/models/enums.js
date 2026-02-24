@@ -6,6 +6,7 @@ const ContentType = {
   POST: "Post",
   WRITE_POST: "Write Post",
   ZEAL: "Zeal Post",
+  POLL: "Poll",
 };
 
 // Content Model Names (for refPath in Mongoose)
@@ -13,6 +14,7 @@ const ContentModelName = {
   POST: "Post",
   WRITE_POST: "Write Post",
   ZEAL: "Zeal Post",
+  POLL: "Poll",
 };
 
 // Mapping from ContentType to Model Name
@@ -20,6 +22,7 @@ const ContentTypeToModelName = {
   [ContentType.POST]: ContentModelName.POST,
   [ContentType.WRITE_POST]: ContentModelName.WRITE_POST,
   [ContentType.ZEAL]: ContentModelName.ZEAL,
+  [ContentType.POLL]: ContentModelName.POLL,
 };
 
 const ReportStatus = {
@@ -56,6 +59,7 @@ const NotificationType = {
   POST_LIKED: "Post Liked",
   ZEAL_LIKED: "Zeal Liked",
   WRITE_LIKED: "Write Liked",
+  POLL_LIKED: "Poll Liked",
   COMMENT_LIKED: "Comment Liked",
   AGGREGATED_LIKES: "Aggregated Likes",
   

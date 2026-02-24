@@ -11,7 +11,7 @@ import ChatRoom from "../models/chat/ChatRoom.js";
 import ChatMessage from "../models/chat/ChatMessage.js";
 import Snap from "../models/chat/Snap.js";
 import { MessageStatus } from "../models/enums.js";
-import { sendMessage, getMessages, deleteMessage } from "../services/chatMessage.service.js";
+import { sendMessage, getMessages, deleteMessage, sendContentToMultipleChats } from "../services/chatMessage.service.js";
 import { markMessagesAsRead, getUnreadCount, getTotalUnreadCount } from "../services/chatRead.service.js";
 import {
   getOrCreateChatRoom,
@@ -231,6 +231,65 @@ export const initializeSocket = (server) => {
         socket.emit("error", {
           message: error.message || "Failed to send message",
         });
+      }
+    });
+
+    /**
+     * Handle: Share one content (Zeal / Post / Write Post) to multiple users' chats at once.
+     * Payload: { contentType: "Post"|"Write Post"|"Zeal Post", contentId, recipientIds: string[] }
+     * Emits new_message to each room and to each recipient; ack + content_shared_to_chats with summary.
+     */
+    socket.on("share_to_chats", async (data, ack) => {
+      const cb = typeof ack === "function" ? ack : () => {};
+      try {
+        const { contentType, contentId, recipientIds } = data || {};
+        if (!contentType || !contentId || !Array.isArray(recipientIds) || recipientIds.length === 0) {
+          const res = { success: false, error: "contentType, contentId and non-empty recipientIds required" };
+          cb(res);
+          socket.emit("content_shared_to_chats", res);
+          return;
+        }
+
+        const { results, successCount, failCount } = await sendContentToMultipleChats(
+          userId,
+          contentType,
+          contentId,
+          recipientIds
+        );
+
+        for (const item of results) {
+          if (item.message && item.roomId) {
+            io.to(`room:${item.roomId}`).emit("new_message", { message: item.message });
+            io.to(`user:${item.recipientId}`).emit("new_message", { message: item.message });
+
+            const room = await ChatRoom.findById(item.roomId);
+            if (room) {
+              const otherUserId = room.userA.toString() === userId ? room.userB : room.userA;
+              if (activeUsers.get(otherUserId.toString())) {
+                await ChatMessage.findByIdAndUpdate(item.message.id, { status: MessageStatus.DELIVERED });
+                io.to(`user:${userId}`).emit("message_delivered", {
+                  messageId: item.message.id,
+                  roomId: item.roomId,
+                  status: MessageStatus.DELIVERED,
+                });
+              }
+            }
+          }
+        }
+
+        const res = {
+          success: true,
+          message: `Shared to ${successCount} chat(s)`,
+          data: { results, successCount, failCount },
+        };
+        cb(res);
+        socket.emit("content_shared_to_chats", res);
+        logger.info(`share_to_chats: ${contentType} ${contentId} by ${userId} -> ${successCount} sent, ${failCount} failed`);
+      } catch (e) {
+        logger.error("share_to_chats error:", e);
+        const res = { success: false, error: e.message || "Failed to share to chats" };
+        cb(res);
+        socket.emit("content_shared_to_chats", res);
       }
     });
 

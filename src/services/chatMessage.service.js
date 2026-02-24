@@ -3,20 +3,69 @@
  * Business logic for chat message operations
  */
 
+import mongoose from "mongoose";
 import ChatMessage from "../models/chat/ChatMessage.js";
 import ChatRoom from "../models/chat/ChatRoom.js";
 import ChatParticipant from "../models/chat/ChatParticipant.js";
+import Post from "../models/content/Post.js";
+import WritePost from "../models/content/WritePost.js";
+import ZealPost from "../models/content/ZealPost.js";
 import { User } from "../models/index.js";
-import { MessageType, MessageStatus, ChatType } from "../models/enums.js";
+import { MessageType, MessageStatus, ChatType, ContentType, ZealStatus } from "../models/enums.js";
 import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatTime12Hour } from "../utils/timeFormatter.js";
 import { getMediaForUser } from "./media.service.js";
 import { getPaginationMeta } from "../utils/pagination.js";
+import { getOrCreateChatRoom } from "./chatRoom.service.js";
 import logger from "../utils/logger.js";
+
+/** ContentType (Post, Write Post, Zeal Post) -> MessageType for chat */
+const contentTypeToMessageType = {
+  [ContentType.POST]: MessageType.POST,
+  [ContentType.WRITE_POST]: MessageType.WRITE_POST,
+  [ContentType.ZEAL]: MessageType.ZEAL,
+};
+
+/**
+ * Get mediaUrl and thumbnailUrl from shared content (Post / Write Post / Zeal) for chat message display.
+ * @param {string} messageType - MessageType: "Post" | "Write Post" | "Zeal"
+ * @param {string} contentId - Content ID
+ * @returns {Promise<{ mediaUrl: string|null, thumbnailUrl: string|null }>}
+ */
+const getContentMediaForMessage = async (messageType, contentId) => {
+  if (!contentId) return { mediaUrl: null, thumbnailUrl: null };
+  try {
+    switch (messageType) {
+      case MessageType.ZEAL: {
+        const zeal = await ZealPost.findById(contentId).select("mediaUrl thumbnailUrl").lean();
+        return {
+          mediaUrl: zeal?.mediaUrl || null,
+          thumbnailUrl: zeal?.thumbnailUrl || null,
+        };
+      }
+      case MessageType.POST: {
+        const post = await Post.findById(contentId).select("images").lean();
+        const firstImage = post?.images?.[0] || null;
+        return {
+          mediaUrl: firstImage || null,
+          thumbnailUrl: firstImage || null,
+        };
+      }
+      case MessageType.WRITE_POST:
+        return { mediaUrl: null, thumbnailUrl: null };
+      default:
+        return { mediaUrl: null, thumbnailUrl: null };
+    }
+  } catch (e) {
+    logger.warn("getContentMediaForMessage:", e?.message);
+    return { mediaUrl: null, thumbnailUrl: null };
+  }
+};
 
 /**
  * Send a message in a chat room.
  * Supports mediaId (from POST /media/upload): resolve to mediaUrl/thumbnailUrl.
+ * For contentId+contentType (Post/Zeal/Write Post), resolves media/thumbnail from content for display.
  * @param {string} roomId - Room ID
  * @param {string} senderId - Sender user ID
  * @param {Object} messageData - { messageType, message?, mediaId?, mediaUrl?, thumbnailUrl?, contentId?, contentType? }
@@ -33,6 +82,10 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       const media = await getMediaForUser(mediaId, senderId);
       resolvedMediaUrl = media.mediaUrl;
       resolvedThumbnailUrl = media.thumbnailUrl;
+    } else if (contentId && (contentType || messageType) && [MessageType.POST, MessageType.WRITE_POST, MessageType.ZEAL].includes(messageType)) {
+      const contentMedia = await getContentMediaForMessage(messageType, contentId);
+      resolvedMediaUrl = resolvedMediaUrl || contentMedia.mediaUrl;
+      resolvedThumbnailUrl = resolvedThumbnailUrl || contentMedia.thumbnailUrl;
     }
 
     // Verify room exists and user is a participant
@@ -95,10 +148,12 @@ export const sendMessage = async (roomId, senderId, messageData) => {
         { upsert: true, new: true }
       ),
       // Auto-mark other user's (User A) messages as READ when sender (User B) replies - reply implies they've read
+      // IMPORTANT: Exclude SNAP messages - they should only be marked as SEEN when actually viewed
       ChatMessage.updateMany(
         {
           roomId,
           senderId: otherUserId,
+          messageType: { $ne: MessageType.SNAP }, // Exclude snap messages
           status: { $in: [MessageStatus.SENT, MessageStatus.DELIVERED] },
           createdAt: { $lte: newMessage.createdAt },
         },
@@ -277,8 +332,101 @@ export const deleteMessage = async (roomId, messageId, userId) => {
   }
 };
 
+/**
+ * Verify content exists and is shareable (Zeal must be published).
+ * @param {string} contentType - ContentType (Post, Write Post, Zeal Post)
+ * @param {string} contentId - Content ID
+ * @returns {Promise<Object|null>} Content doc or null
+ */
+const verifyContentForShare = async (contentType, contentId) => {
+  switch (contentType) {
+    case ContentType.POST:
+      return Post.findById(contentId).lean();
+    case ContentType.WRITE_POST:
+      return WritePost.findById(contentId).lean();
+    case ContentType.ZEAL:
+      return ZealPost.findOne({ _id: contentId, status: ZealStatus.PUBLISHED }).lean();
+    default:
+      return null;
+  }
+};
+
+/**
+ * Send one content (Zeal / Post / Write Post) to multiple users' personal chats at once.
+ * For each recipient: get or create room with them, then send the content as a chat message.
+ * @param {string} senderId - Sender user ID
+ * @param {string} contentType - "Post" | "Write Post" | "Zeal Post"
+ * @param {string} contentId - Content ID (postId / writePostId / zealId)
+ * @param {string[]} recipientIds - Array of recipient user IDs
+ * @returns {Promise<{ results: Array<{ roomId, recipientId, message?, error? }>, successCount, failCount }>}
+ */
+export const sendContentToMultipleChats = async (senderId, contentType, contentId, recipientIds) => {
+  const messageType = contentTypeToMessageType[contentType];
+  if (!messageType) {
+    throw new Error("Invalid contentType. Use: Post, Write Post, or Zeal Post");
+  }
+
+  const content = await verifyContentForShare(contentType, contentId);
+  if (!content) {
+    throw new Error("Content not found or not shareable (Zeal must be published)");
+  }
+
+  const uniqueRecipientIds = [...new Set(recipientIds.map((id) => id.toString()))];
+  const selfId = senderId.toString();
+  const filtered = uniqueRecipientIds.filter((id) => id !== selfId);
+  if (filtered.length === 0) {
+    throw new Error("Provide at least one recipient (cannot send to yourself)");
+  }
+
+  const validUsers = await User.find({
+    _id: { $in: filtered.map((id) => new mongoose.Types.ObjectId(id)) },
+    isDeleted: { $ne: true },
+  })
+    .select("_id")
+    .lean();
+  const validIds = new Set(validUsers.map((u) => u._id.toString()));
+
+  const results = [];
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const recipientId of filtered) {
+    if (!validIds.has(recipientId)) {
+      results.push({ roomId: null, recipientId, error: "User not found or deleted" });
+      failCount++;
+      continue;
+    }
+
+    try {
+      const room = await getOrCreateChatRoom(senderId, recipientId);
+      const roomId = room.id || room._id?.toString();
+
+      // ChatMessage contentType enum is "Post" | "Write Post" | "Zeal" (not "Zeal Post")
+      const formattedMessage = await sendMessage(roomId, senderId, {
+        messageType,
+        contentId,
+        contentType: messageType,
+      });
+
+      results.push({ roomId, recipientId, message: formattedMessage });
+      successCount++;
+    } catch (err) {
+      logger.warn(`sendContentToMultipleChats: failed for recipient ${recipientId}:`, err.message);
+      results.push({ roomId: null, recipientId, error: err.message || "Failed to send" });
+      failCount++;
+    }
+  }
+
+  logger.info(
+    `sendContentToMultipleChats: ${contentType} ${contentId} by ${senderId} -> ${successCount} sent, ${failCount} failed`
+  );
+
+  return { results, successCount, failCount };
+};
+
 export default {
   sendMessage,
   getMessages,
   deleteMessage,
+  sendContentToMultipleChats,
 };

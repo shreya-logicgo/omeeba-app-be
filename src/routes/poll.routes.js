@@ -9,13 +9,15 @@ import {
   createPoll,
   votePoll,
   getPoll,
+  deletePoll,
 } from "../controllers/poll.controller.js";
 import Joi from "joi";
 import { createSchema } from "../utils/validation.js";
+import { deletePollParamsSchema } from "../validators/poll.validator.js";
 
 const router = express.Router();
 
-// Poll ID validation schema
+// Poll ID validation schema (for vote and get)
 const pollIdSchema = createSchema({
   pollId: Joi.string()
     .pattern(/^[0-9a-fA-F]{24}$/)
@@ -51,6 +53,18 @@ router.post(
   validateParams(pollIdSchema),
   validateBody(votePollSchema),
   votePoll
+);
+
+/**
+ * @route   DELETE /api/v1/polls/:pollId
+ * @desc    Delete a poll (creator only)
+ * @access  Private
+ */
+router.delete(
+  "/:pollId",
+  protect,
+  validateParams(deletePollParamsSchema),
+  deletePoll
 );
 
 export default router;
