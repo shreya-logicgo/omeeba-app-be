@@ -210,7 +210,7 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
 
       // Get last message details
       const lastMessage = lastMessageMap.get(roomId);
-      const lastMessageFromOther = lastMessage && 
+      const lastMessageFromOther = lastMessage &&
         lastMessage.senderId.toString() === otherUserId;
 
       // Format last message preview with status indicator
@@ -326,15 +326,15 @@ export const getChatRoomById = async (roomId, userId) => {
     const roomIdString = room._id.toString();
     const otherUser = room.userA._id.toString() === userId ? room.userB : room.userA;
     const otherUserId = otherUser._id.toString();
-    
+
     // Get followers count
     const followersCount = await UserFollower.countDocuments({ userId: otherUserId });
-    
+
     const participant = await ChatParticipant.findOne({
       roomId: roomIdString,
       userId,
     }).lean();
-    
+
     return {
       id: roomIdString,
       roomId: roomIdString, // Also include as roomId for clarity
@@ -412,6 +412,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
     const baseQuery = {
       $or: [{ userA: userId }, { userB: userId }],
       chatType: ChatType.REQUEST,
+      requesterId: { $ne: userId } // Only show requests RECEIVED by the user (User C sees A and B)
     };
     if (search && search.trim()) {
       const matchingUsers = await User.find({
@@ -430,7 +431,6 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
     const rooms = await ChatRoom.find(baseQuery)
       .populate("userA", "name username profileImage bio isVerifiedBadge")
       .populate("userB", "name username profileImage bio isVerifiedBadge")
-      .populate("requesterId", "name username profileImage bio isVerifiedBadge")
       .sort({ lastMessageAt: -1, updatedAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -454,27 +454,31 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
       lastMessages.map((item) => [item._id.toString(), item.lastMessage])
     );
 
-    const requesterIds = rooms
-      .map((r) => r.requesterId && r.requesterId._id && r.requesterId._id.toString())
-      .filter(Boolean);
+    // Get "other user" (the requester) for each room
+    const otherUserIds = rooms.map((room) => {
+      const otherUser = room.userA._id.toString() === userId ? room.userB : room.userA;
+      return otherUser._id.toString();
+    });
+
     const followersCounts =
-      requesterIds.length > 0
+      otherUserIds.length > 0
         ? await UserFollower.aggregate([
-            { $match: { userId: { $in: requesterIds.map((id) => new mongoose.Types.ObjectId(id)) } } },
-            { $group: { _id: "$userId", count: { $sum: 1 } } },
-          ])
+          { $match: { userId: { $in: otherUserIds.map((id) => new mongoose.Types.ObjectId(id)) } } },
+          { $group: { _id: "$userId", count: { $sum: 1 } } },
+        ])
         : [];
     const followersMap = new Map(followersCounts.map((item) => [item._id.toString(), item.count]));
 
     const formattedRooms = rooms.map((room) => {
       const roomId = room._id.toString();
       const participant = participantMap.get(roomId);
-      const requester = room.requesterId;
-      if (!requester || !requester._id) {
-        return null;
-      }
-      const requesterIdStr = requester._id.toString();
-      const followersCount = followersMap.get(requesterIdStr) || 0;
+
+      // In this view, "otherUser" is always the one who sent the request
+      const otherUser = room.userA._id.toString() === userId ? room.userB : room.userA;
+      if (!otherUser || !otherUser._id) return null;
+
+      const otherUserIdStr = otherUser._id.toString();
+      const followersCount = followersMap.get(otherUserIdStr) || 0;
       const lastMessage = lastMessageMap.get(roomId);
       const hasUnread = participant && participant.unreadCount > 0;
 
@@ -512,12 +516,12 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
         roomId,
         chatType: ChatType.REQUEST,
         otherUser: {
-          id: requesterIdStr,
-          name: requester.name,
-          username: requester.username,
-          profileImage: requester.profileImage,
-          bio: requester.bio,
-          isVerifiedBadge: requester.isVerifiedBadge,
+          id: otherUserIdStr,
+          name: otherUser.name,
+          username: otherUser.username,
+          profileImage: otherUser.profileImage,
+          bio: otherUser.bio,
+          isVerifiedBadge: otherUser.isVerifiedBadge,
           followersCount,
         },
         lastMessage: lastMessagePreview,
