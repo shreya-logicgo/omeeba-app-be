@@ -274,6 +274,15 @@ export const updateProfile = async (req, res) => {
         : null;
 
     if (profileFile) {
+      if (!profileFile.mimetype.startsWith("image/")) {
+        return sendError(
+          res,
+          "Only image files are allowed for profile picture",
+          "Validation Error",
+          "Invalid file type",
+          StatusCodes.BAD_REQUEST
+        );
+      }
       const storageKey = generateStorageKey(
         userId.toString(),
         "image",
@@ -289,6 +298,15 @@ export const updateProfile = async (req, res) => {
     }
 
     if (coverFile) {
+      if (!coverFile.mimetype.startsWith("image/")) {
+        return sendError(
+          res,
+          "Only image files are allowed for cover photo",
+          "Validation Error",
+          "Invalid file type",
+          StatusCodes.BAD_REQUEST
+        );
+      }
       const storageKey = generateStorageKey(
         userId.toString(),
         "image",
