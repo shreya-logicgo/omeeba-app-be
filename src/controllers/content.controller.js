@@ -38,7 +38,7 @@ const normalizeStringArray = (value) => {
 export const getContentController = async (req, res) => {
   try {
     const { contentType, contentId } = req.params;
-    const content = await getSingleContent(contentType, contentId);
+    const content = await getSingleContent(contentType, contentId , req.user?._id.toString());
     return sendSuccess(res, { content }, `${contentType} fetched successfully`);
   } catch (error) {
     logger.error("Get content error:", error);

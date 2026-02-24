@@ -175,22 +175,32 @@ export const getSingleContent = async (
     ]);
 
     let isLiked = false;
-
     if (currentUserId) {
       const existingLike = await ContentLike.findOne({
         contentType,
         contentId,
         userId: currentUserId,
       });
-
       isLiked = !!existingLike;
+    }
+
+    // --- INLINE: Determine if current user follows content creator ---
+    let isFollowing = null;
+    if (currentUserId) {
+      // Get all users that currentUserId is following
+      const followedUsers = await Follow.find({ follower: currentUserId }).select("following");
+      const followedUserIdSet = new Set(followedUsers.map(f => f.following.toString()));
+
+      // Use your existing getIsFollowing util
+      isFollowing = getIsFollowing(content, currentUserId, followedUserIdSet);
     }
 
     return formatContent(
       content,
       contentType,
       { likeCount, commentCount },
-      isLiked
+      isLiked,
+      isFollowing
     );
   } catch (error) {
     logger.error(
