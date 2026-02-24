@@ -231,6 +231,9 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
 
     const total = await ChatMessage.countDocuments({ roomId });
 
+    // Request status: "pending" = message request not accepted yet, "accepted" = normal/direct chat
+    const requestStatus = room.chatType === ChatType.REQUEST ? "pending" : "accepted";
+
     // Format messages
     const formattedMessages = messages.map((msg) => ({
       id: msg._id.toString(),
@@ -260,6 +263,7 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
     return {
       messages: formattedMessages,
       pagination: getPaginationMeta(total, page, limit),
+      requestStatus,
     };
   } catch (error) {
     logger.error("Error in getMessages:", error);
