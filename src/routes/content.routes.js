@@ -1,3 +1,4 @@
+// routes/content.routes.js
 import express from "express";
 import {
   getContentController,
@@ -9,7 +10,7 @@ import {
   validateContentParams,
   validateContentUpdate,
 } from "../validators/content.validator.js";
-import { upload } from "../middleware/upload.js"; // use your custom upload middleware
+import { upload } from "../middleware/upload.js";
 
 const router = express.Router();
 
@@ -25,38 +26,7 @@ router.put(
   "/:contentType/:contentId",
   protect,
   validateContentParams,
-  upload.any(), // use your diskStorage upload
-  (req, res, next) => {
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
-
-    // Normalize existing body arrays
-    if (req.body.images && !Array.isArray(req.body.images)) {
-      req.body.images = [req.body.images];
-    }
-
-    if (req.body.videos && !Array.isArray(req.body.videos)) {
-      req.body.videos = [req.body.videos];
-    }
-
-    // Merge uploaded files
-    if (req.files && req.files.length > 0) {
-      req.files.forEach((file) => {
-        const fileUrl = `${baseUrl}/uploads/${file.filename}`;
-
-        if (file.fieldname === "images") {
-          if (!req.body.images) req.body.images = [];
-          req.body.images.push(fileUrl);
-        }
-
-        if (file.fieldname === "videos") {
-          if (!req.body.videos) req.body.videos = [];
-          req.body.videos.push(fileUrl);
-        }
-      });
-    }
-
-    next();
-  },
+  upload.any(),   // multer memory storage
   validateContentUpdate,
   updateContentController
 );
