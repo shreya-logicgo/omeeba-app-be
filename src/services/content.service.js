@@ -1,13 +1,21 @@
-// services/content.service.js
 import { getContentModel } from "../utils/contentModel.js";
 import logger from "../utils/logger.js";
 import { ContentType } from "../models/enums.js";
+import ContentLike from "../models/interactions/ContentLike.js";
+import Comment from "../models/comments/Comment.js";
 
 /**
  * Helper: format content item JSON for all content types
  */
-const formatContent = (item, contentType, metrics = {}, isLiked = false, isSaved = false) => {
+const formatContent = (
+  item,
+  contentType,
+  metrics = {},
+  isLiked = false,
+  isSaved = false
+) => {
   const user = item.userId || item.createdBy;
+
   const baseItem = {
     id: item._id.toString(),
     contentType,
@@ -27,8 +35,9 @@ const formatContent = (item, contentType, metrics = {}, isLiked = false, isSaved
       isAccountVerified: u.isAccountVerified,
       isVerifiedBadge: u.isVerifiedBadge,
     })),
+    // FIXED COUNTS (force number)
     likeCount: metrics.likeCount || 0,
-    commentCount: metrics.commentCount || 0,
+    commentCount: metrics.commentCount ||0,
     shareCount: metrics.shareCount || 0,
     isLiked,
     isSaved,
@@ -55,11 +64,13 @@ const formatContent = (item, contentType, metrics = {}, isLiked = false, isSaved
         musicStartTime: item.musicStartTime,
         musicEndTime: item.musicEndTime,
       };
+
     case ContentType.WRITE_POST:
       return {
         ...baseItem,
         content: item.content,
       };
+
     case ContentType.ZEAL:
       return {
         ...baseItem,
@@ -83,35 +94,43 @@ const formatContent = (item, contentType, metrics = {}, isLiked = false, isSaved
         mediaUrl: item.mediaUrl,
         thumbnailUrl: item.thumbnailUrl,
       };
+
     case ContentType.POLL:
       return {
         ...baseItem,
         caption: item.caption || "",
         options: item.options || [],
-        totalVotes: item.totalVotes || 0,
+        totalVotes: Number(item.totalVotes ?? 0),
         userVotes: item.userVotes || [],
         status: item.status,
         duration: item.duration,
       };
+
     default:
       return baseItem;
   }
 };
 
 /**
- * Get single content by contentType and contentId
+ * Get single content
  */
-export const getSingleContent = async (contentType, contentId) => {
+export const getSingleContent = async (
+  contentType,
+  contentId,
+  currentUserId = null
+) => {
   try {
     const Model = getContentModel(contentType);
-    const userField = contentType === ContentType.POLL ? "createdBy" : "userId";
+    const userField =
+      contentType === ContentType.POLL ? "createdBy" : "userId";
 
-    // Only populate fields that exist
     const populateFields = [userField];
+
     if (Model.schema.path("mentionedUserIds")) {
       populateFields.push({
         path: "mentionedUserIds",
-        select: "name username profileImage isAccountVerified isVerifiedBadge",
+        select:
+          "name username profileImage isAccountVerified isVerifiedBadge",
       });
     }
 
@@ -119,99 +138,138 @@ export const getSingleContent = async (contentType, contentId) => {
 
     if (!content) throw new Error(`${contentType} not found`);
 
-    const metrics = {
-      likeCount: content.likeCount || 0,
-      commentCount: content.commentCount || 0,
-      shareCount: content.shareCount || 0,
-    };
+    // ✅ COUNT USING YOUR ACTUAL MODEL
+    const [likeCount, commentCount] = await Promise.all([
+      ContentLike.countDocuments({ contentType, contentId }),
+      Comment.countDocuments({ contentType, contentId }),
+    ]);
+
+    // CHECK IF USER LIKED
+    let isLiked = false;
+
+    if (currentUserId) {
+      const existingLike = await ContentLike.findOne({
+        contentType,
+        contentId,
+        userId: currentUserId,
+      });
+
+      isLiked = !!existingLike;
+    }
 
     return formatContent(
-      contentType === "ZEAL_POST" ? { ...content.toObject(), userId: content.userId } : content,
-      contentType === "ZEAL_POST" ? ContentType.ZEAL : contentType,
-      metrics
+      content,
+      contentType,
+      { likeCount, commentCount },
+      isLiked
     );
   } catch (error) {
-    logger.error(`Error in getSingleContent [${contentType}] id:${contentId}`, error);
+    logger.error(
+      `Error in getSingleContent [${contentType}] id:${contentId}`,
+      error
+    );
     throw error;
   }
 };
-
-export const updateContent = async (contentType, contentId, userId, updateData) => {
+/**
+ * Update content
+ */
+export const updateContent = async (
+  contentType,
+  contentId,
+  userId,
+  updateData
+) => {
   const Model = getContentModel(contentType);
   const item = await Model.findById(contentId);
 
   if (!item) throw new Error(`${contentType} not found`);
 
-  const ownerField = contentType === "Poll" ? "createdBy" : "userId";
-  const ownerId = item[ownerField]?._id?.toString() || item[ownerField]?.toString();
+  // FIXED owner field check
+  const ownerField =
+    contentType === ContentType.POLL ? "createdBy" : "userId";
+
+  const ownerId =
+    item[ownerField]?._id?.toString() ||
+    item[ownerField]?.toString();
 
   if (ownerId !== userId.toString()) {
     throw new Error("You are not authorized to update this content");
   }
 
-  // Status-based restrictions
-  if (contentType === "Zeal Post") {
-    if (item.status === "processing") throw new Error("Cannot update Zeal Post while processing");
+  // FIXED ZEAL CHECK
+  if (contentType === ContentType.ZEAL) {
+    if (item.status === "processing") {
+      throw new Error("Cannot update Zeal Post while processing");
+    }
+
     if (item.status === "published") {
       const allowedFields = ["caption", "images", "videos"];
+
       updateData = Object.keys(updateData)
         .filter((key) => allowedFields.includes(key))
-        .reduce((obj, key) => ((obj[key] = updateData[key]), obj), {});
+        .reduce((obj, key) => {
+          obj[key] = updateData[key];
+          return obj;
+        }, {});
     }
   }
 
-  if (contentType === "Poll" && item.status === "Active" && updateData.options) {
+  // FIXED POLL CHECK
+  if (
+    contentType === ContentType.POLL &&
+    item.status === "Active" &&
+    updateData.options
+  ) {
     throw new Error("Cannot update options of an active poll");
   }
 
-  // Update and save
   Object.assign(item, updateData);
   await item.save();
 
-  // Compute metrics if needed
-  const metrics = {
-    likeCount: item.likeCount || 0,
-    commentCount: item.commentCount || 0,
-    shareCount: item.shareCount || 0,
-  };
-
-  // Format response for frontend
-  return formatContent(item, contentType, metrics);
+  return formatContent(item, contentType);
 };
 
 /**
- * Delete content by contentType and contentId
+ * Delete content
  */
-export const deleteContent = async (contentType, contentId, userId) => {
+export const deleteContent = async (
+  contentType,
+  contentId,
+  userId
+) => {
   const Model = getContentModel(contentType);
   const item = await Model.findById(contentId);
 
   if (!item) throw new Error(`${contentType} not found`);
 
-  const ownerField = contentType === "Poll" ? "createdBy" : "userId";
-  const ownerId = item[ownerField]?._id?.toString() || item[ownerField]?.toString();
+  const ownerField =
+    contentType === ContentType.POLL ? "createdBy" : "userId";
+
+  const ownerId =
+    item[ownerField]?._id?.toString() ||
+    item[ownerField]?.toString();
 
   if (ownerId !== userId.toString()) {
     throw new Error("You are not authorized to delete this content");
   }
 
-  // Status restrictions
-  if (contentType === "Zeal Post" && item.status === "processing") {
+  // FIXED ZEAL CHECK
+  if (
+    contentType === ContentType.ZEAL &&
+    item.status === "processing"
+  ) {
     throw new Error("Cannot delete Zeal Post while processing");
   }
-  if (contentType === "Poll" && item.userVotes?.length > 0) {
+
+  if (
+    contentType === ContentType.POLL &&
+    item.userVotes?.length > 0
+  ) {
     throw new Error("Cannot delete poll after votes are cast");
   }
 
-  // Soft delete
-  if ((contentType === "Zeal Post" && item.status === "published") ||
-      (contentType === "Poll" && item.status === "Active")) {
-    item.isDeleted = true;
-    await item.save();
-    return formatContent(item, contentType); // return formatted object
-  }
-
-  // Hard delete
   await Model.deleteOne({ _id: contentId });
+
   return { message: `${contentType} deleted successfully` };
 };
