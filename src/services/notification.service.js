@@ -235,6 +235,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
       contentId,
       message,
       metadata = {},
+      imageUrl = null,
     } = notificationData;
 
     if (!receiverId || !senderId || !type || !message) {
@@ -354,6 +355,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
             receiver,
             latestSender,
             existingNotification.message,
+            existingNotification.imageUrl,
             {
               notificationId: existingNotification._id.toString(),
               type: existingNotification.type,
@@ -405,7 +407,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         aggregatedUserIds: [senderId],
         metadata,
         status: NotificationStatus.UNREAD,
-        imageUrl: sender ? sender.profileImage : null,
+        imageUrl: imageUrl || (sender ? sender.profileImage : null),
       });
 
       // Verify notification was saved
@@ -433,7 +435,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
 
       // Send push notification for new aggregated notification (non-blocking) - only after save
       if (receiver && sender) {
-        sendPushNotificationAsync(receiver, sender, message, {
+        sendPushNotificationAsync(receiver, sender, message, notification.imageUrl, {
           notificationId: notification._id.toString(),
           type: notification.type,
           contentType: contentType || null,
@@ -493,6 +495,20 @@ export const createNotification = async (notificationData) => {
       imageUrl = null,
     } = notificationData;
 
+    // Automatically fetch Zeal thumbnail if needed
+    let finalImageUrl = imageUrl;
+    if (!finalImageUrl && contentType === ContentType.ZEAL && contentId) {
+      try {
+        const ZealPostModel = getContentModel(ContentType.ZEAL);
+        const zealPost = await ZealPostModel.findById(contentId).select("thumbnailUrl");
+        if (zealPost && zealPost.thumbnailUrl) {
+          finalImageUrl = zealPost.thumbnailUrl;
+        }
+      } catch (err) {
+        logger.warn(`Error fetching Zeal thumbnail for notification: ${err.message}`);
+      }
+    }
+
     // Log incoming request for debugging
     logger.info(`Creating notification - type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}, contentType: ${contentType}, contentId: ${contentId}`);
 
@@ -547,7 +563,7 @@ export const createNotification = async (notificationData) => {
     }
 
     // Always use sender's profileImage for imageUrl (unless explicitly provided)
-    notificationImageUrl = imageUrl || (sender ? sender.profileImage : null) || null;
+    notificationImageUrl = finalImageUrl || (sender ? sender.profileImage : null) || null;
 
     // Check if this type supports aggregation
     if (isAggregatableType(type)) {
@@ -561,6 +577,7 @@ export const createNotification = async (notificationData) => {
           contentId,
           message: notificationMessage,
           metadata,
+          imageUrl: finalImageUrl,
         });
         
         // If aggregation returns null, create individual notification
@@ -715,7 +732,7 @@ export const createNotification = async (notificationData) => {
     // Send push notification (non-blocking) - only if we have receiver and sender
     // But notification MUST be saved first
     if (receiver && sender) {
-      sendPushNotificationAsync(receiver, sender, notificationMessage, {
+      sendPushNotificationAsync(receiver, sender, notificationMessage, notification.imageUrl || notificationImageUrl, {
         notificationId: notification._id.toString(),
         type: type,
         contentType: contentType || null,
@@ -1102,13 +1119,13 @@ export const deleteNotification = async (notificationId, userId) => {
  * @param {string} message - Notification message
  * @param {Object} data - Additional data payload
  */
-const sendPushNotificationAsync = async (receiver, sender, message, data = {}) => {
+const sendPushNotificationAsync = async (receiver, sender, message, imageUrl = null, data = {}) => {
   try {
     // Prepare notification payload
     const notificationPayload = {
       title: sender.name || sender.username || "Omeeba",
       body: message,
-      imageUrl: sender.profileImage || null,
+      imageUrl: imageUrl || sender.profileImage || null,
     };
 
     // Send push notification
