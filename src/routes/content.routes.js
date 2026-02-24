@@ -17,6 +17,7 @@ const router = express.Router();
 // Get single content
 router.get(
   "/:contentType/:contentId",
+  protect,
   validateContentParams,
   getContentController
 );
