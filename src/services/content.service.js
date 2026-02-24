@@ -4,6 +4,10 @@ import { ContentType } from "../models/enums.js";
 import ContentLike from "../models/interactions/ContentLike.js";
 import Comment from "../models/comments/Comment.js";
 
+import {getIsFollowing} from "../utils/followUtils.js";
+import { UserFollower } from "../models/index.js";
+import mongoose from "mongoose";
+
 /**
  * Helper: Apply conditional population safely
  */
@@ -154,26 +158,24 @@ const formatContent = (
 /**
  * Get single content
  */
-export const getSingleContent = async (
-  contentType,
-  contentId,
-  currentUserId = null
-) => {
+export const getSingleContent = async (contentType, contentId, currentUserId = null) => {
   try {
     const Model = getContentModel(contentType);
 
+    // Fetch the content with population
     let query = Model.findById(contentId);
     query = applyPopulation(query, contentType);
 
     const content = await query;
-
     if (!content) throw new Error(`${contentType} not found`);
 
+    // Metrics
     const [likeCount, commentCount] = await Promise.all([
       ContentLike.countDocuments({ contentType, contentId }),
       Comment.countDocuments({ contentType, contentId }),
     ]);
 
+    // Check if current user liked
     let isLiked = false;
     if (currentUserId) {
       const existingLike = await ContentLike.findOne({
@@ -184,33 +186,31 @@ export const getSingleContent = async (
       isLiked = !!existingLike;
     }
 
-    // --- INLINE: Determine if current user follows content creator ---
-    let isFollowing = null;
-    if (currentUserId) {
-      // Get all users that currentUserId is following
-      const followedUsers = await Follow.find({ follower: currentUserId }).select("following");
-      const followedUserIdSet = new Set(followedUsers.map(f => f.following.toString()));
-
-      // Use your existing getIsFollowing util
-      isFollowing = getIsFollowing(content, currentUserId, followedUserIdSet);
-    }
-
-    return formatContent(
+    // Format content normally
+    const formatted = formatContent(
       content,
       contentType,
       { likeCount, commentCount },
       isLiked,
-      isFollowing
+      false // isSaved
     );
+
+    // --- Add isFollowing dynamically ---
+    if (currentUserId) {
+      const followRows = await UserFollower.find({ followerId: currentUserId })
+        .select("userId")
+        .lean();
+      const followedUserIdSet = new Set(followRows.map(f => f.userId?.toString()));
+
+      formatted.isFollowing = getIsFollowing(content, currentUserId, followedUserIdSet);
+    }
+
+    return formatted;
   } catch (error) {
-    logger.error(
-      `Error in getSingleContent [${contentType}] id:${contentId}`,
-      error
-    );
+    logger.error(`Error in getSingleContent [${contentType}] id:${contentId}`, error);
     throw error;
   }
 };
-
 /**
  * Update content
  */
