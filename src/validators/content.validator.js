@@ -47,6 +47,9 @@ export const validateContentParams = (req, res, next) => {
 const postUpdateSchema = Joi.object({
   caption: Joi.string().optional(),
   images: Joi.array().items(Joi.string()).optional(),
+  mentionedUserIds: Joi.array()
+    .items(Joi.string().length(24).hex())
+    .optional(),
   musicId: Joi.string().length(24).hex().optional(),
   musicStartTime: Joi.number().optional(),
   musicEndTime: Joi.number().optional(),
@@ -54,12 +57,18 @@ const postUpdateSchema = Joi.object({
 
 const writePostUpdateSchema = Joi.object({
   content: Joi.string().optional(),
+  mentionedUserIds: Joi.array()
+    .items(Joi.string().length(24).hex())
+    .optional(),
 }).min(1);
 
 const zealUpdateSchema = Joi.object({
   caption: Joi.string().optional(),
   videos: Joi.array().items(Joi.string()).optional(),
   images: Joi.array().items(Joi.string()).optional(),
+  mentionedUserIds: Joi.array()
+    .items(Joi.string().length(24).hex())
+    .optional(),
   musicId: Joi.string().length(24).hex().optional(),
   musicStartTime: Joi.number().optional(),
   musicEndTime: Joi.number().optional(),

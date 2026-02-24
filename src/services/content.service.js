@@ -19,31 +19,48 @@ const formatContent = (
   const baseItem = {
     id: item._id.toString(),
     contentType,
-    userId: {
-      id: user?._id?.toString(),
-      name: user?.name,
-      username: user?.username,
-      profileImage: user?.profileImage,
-      isAccountVerified: user?.isAccountVerified,
-      isVerifiedBadge: user?.isVerifiedBadge,
-    },
+    userId: user
+      ? {
+          id: user._id?.toString(),
+          name: user.name,
+          username: user.username,
+          profileImage: user.profileImage,
+          isAccountVerified: user.isAccountVerified,
+          isVerifiedBadge: user.isVerifiedBadge,
+        }
+      : null,
+
     mentionedUsers: (item.mentionedUserIds || []).map((u) => ({
-      id: u._id.toString(),
+      id: u._id?.toString(),
       name: u.name,
       username: u.username,
       profileImage: u.profileImage,
       isAccountVerified: u.isAccountVerified,
       isVerifiedBadge: u.isVerifiedBadge,
     })),
-    // FIXED COUNTS (force number)
-    likeCount: metrics.likeCount || 0,
-    commentCount: metrics.commentCount ||0,
-    shareCount: metrics.shareCount || 0,
+
+    likeCount: Number(metrics.likeCount ?? 0),
+    commentCount: Number(metrics.commentCount ?? 0),
+    shareCount: Number(metrics.shareCount ?? 0),
+
     isLiked,
     isSaved,
+
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
+
+  const music =
+    item.musicId && item.musicId._id
+      ? {
+          id: item.musicId._id.toString(),
+          title: item.musicId.title,
+          artist: item.musicId.artist,
+          album: item.musicId.album,
+          coverImage: item.musicId.coverImage,
+          duration: item.musicId.duration,
+        }
+      : null;
 
   switch (contentType) {
     case ContentType.POST:
@@ -51,16 +68,7 @@ const formatContent = (
         ...baseItem,
         caption: item.caption || "",
         images: item.images || [],
-        music: item.musicId
-          ? {
-              id: item.musicId._id.toString(),
-              title: item.musicId.title,
-              artist: item.musicId.artist,
-              album: item.musicId.album,
-              coverImage: item.musicId.coverImage,
-              duration: item.musicId.duration,
-            }
-          : null,
+        music,
         musicStartTime: item.musicStartTime,
         musicEndTime: item.musicEndTime,
       };
@@ -77,16 +85,7 @@ const formatContent = (
         caption: item.caption || "",
         videos: item.videos || [],
         images: item.images || [],
-        music: item.musicId
-          ? {
-              id: item.musicId._id.toString(),
-              title: item.musicId.title,
-              artist: item.musicId.artist,
-              album: item.musicId.album,
-              coverImage: item.musicId.coverImage,
-              duration: item.musicId.duration,
-            }
-          : null,
+        music,
         musicStartTime: item.musicStartTime,
         musicEndTime: item.musicEndTime,
         isDevelopByAi: item.isDevelopByAi || false,
@@ -110,7 +109,6 @@ const formatContent = (
       return baseItem;
   }
 };
-
 /**
  * Get single content
  */
@@ -124,27 +122,29 @@ export const getSingleContent = async (
     const userField =
       contentType === ContentType.POLL ? "createdBy" : "userId";
 
-    const populateFields = [userField];
-
-    if (Model.schema.path("mentionedUserIds")) {
-      populateFields.push({
+    const content = await Model.findById(contentId)
+      .populate({
+        path: userField,
+        select:
+          "name username profileImage isAccountVerified isVerifiedBadge",
+      })
+      .populate({
         path: "mentionedUserIds",
         select:
           "name username profileImage isAccountVerified isVerifiedBadge",
+      })
+      .populate({
+        path: "musicId",
+        select: "title artist album coverImage duration",
       });
-    }
-
-    const content = await Model.findById(contentId).populate(populateFields);
 
     if (!content) throw new Error(`${contentType} not found`);
 
-    // ✅ COUNT USING YOUR ACTUAL MODEL
     const [likeCount, commentCount] = await Promise.all([
       ContentLike.countDocuments({ contentType, contentId }),
       Comment.countDocuments({ contentType, contentId }),
     ]);
 
-    // CHECK IF USER LIKED
     let isLiked = false;
 
     if (currentUserId) {
@@ -178,16 +178,17 @@ export const updateContent = async (
   contentType,
   contentId,
   userId,
-  updateData
+  updateData,
+  currentUserId = null
 ) => {
   const Model = getContentModel(contentType);
+
+  const ownerField =
+    contentType === ContentType.POLL ? "createdBy" : "userId";
+
   const item = await Model.findById(contentId);
 
   if (!item) throw new Error(`${contentType} not found`);
-
-  // FIXED owner field check
-  const ownerField =
-    contentType === ContentType.POLL ? "createdBy" : "userId";
 
   const ownerId =
     item[ownerField]?._id?.toString() ||
@@ -197,14 +198,22 @@ export const updateContent = async (
     throw new Error("You are not authorized to update this content");
   }
 
-  // FIXED ZEAL CHECK
+  // ZEAL restrictions
   if (contentType === ContentType.ZEAL) {
     if (item.status === "processing") {
       throw new Error("Cannot update Zeal Post while processing");
     }
 
     if (item.status === "published") {
-      const allowedFields = ["caption", "images", "videos"];
+      const allowedFields = [
+        "caption",
+        "images",
+        "videos",
+        "mentionedUserIds",
+        "musicId",
+        "musicStartTime",
+        "musicEndTime",
+      ];
 
       updateData = Object.keys(updateData)
         .filter((key) => allowedFields.includes(key))
@@ -215,7 +224,7 @@ export const updateContent = async (
     }
   }
 
-  // FIXED POLL CHECK
+  // POLL restriction
   if (
     contentType === ContentType.POLL &&
     item.status === "Active" &&
@@ -227,7 +236,48 @@ export const updateContent = async (
   Object.assign(item, updateData);
   await item.save();
 
-  return formatContent(item, contentType);
+  // ✅ RE-FETCH WITH FULL POPULATION
+  const updatedItem = await Model.findById(contentId)
+    .populate({
+      path: ownerField,
+      select:
+        "name username profileImage isAccountVerified isVerifiedBadge",
+    })
+    .populate({
+      path: "mentionedUserIds",
+      select:
+        "name username profileImage isAccountVerified isVerifiedBadge",
+    })
+    .populate({
+      path: "musicId",
+      select: "title artist album coverImage duration",
+    });
+
+  // ✅ FETCH COUNTS
+  const [likeCount, commentCount] = await Promise.all([
+    ContentLike.countDocuments({ contentType, contentId }),
+    Comment.countDocuments({ contentType, contentId }),
+  ]);
+
+  // ✅ CHECK IF LIKED
+  let isLiked = false;
+
+  if (currentUserId) {
+    const existingLike = await ContentLike.findOne({
+      contentType,
+      contentId,
+      userId: currentUserId,
+    });
+
+    isLiked = !!existingLike;
+  }
+
+  return formatContent(
+    updatedItem,
+    contentType,
+    { likeCount, commentCount },
+    isLiked
+  );
 };
 
 /**
