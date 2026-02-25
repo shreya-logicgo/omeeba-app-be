@@ -23,7 +23,7 @@ export const getContentModel = (contentType) => {
     [ContentType.POST]: Post,
     [ContentType.WRITE_POST]: WritePost,
     [ContentType.ZEAL]: ZealPost,
-    poll: Poll,
+    [ContentType.POLL]: Poll,
   };
 
   return modelMap[contentType] || null;
