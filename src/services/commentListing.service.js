@@ -39,98 +39,73 @@ export const getComments = async (contentType, contentId, currentUserId, page = 
       throw new Error("Content not found");
     }
 
-    // Build query - include deleted comments (we'll show them with "deleted" message)
+    // Query: only non-deleted comments
     const query = {
       contentType,
       contentId,
+      isDeleted: false,
     };
 
-    // Get reported comment IDs for current user (to exclude them)
-    let reportedCommentIds = new Set();
-    if (currentUserId) {
-      // We'll filter after fetching to avoid complex queries
-      // For now, fetch all and filter
-    }
-
-    // Fetch comments (newest first)
+    // Fetch comments
     const comments = await Comment.find(query)
-      .populate("userId", "name username profileImage bio isVerifiedBadge")
-      .populate("mentionedUserIds", "name username profileImage bio isVerifiedBadge")
-      .sort({ createdAt: -1 }) // Newest first
+      .populate("userId", "name username profileImage bio isDeleted isVerifiedBadge")
+      .populate("mentionedUserIds", "name username profileImage bio isDeleted isVerifiedBadge")
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
+    // Filter out comments whose users are deleted
+    const visibleComments = comments.filter(c => !c.userId?.isDeleted);
+
     const total = await Comment.countDocuments(query);
 
     // Get reported comment IDs for current user
-    if (currentUserId && comments.length > 0) {
-      const commentIds = comments.map((c) => c._id.toString());
+    let reportedCommentIds = new Set();
+    if (currentUserId && visibleComments.length > 0) {
+      const commentIds = visibleComments.map(c => c._id.toString());
       reportedCommentIds = await getReportedCommentIdsSet(currentUserId, commentIds);
     }
 
-    // Filter out reported comments for current user, but keep deleted comments
-    const visibleComments = comments.filter((comment) => {
-      if (currentUserId && reportedCommentIds.has(comment._id.toString())) {
-        return false; // Hide reported comments
-      }
-      return true; // Include deleted comments (will show "deleted" message)
-    });
+    // Filter reported comments
+    const finalComments = visibleComments.filter(c => !reportedCommentIds.has(c._id.toString()));
 
-    // Get comment IDs for like status and reply counts
-    const commentIds = visibleComments.map((c) => c._id.toString());
+    const commentIds = finalComments.map(c => c._id.toString());
 
-    // Get like statuses for all comments
+    // Get like statuses
     let likeStatuses = {};
     if (currentUserId && commentIds.length > 0) {
       likeStatuses = await getCommentsLikeStatus(currentUserId, commentIds);
     }
 
-    // Get reply counts for all comments (in parallel)
+    // Get reply counts
     const replyCounts = await Promise.all(
       commentIds.map(async (commentId) => {
-        const count = await ReplyComment.countDocuments({
-          commentId,
-          isDeleted: false,
-        });
+        const count = await ReplyComment.countDocuments({ commentId, isDeleted: false });
         return { commentId, replyCount: count };
       })
     );
-
     const replyCountMap = new Map();
-    replyCounts.forEach((item) => {
-      replyCountMap.set(item.commentId, item.replyCount);
-    });
+    replyCounts.forEach(item => replyCountMap.set(item.commentId, item.replyCount));
 
-    // Fetch replies for all comments (first 20 per comment, oldest first)
+    // Fetch replies (first 20 per comment)
     const repliesPerCommentLimit = 20;
-    const allReplies = await ReplyComment.find({
-      commentId: { $in: commentIds },
-      isDeleted: false,
-    })
+    const allReplies = await ReplyComment.find({ commentId: { $in: commentIds }, isDeleted: false })
       .populate("userId", "name username profileImage bio isVerifiedBadge")
       .populate("mentionedUserIds", "name username profileImage bio isVerifiedBadge")
       .sort({ createdAt: 1 })
       .lean();
 
-    // Group by commentId, keep only first N per comment
     const repliesByCommentId = new Map();
     for (const reply of allReplies) {
       const cid = reply.commentId.toString();
-      if (!repliesByCommentId.has(cid)) {
-        repliesByCommentId.set(cid, []);
-      }
+      if (!repliesByCommentId.has(cid)) repliesByCommentId.set(cid, []);
       const arr = repliesByCommentId.get(cid);
-      if (arr.length < repliesPerCommentLimit) {
-        arr.push(reply);
-      }
+      if (arr.length < repliesPerCommentLimit) arr.push(reply);
     }
 
-    const allReplyIds = allReplies.map((r) => r._id.toString());
-    const replyLikeStatuses = await getRepliesLikeStatus(
-      currentUserId || null,
-      allReplyIds
-    );
+    const allReplyIds = allReplies.map(r => r._id.toString());
+    const replyLikeStatuses = await getRepliesLikeStatus(currentUserId || null, allReplyIds);
 
     const formatReply = (reply) => {
       const replyId = reply._id.toString();
@@ -148,13 +123,13 @@ export const getComments = async (contentType, contentId, currentUserId, page = 
           bio: reply.userId.bio,
           isVerifiedBadge: reply.userId.isVerifiedBadge,
         },
-        mentionedUsers: (reply.mentionedUserIds || []).map((user) => ({
-          id: user._id.toString(),
-          name: user.name,
-          username: user.username,
-          profileImage: user.profileImage,
-          bio: user.bio,
-          isVerifiedBadge: user.isVerifiedBadge,
+        mentionedUsers: (reply.mentionedUserIds || []).filter(u => !u.isDeleted).map(u => ({
+          id: u._id.toString(),
+          name: u.name,
+          username: u.username,
+          profileImage: u.profileImage,
+          bio: u.bio,
+          isVerifiedBadge: u.isVerifiedBadge,
         })),
         likeCount: likeStatus.likeCount,
         likeCountFormatted: formatNumber(likeStatus.likeCount),
@@ -165,35 +140,12 @@ export const getComments = async (contentType, contentId, currentUserId, page = 
       };
     };
 
-    // Format comments
-    const formattedComments = visibleComments.map((comment) => {
+    const formattedComments = finalComments.map(comment => {
       const commentId = comment._id.toString();
-      const isDeleted = comment.isDeleted || false;
       const likeStatus = likeStatuses[commentId] || { likeCount: 0, isLiked: false };
       const replyCount = replyCountMap.get(commentId) || 0;
       const commentReplies = (repliesByCommentId.get(commentId) || []).map(formatReply);
 
-      // Format like count with commas
-      const formattedLikeCount = formatNumber(likeStatus.likeCount);
-      const timeAgo = getTimeAgo(comment.createdAt);
-
-      // If deleted, return minimal info with deleted message
-      if (isDeleted) {
-        return {
-          id: commentId,
-          contentType: comment.contentType,
-          contentId: comment.contentId.toString(),
-          isDeleted: true,
-          message: "This comment was deleted",
-          replyCount,
-          replies: commentReplies,
-          timeAgo,
-          createdAt: comment.createdAt,
-          deletedAt: comment.deletedAt,
-        };
-      }
-
-      // Normal comment
       return {
         id: commentId,
         contentType: comment.contentType,
@@ -207,20 +159,20 @@ export const getComments = async (contentType, contentId, currentUserId, page = 
           bio: comment.userId.bio,
           isVerifiedBadge: comment.userId.isVerifiedBadge,
         },
-        mentionedUsers: comment.mentionedUserIds.map((user) => ({
-          id: user._id.toString(),
-          name: user.name,
-          username: user.username,
-          profileImage: user.profileImage,
-          bio: user.bio,
-          isVerifiedBadge: user.isVerifiedBadge,
+        mentionedUsers: comment.mentionedUserIds.filter(u => !u.isDeleted).map(u => ({
+          id: u._id.toString(),
+          name: u.name,
+          username: u.username,
+          profileImage: u.profileImage,
+          bio: u.bio,
+          isVerifiedBadge: u.isVerifiedBadge,
         })),
         likeCount: likeStatus.likeCount,
-        likeCountFormatted: formattedLikeCount,
+        likeCountFormatted: formatNumber(likeStatus.likeCount),
         isLiked: likeStatus.isLiked,
         replyCount,
         replies: commentReplies,
-        timeAgo,
+        timeAgo: getTimeAgo(comment.createdAt),
         createdAt: comment.createdAt,
         updatedAt: comment.updatedAt,
       };
@@ -228,14 +180,13 @@ export const getComments = async (contentType, contentId, currentUserId, page = 
 
     return {
       comments: formattedComments,
-      pagination: getPaginationMeta(total, page, limit),
+      pagination: getPaginationMeta(finalComments.length, page, limit),
     };
   } catch (error) {
     logger.error("Error in getComments:", error);
     throw error;
   }
 };
-
 /**
  * Get a single comment by ID with visibility rules
  * @param {string} commentId - Comment ID
@@ -246,78 +197,20 @@ export const getCommentById = async (commentId, currentUserId) => {
   try {
     // Find comment
     const comment = await Comment.findById(commentId)
-      .populate("userId", "name username profileImage bio isVerifiedBadge")
-      .populate("mentionedUserIds", "name username profileImage bio isVerifiedBadge")
+      .populate("userId", "name username profileImage bio isDeleted isVerifiedBadge")
+      .populate("mentionedUserIds", "name username profileImage bio isDeleted isVerifiedBadge")
       .lean();
 
-    if (!comment) {
-      return null;
-    }
+    if (!comment) return null;
 
-    // Check if deleted - still include replyCount and replies
-    if (comment.isDeleted) {
-      const replyCount = await ReplyComment.countDocuments({
-        commentId,
-        isDeleted: false,
-      });
-      const repliesRaw = await ReplyComment.find({ commentId, isDeleted: false })
-        .populate("userId", "name username profileImage bio isVerifiedBadge")
-        .populate("mentionedUserIds", "name username profileImage bio isVerifiedBadge")
-        .sort({ createdAt: 1 })
-        .limit(20)
-        .lean();
-      const replyIds = repliesRaw.map((r) => r._id.toString());
-      const replyLikeStatuses = await getRepliesLikeStatus(currentUserId || null, replyIds);
-      const formatReply = (reply) => {
-        const replyId = reply._id.toString();
-        const likeStatus = replyLikeStatuses[replyId] || { likeCount: 0, isLiked: false };
-        return {
-          id: replyId,
-          commentId: reply.commentId.toString(),
-          parentReplyId: reply.parentReplyId ? reply.parentReplyId.toString() : null,
-          reply: reply.reply,
-          user: {
-            id: reply.userId._id.toString(),
-            name: reply.userId.name,
-            username: reply.userId.username,
-            profileImage: reply.userId.profileImage,
-            bio: reply.userId.bio,
-            isVerifiedBadge: reply.userId.isVerifiedBadge,
-          },
-          mentionedUsers: (reply.mentionedUserIds || []).map((user) => ({
-            id: user._id.toString(),
-            name: user.name,
-            username: user.username,
-            profileImage: user.profileImage,
-            bio: user.bio,
-            isVerifiedBadge: user.isVerifiedBadge,
-          })),
-          likeCount: likeStatus.likeCount,
-          likeCountFormatted: formatNumber(likeStatus.likeCount),
-          isLiked: likeStatus.isLiked,
-          timeAgo: getTimeAgo(reply.createdAt),
-          createdAt: reply.createdAt,
-          updatedAt: reply.updatedAt,
-        };
-      };
-      return {
-        id: comment._id.toString(),
-        isDeleted: true,
-        message: "This comment was deleted",
-        replyCount,
-        replies: repliesRaw.map(formatReply),
-        createdAt: comment.createdAt,
-        deletedAt: comment.deletedAt,
-      };
-    }
+    // Exclude deleted comment or comment from deleted user
+    if (comment.isDeleted || comment.userId?.isDeleted) return null;
 
     // Check if reported by current user
     if (currentUserId) {
       const { isCommentReportedByUser } = await import("../utils/commentFilter.js");
       const isReported = await isCommentReportedByUser(currentUserId, commentId);
-      if (isReported) {
-        return null; // Hide reported comment
-      }
+      if (isReported) return null;
     }
 
     // Get like count and status
@@ -326,18 +219,18 @@ export const getCommentById = async (commentId, currentUserId) => {
       currentUserId ? isCommentLikedByUser(currentUserId, commentId) : false,
     ]);
 
-    // Get reply count and fetch replies
-    const [replyCount, repliesRaw] = await Promise.all([
-      ReplyComment.countDocuments({ commentId, isDeleted: false }),
-      ReplyComment.find({ commentId, isDeleted: false })
-        .populate("userId", "name username profileImage bio isVerifiedBadge")
-        .populate("mentionedUserIds", "name username profileImage bio isVerifiedBadge")
-        .sort({ createdAt: 1 })
-        .limit(20)
-        .lean(),
-    ]);
+    // Get replies (only non-deleted and non-deleted users)
+    const repliesRaw = await ReplyComment.find({ commentId, isDeleted: false })
+      .populate("userId", "name username profileImage bio isDeleted isVerifiedBadge")
+      .populate("mentionedUserIds", "name username profileImage bio isDeleted isVerifiedBadge")
+      .sort({ createdAt: 1 })
+      .limit(20)
+      .lean();
 
-    const replyIds = repliesRaw.map((r) => r._id.toString());
+    // Filter out replies from deleted users
+    const filteredReplies = repliesRaw.filter(r => !r.userId?.isDeleted);
+
+    const replyIds = filteredReplies.map(r => r._id.toString());
     const replyLikeStatuses = await getRepliesLikeStatus(currentUserId || null, replyIds);
 
     const formatReply = (reply) => {
@@ -356,14 +249,16 @@ export const getCommentById = async (commentId, currentUserId) => {
           bio: reply.userId.bio,
           isVerifiedBadge: reply.userId.isVerifiedBadge,
         },
-        mentionedUsers: (reply.mentionedUserIds || []).map((user) => ({
-          id: user._id.toString(),
-          name: user.name,
-          username: user.username,
-          profileImage: user.profileImage,
-          bio: user.bio,
-          isVerifiedBadge: user.isVerifiedBadge,
-        })),
+        mentionedUsers: (reply.mentionedUserIds || [])
+          .filter(u => !u.isDeleted)
+          .map(u => ({
+            id: u._id.toString(),
+            name: u.name,
+            username: u.username,
+            profileImage: u.profileImage,
+            bio: u.bio,
+            isVerifiedBadge: u.isVerifiedBadge,
+          })),
         likeCount: likeStatus.likeCount,
         likeCountFormatted: formatNumber(likeStatus.likeCount),
         isLiked: likeStatus.isLiked,
@@ -373,11 +268,7 @@ export const getCommentById = async (commentId, currentUserId) => {
       };
     };
 
-    const replies = repliesRaw.map(formatReply);
-
-    // Format like count and time ago
-    const formattedLikeCount = formatNumber(likeCount);
-    const timeAgo = getTimeAgo(comment.createdAt);
+    const replies = filteredReplies.map(formatReply);
 
     return {
       id: comment._id.toString(),
@@ -392,20 +283,22 @@ export const getCommentById = async (commentId, currentUserId) => {
         bio: comment.userId.bio,
         isVerifiedBadge: comment.userId.isVerifiedBadge,
       },
-      mentionedUsers: comment.mentionedUserIds.map((user) => ({
-        id: user._id.toString(),
-        name: user.name,
-        username: user.username,
-        profileImage: user.profileImage,
-        bio: user.bio,
-        isVerifiedBadge: user.isVerifiedBadge,
-      })),
+      mentionedUsers: comment.mentionedUserIds
+        .filter(u => !u.isDeleted)
+        .map(u => ({
+          id: u._id.toString(),
+          name: u.name,
+          username: u.username,
+          profileImage: u.profileImage,
+          bio: u.bio,
+          isVerifiedBadge: u.isVerifiedBadge,
+        })),
       likeCount,
-      likeCountFormatted: formattedLikeCount,
+      likeCountFormatted: formatNumber(likeCount),
       isLiked,
-      replyCount,
+      replyCount: replies.length,
       replies,
-      timeAgo,
+      timeAgo: getTimeAgo(comment.createdAt),
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,
     };
