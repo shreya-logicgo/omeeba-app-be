@@ -43,6 +43,7 @@ const isAggregatableType = (type) => {
     NotificationType.POST_COMMENT,
     NotificationType.ZEAL_COMMENT,
     NotificationType.WRITE_COMMENT,
+    NotificationType.POLL_COMMENT,
     NotificationType.POLL_VOTED,
   ];
   return aggregatableTypes.includes(type);
@@ -91,6 +92,9 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     [NotificationType.WRITE_COMMENT]: truncatedText 
       ? `${senderName} commented on your write: "${truncatedText}"`
       : `${senderName} commented on your write`,
+    [NotificationType.POLL_COMMENT]: truncatedText 
+      ? `${senderName} commented on your poll: "${truncatedText}"`
+      : `${senderName} commented on your poll`,
     [NotificationType.COMMENT_REPLY]: truncatedText 
       ? `${senderName} replied to your comment: "${truncatedText}"`
       : `${senderName} replied to your comment`,
@@ -152,6 +156,7 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
     if (contentType === ContentType.POST) return "post";
     if (contentType === ContentType.ZEAL) return "zeal";
     if (contentType === ContentType.WRITE_POST) return "write";
+    if (contentType === ContentType.POLL) return "poll";
     return "content";
   };
 
@@ -189,7 +194,8 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
 
   if (type === NotificationType.POST_COMMENT || 
       type === NotificationType.ZEAL_COMMENT || 
-      type === NotificationType.WRITE_COMMENT) {
+      type === NotificationType.WRITE_COMMENT ||
+      type === NotificationType.POLL_COMMENT) {
     if (count === 1) {
       return truncatedText 
         ? `${latestSenderName} commented on your ${contentLabel}: "${truncatedText}"`
@@ -282,6 +288,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
       const isCommentType = type === NotificationType.POST_COMMENT || 
                            type === NotificationType.ZEAL_COMMENT || 
                            type === NotificationType.WRITE_COMMENT ||
+                           type === NotificationType.POLL_COMMENT ||
                            type === NotificationType.COMMENT_REPLY;
 
       if (senderExists && isCommentType) {

@@ -67,6 +67,7 @@ const NotificationType = {
   POST_COMMENT: "Post Comment",
   ZEAL_COMMENT: "Zeal Comment",
   WRITE_COMMENT: "Write Comment",
+  POLL_COMMENT: "Poll Comment",
   COMMENT_REPLY: "Comment Reply",
   MENTION_IN_COMMENT: "Mention In Comment",
   
