@@ -368,6 +368,8 @@ const getSavedContentIds = async (userId, contentItems) => {
  * @param {boolean} isSaved - Whether the content is saved by the current user
  * @returns {Object} Formatted content item
  */
+import { generateShareableLink } from "../utils/shareableLink.js";
+
 const formatContentItem = (
   item,
   metrics,
@@ -378,6 +380,7 @@ const formatContentItem = (
   const baseItem = {
     id: item._id.toString(),
     contentType,
+    shareableLink: generateShareableLink(contentType, item._id),
     userId: {
       id: item.userId._id.toString(),
       name: item.userId.name,
@@ -738,6 +741,7 @@ const fetchTrendingPolls = async (validUserIds, limit) => {
 const formatPollForFeed = (poll) => ({
   id: poll._id.toString(),
   contentType: ContentType.POLL,
+  shareableLink: generateShareableLink(ContentType.POLL, poll._id),
   caption: poll.caption || "",
   options: poll.options || [],
   totalVotes: poll.totalVotes || 0,
@@ -1022,6 +1026,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
         return {
           id: item._id.toString(),
           contentType: ContentType.POLL,
+          shareableLink: generateShareableLink(ContentType.POLL, item._id),
           caption: item.caption || "",
           options: addSelectedByAuthUserToOptions(
             item.options,
@@ -1134,17 +1139,8 @@ export const getHomeFeed = async (userId, options = {}) => {
         userSelectedOptionId
       );
       return {
-        id: formattedPoll.id,
-        contentType: formattedPoll.contentType,
-        caption: formattedPoll.caption,
+        ...formattedPoll,
         options: optionsWithFlag,
-        totalVotes: formattedPoll.totalVotes,
-        status: formattedPoll.status,
-        duration: formattedPoll.duration,
-        createdBy: formattedPoll.createdBy,
-        likeCount: formattedPoll.likeCount,
-        commentCount: formattedPoll.commentCount,
-        createdAt: formattedPoll.createdAt,
       };
     };
 
