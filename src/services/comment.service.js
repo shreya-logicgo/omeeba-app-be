@@ -94,15 +94,16 @@ export const createComment = async (userId, commentData) => {
 
     // Create notifications
     try {
-      // Get content to find owner
+      // Get content to find owner (Poll uses createdBy, others use userId)
       const ContentModel = getContentModel(contentType);
-      const content = await ContentModel.findById(contentId).select("userId");
+      const ownerField = contentType === ContentType.POLL ? "createdBy" : "userId";
+      const content = await ContentModel.findById(contentId).select(ownerField);
 
       if (content) {
-        const contentOwnerId = content.userId;
+        const contentOwnerId = content[ownerField];
 
         // Notify content owner (if not self-comment)
-        if (contentOwnerId.toString() !== userId.toString()) {
+        if (contentOwnerId && contentOwnerId.toString() !== userId.toString()) {
           let notificationType;
           if (contentType === ContentType.POST) {
             notificationType = NotificationType.POST_COMMENT;
@@ -110,6 +111,8 @@ export const createComment = async (userId, commentData) => {
             notificationType = NotificationType.ZEAL_COMMENT;
           } else if (contentType === ContentType.WRITE_POST) {
             notificationType = NotificationType.WRITE_COMMENT;
+          } else if (contentType === ContentType.POLL) {
+            notificationType = NotificationType.POLL_COMMENT;
           }
 
           if (notificationType) {
