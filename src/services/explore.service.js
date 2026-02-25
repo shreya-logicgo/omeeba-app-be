@@ -23,6 +23,7 @@ import { getReportedContentIds } from "../utils/contentFilter.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
+import { getIsFollowing } from "../utils/followUtils.js";
 
 /**
  * Get blocked user IDs for a user
@@ -1175,7 +1176,7 @@ export const getHomeFeed = async (userId, options = {}) => {
     // Followed user IDs
     let followedUserIds = [];
     if (userId) {
-      const followRows = await UserFollower.find({ followerId: userId })
+      const followRows = await UserFollower.find({ followerId: new mongoose.Types.ObjectId(userId) })
         .select("userId")
         .lean();
       followedUserIds = followRows
@@ -1183,6 +1184,7 @@ export const getHomeFeed = async (userId, options = {}) => {
         .filter((id) => id && validUserIdSet.has(id))
         .map((id) => new mongoose.Types.ObjectId(id));
     }
+    const followedUserIdSet = new Set(followedUserIds.map((id) => id.toString()));
 
     // 2) Following users' posts (engagement weighted)
     let followedContent = [];
@@ -1255,6 +1257,9 @@ export const getHomeFeed = async (userId, options = {}) => {
       addUnique(latestPollsRaw.map(attachSelectedOption));
     }
 
+    combined.forEach(item => {
+      item.isFollowing = getIsFollowing(item, userId, followedUserIdSet);
+  });
     const paginated = combined.slice(skip, skip + limit);
     const total = combined.length;
 

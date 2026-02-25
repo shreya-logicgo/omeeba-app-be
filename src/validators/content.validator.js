@@ -1,23 +1,33 @@
+// validators/content.validator.ts
 import Joi from "joi";
 import { ContentType, ZealStatus, PollStatus } from "../models/enums.js";
 
+// Friendly names users might send
 const friendlyContentTypes = ["Post", "Write Post", "Zeal Post", "Poll"];
+
+// Map friendly names (with or without spaces) to internal enums
 const contentTypeMap = {
   "Post": ContentType.POST,
+  "WritePost": ContentType.WRITE_POST,     // no-space alias
   "Write Post": ContentType.WRITE_POST,
+  "ZealPost": ContentType.ZEAL,           // no-space alias
   "Zeal Post": ContentType.ZEAL,
   "Poll": ContentType.POLL,
 };
 
+// -------------------------
+// Validate params
+// -------------------------
 export const validateContentParams = (req, res, next) => {
   let { contentType, contentId } = req.params;
 
-  contentType = decodeURIComponent(contentType).trim();
+  // Normalize: remove spaces and decode
+  contentType = decodeURIComponent(contentType).replace(/\s+/g, '').trim();
 
-  // Step 1: Validate against friendly names
+  // Step 1: Validate against no-space friendly names
   const schema = Joi.object({
     contentType: Joi.string()
-      .valid(...friendlyContentTypes)
+      .valid("Post", "WritePost", "ZealPost", "Poll")
       .required(),
     contentId: Joi.string().length(24).hex().required(),
   });
@@ -25,7 +35,7 @@ export const validateContentParams = (req, res, next) => {
   const { error } = schema.validate({ contentType, contentId });
   if (error) return res.status(400).json({ message: error.details[0].message });
 
-  // Step 2: Map friendly name to enum for internal use
+  // Step 2: Map normalized friendly name to enum
   req.params.contentType = contentTypeMap[contentType];
 
   next();
@@ -37,6 +47,9 @@ export const validateContentParams = (req, res, next) => {
 const postUpdateSchema = Joi.object({
   caption: Joi.string().optional(),
   images: Joi.array().items(Joi.string()).optional(),
+  mentionedUserIds: Joi.array()
+    .items(Joi.string().length(24).hex())
+    .optional(),
   musicId: Joi.string().length(24).hex().optional(),
   musicStartTime: Joi.number().optional(),
   musicEndTime: Joi.number().optional(),
@@ -44,12 +57,18 @@ const postUpdateSchema = Joi.object({
 
 const writePostUpdateSchema = Joi.object({
   content: Joi.string().optional(),
+  mentionedUserIds: Joi.array()
+    .items(Joi.string().length(24).hex())
+    .optional(),
 }).min(1);
 
 const zealUpdateSchema = Joi.object({
   caption: Joi.string().optional(),
   videos: Joi.array().items(Joi.string()).optional(),
   images: Joi.array().items(Joi.string()).optional(),
+  mentionedUserIds: Joi.array()
+    .items(Joi.string().length(24).hex())
+    .optional(),
   musicId: Joi.string().length(24).hex().optional(),
   musicStartTime: Joi.number().optional(),
   musicEndTime: Joi.number().optional(),
@@ -69,9 +88,9 @@ const pollUpdateSchema = Joi.object({
   status: Joi.string().valid(...Object.values(PollStatus)).optional(),
 }).min(1);
 
-/**
- * Validate update body dynamically based on contentType
- */
+// -------------------------
+// Validate update body dynamically based on contentType
+// -------------------------
 export const validateContentUpdate = (req, res, next) => {
   const { contentType } = req.params;
 
