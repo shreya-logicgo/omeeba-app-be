@@ -1,4 +1,5 @@
 // utils/followUtils.js
+import {UserFollower } from "../models/index.js";
 export const getIsFollowing = (content, currentUserId, followedUserIdSet) => {
   if (!currentUserId) return null;
 
@@ -16,4 +17,23 @@ export const getIsFollowing = (content, currentUserId, followedUserIdSet) => {
 
   // Other user → check if logged-in user follows
   return followedUserIdSet.has(creatorId);
+};
+
+export const getProfileFollowStatus = async (
+  currentUserId,
+  targetUserId
+) => {
+  if (!currentUserId || !targetUserId) return null;
+
+  // If viewing own profile → hide follow
+  if (currentUserId.toString() === targetUserId.toString()) {
+    return null;
+  }
+
+  const followExists = await UserFollower.exists({
+    followerId: currentUserId,
+    userId: targetUserId,
+  });
+
+  return !!followExists;
 };
