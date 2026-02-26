@@ -164,6 +164,7 @@ const getEngagementMetrics = async (contentItems) => {
     [ContentType.POST]: [],
     [ContentType.WRITE_POST]: [],
     [ContentType.ZEAL]: [],
+    [ContentType.POLL]: []
   };
 
   contentItems.forEach((item) => {
@@ -762,20 +763,55 @@ export const getUserPolls = async (req, res) => {
         "name username profileImage isAccountVerified isVerifiedBadge"
       )
       .lean();
+    
+      const pollsWithType = userPolls.map((poll) => ({
+      ...poll,
+      contentType: ContentType.POLL,
+    }));
 
-    // Format polls: selectedByAuthUser
-    const formattedPolls = userPolls.map((poll) => {
+    // Get engagement metrics, liked and saved status
+    const currentUserId = req.user._id;
+    const [metricsMap, likedIds, savedIds] = await Promise.all([
+      getEngagementMetrics(pollsWithType),
+      getLikedContentIds(currentUserId, pollsWithType),
+      getSavedContentIds(currentUserId, pollsWithType),
+    ]);
+
+    // Add shareable link, engagement metrics, and status to each post
+    const pollsWithMetadata = pollsWithType.map((poll) => {
+      const pollId = poll._id.toString();
+      const metrics = metricsMap.get(pollId) || { likeCount: 0, commentCount: 0 };
+      return {
+        ...poll,
+        likeCount: metrics.likeCount,
+        commentCount: metrics.commentCount,
+        isLiked: likedIds.has(pollId),
+        isSaved: savedIds.has(pollId),
+        shareableLink: generateShareableLink(ContentType.POLL, poll._id),
+      };
+    });
+
+    // Format polls: selectedByAuthUser (auth user = logged-in viewer)
+    // Support both: userId as ObjectId or as populated object { _id, ... }
+    const authIdStr = authUserIdObj.toString();
+    const getVoteUserIdStr = (v) => {
+      const u = v.userId;
+      if (!u) return null;
+      if (u._id != null) return String(u._id);
+      return String(u);
+    };
+    const formattedPolls = pollsWithMetadata.map((poll) => {
       const userVote = poll.userVotes?.find(
-        (v) => v.userId.toString() === authUserIdObj.toString()
+        (v) => getVoteUserIdStr(v) === authIdStr
       );
       const userSelectedOptionId = userVote ? userVote.optionId : null;
       const optionsWithFlag = (poll.options || []).map((opt) => ({
-        ...(typeof opt.toObject === "function" ? opt.toObject() : opt),
+        ...opt,
         selectedByAuthUser:
           userSelectedOptionId != null && opt.optionId === userSelectedOptionId,
       }));
       return {
-        ...(typeof poll.toObject === "function" ? poll.toObject() : poll),
+        ...poll,
         options: optionsWithFlag,
       };
     });
