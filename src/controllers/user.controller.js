@@ -794,7 +794,7 @@ export const getUserPolls = async (req, res) => {
 
     return sendPaginated(
       res,
-      { polls: formattedPolls, isFollowing },
+      { posts: formattedPolls, isFollowing },
       pagination,
       "User polls fetched successfully.",
       StatusCodes.OK
@@ -908,7 +908,7 @@ export const getUserZeals = async (req, res) => {
     );
 
     const responseData = {
-      zeals: zealsWithMetadata,
+      posts: zealsWithMetadata,
       isFollowing,
     };
 
