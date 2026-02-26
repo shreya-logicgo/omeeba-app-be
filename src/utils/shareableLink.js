@@ -14,6 +14,7 @@ const contentTypeToSlug = {
   [ContentType.POST]: "post",
   [ContentType.WRITE_POST]: "write-post",
   [ContentType.ZEAL]: "zeal",
+  [ContentType.POLL]: "poll",
 };
 
 /**
@@ -65,6 +66,7 @@ export const parseShareableLink = (shareableLink) => {
       post: ContentType.POST,
       "write-post": ContentType.WRITE_POST,
       zeal: ContentType.ZEAL,
+      poll: ContentType.POLL,
     };
 
     const contentType = slugToContentType[slug];
