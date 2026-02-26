@@ -791,23 +791,25 @@ export const getUserPolls = async (req, res) => {
       };
     });
 
-    // Format polls: selectedByAuthUser
+    // Format polls: selectedByAuthUser (auth user = logged-in viewer)
+    // Support both: userId as ObjectId or as populated object { _id, ... }
+    const authIdStr = authUserIdObj.toString();
+    const getVoteUserIdStr = (v) => {
+      const u = v.userId;
+      if (!u) return null;
+      if (u._id != null) return String(u._id);
+      return String(u);
+    };
     const formattedPolls = pollsWithMetadata.map((poll) => {
       const userVote = poll.userVotes?.find(
-        (v) =>
-          v.userId?._id?.toString() === authUserIdObj.toString() ||
-          v.userId?.toString?.() === authUserIdObj.toString()
+        (v) => getVoteUserIdStr(v) === authIdStr
       );
-
       const userSelectedOptionId = userVote ? userVote.optionId : null;
-
       const optionsWithFlag = (poll.options || []).map((opt) => ({
         ...opt,
         selectedByAuthUser:
-          userSelectedOptionId != null &&
-          opt.optionId === userSelectedOptionId,
+          userSelectedOptionId != null && opt.optionId === userSelectedOptionId,
       }));
-
       return {
         ...poll,
         options: optionsWithFlag,
