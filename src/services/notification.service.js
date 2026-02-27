@@ -43,6 +43,7 @@ const isAggregatableType = (type) => {
     NotificationType.POST_COMMENT,
     NotificationType.ZEAL_COMMENT,
     NotificationType.WRITE_COMMENT,
+    NotificationType.POLL_COMMENT,
     NotificationType.POLL_VOTED,
   ];
   return aggregatableTypes.includes(type);
@@ -91,6 +92,9 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     [NotificationType.WRITE_COMMENT]: truncatedText 
       ? `${senderName} commented on your write: "${truncatedText}"`
       : `${senderName} commented on your write`,
+    [NotificationType.POLL_COMMENT]: truncatedText 
+      ? `${senderName} commented on your poll: "${truncatedText}"`
+      : `${senderName} commented on your poll`,
     [NotificationType.COMMENT_REPLY]: truncatedText 
       ? `${senderName} replied to your comment: "${truncatedText}"`
       : `${senderName} replied to your comment`,
@@ -152,6 +156,7 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
     if (contentType === ContentType.POST) return "post";
     if (contentType === ContentType.ZEAL) return "zeal";
     if (contentType === ContentType.WRITE_POST) return "write";
+    if (contentType === ContentType.POLL) return "poll";
     return "content";
   };
 
@@ -189,7 +194,8 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
 
   if (type === NotificationType.POST_COMMENT || 
       type === NotificationType.ZEAL_COMMENT || 
-      type === NotificationType.WRITE_COMMENT) {
+      type === NotificationType.WRITE_COMMENT ||
+      type === NotificationType.POLL_COMMENT) {
     if (count === 1) {
       return truncatedText 
         ? `${latestSenderName} commented on your ${contentLabel}: "${truncatedText}"`
@@ -235,6 +241,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
       contentId,
       message,
       metadata = {},
+      imageUrl = null,
     } = notificationData;
 
     if (!receiverId || !senderId || !type || !message) {
@@ -281,6 +288,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
       const isCommentType = type === NotificationType.POST_COMMENT || 
                            type === NotificationType.ZEAL_COMMENT || 
                            type === NotificationType.WRITE_COMMENT ||
+                           type === NotificationType.POLL_COMMENT ||
                            type === NotificationType.COMMENT_REPLY;
 
       if (senderExists && isCommentType) {
@@ -354,6 +362,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
             receiver,
             latestSender,
             existingNotification.message,
+            existingNotification.imageUrl,
             {
               notificationId: existingNotification._id.toString(),
               type: existingNotification.type,
@@ -405,7 +414,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         aggregatedUserIds: [senderId],
         metadata,
         status: NotificationStatus.UNREAD,
-        imageUrl: sender ? sender.profileImage : null,
+        imageUrl: imageUrl || (sender ? sender.profileImage : null),
       });
 
       // Verify notification was saved
@@ -433,7 +442,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
 
       // Send push notification for new aggregated notification (non-blocking) - only after save
       if (receiver && sender) {
-        sendPushNotificationAsync(receiver, sender, message, {
+        sendPushNotificationAsync(receiver, sender, message, notification.imageUrl, {
           notificationId: notification._id.toString(),
           type: notification.type,
           contentType: contentType || null,
@@ -493,6 +502,20 @@ export const createNotification = async (notificationData) => {
       imageUrl = null,
     } = notificationData;
 
+    // Automatically fetch Zeal thumbnail if needed
+    let finalImageUrl = imageUrl;
+    if (!finalImageUrl && contentType === ContentType.ZEAL && contentId) {
+      try {
+        const ZealPostModel = getContentModel(ContentType.ZEAL);
+        const zealPost = await ZealPostModel.findById(contentId).select("thumbnailUrl");
+        if (zealPost && zealPost.thumbnailUrl) {
+          finalImageUrl = zealPost.thumbnailUrl;
+        }
+      } catch (err) {
+        logger.warn(`Error fetching Zeal thumbnail for notification: ${err.message}`);
+      }
+    }
+
     // Log incoming request for debugging
     logger.info(`Creating notification - type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}, contentType: ${contentType}, contentId: ${contentId}`);
 
@@ -547,7 +570,7 @@ export const createNotification = async (notificationData) => {
     }
 
     // Always use sender's profileImage for imageUrl (unless explicitly provided)
-    notificationImageUrl = imageUrl || (sender ? sender.profileImage : null) || null;
+    notificationImageUrl = finalImageUrl || (sender ? sender.profileImage : null) || null;
 
     // Check if this type supports aggregation
     if (isAggregatableType(type)) {
@@ -561,6 +584,7 @@ export const createNotification = async (notificationData) => {
           contentId,
           message: notificationMessage,
           metadata,
+          imageUrl: finalImageUrl,
         });
         
         // If aggregation returns null, create individual notification
@@ -715,7 +739,7 @@ export const createNotification = async (notificationData) => {
     // Send push notification (non-blocking) - only if we have receiver and sender
     // But notification MUST be saved first
     if (receiver && sender) {
-      sendPushNotificationAsync(receiver, sender, notificationMessage, {
+      sendPushNotificationAsync(receiver, sender, notificationMessage, notification.imageUrl || notificationImageUrl, {
         notificationId: notification._id.toString(),
         type: type,
         contentType: contentType || null,
@@ -1106,13 +1130,13 @@ export const deleteNotification = async (notificationId, userId) => {
  * - The OneSignal data payload matches the exact format of the notification list API response
  * - This ensures consistency between push notifications and the getNotifications API
  */
-const sendPushNotificationAsync = async (receiver, sender, message, data = {}) => {
+const sendPushNotificationAsync = async (receiver, sender, message, imageUrl = null, data = {}) => {
   try {
     // Prepare notification payload (title/body/image for OneSignal UI)
     const notificationPayload = {
       title: sender.name || sender.username || "Omeeba",
       body: message,
-      imageUrl: sender.profileImage || null,
+      imageUrl: imageUrl || sender.profileImage || null,
     };
 
     // Fetch notification from database to get all fields (status, createdAt, updatedAt, etc.)

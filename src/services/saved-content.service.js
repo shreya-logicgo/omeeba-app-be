@@ -30,7 +30,7 @@ const verifyContentExists = async (contentType, contentId) => {
       case ContentType.ZEAL:
         content = await ZealPost.findOne({
           _id: contentId,
-          status: ZealStatus.PUBLISHED, // Only allow saving published zeal posts
+          status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] }, // Allow saving published or ready zeal posts
         });
         break;
       case ContentType.POLL:
@@ -330,7 +330,7 @@ export const cleanupStaleSavedContent = async (userId = null) => {
               (
                 await ZealPost.find({
                   _id: { $in: contentIds },
-                  status: ZealStatus.PUBLISHED,
+                  status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
                 })
                   .select("_id")
                   .lean()
@@ -476,7 +476,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
       savedByType[ContentType.ZEAL].length > 0
         ? ZealPost.find({
             _id: { $in: savedByType[ContentType.ZEAL] },
-            status: ZealStatus.PUBLISHED, // Only show published zeal posts
+            status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] },
           })
             .populate(
               "userId",

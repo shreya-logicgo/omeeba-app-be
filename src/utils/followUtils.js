@@ -1,0 +1,39 @@
+// utils/followUtils.js
+import {UserFollower } from "../models/index.js";
+export const getIsFollowing = (content, currentUserId, followedUserIdSet) => {
+  if (!currentUserId) return null;
+
+  // Determine creatorId for all content types
+  const creatorId =
+    content.userId?.id?.toString() || // Zeel, Post, Write Post from formatted content
+    content.userId?._id?.toString() || // fallback
+    content.createdBy?.id?.toString() || // Poll formatted
+    content.createdBy?._id?.toString(); // Poll raw
+
+  if (!creatorId || creatorId === currentUserId.toString()) {
+    // Own content → hide follow
+    return null;
+  }
+
+  // Other user → check if logged-in user follows
+  return followedUserIdSet.has(creatorId);
+};
+
+export const getProfileFollowStatus = async (
+  currentUserId,
+  targetUserId
+) => {
+  if (!currentUserId || !targetUserId) return null;
+
+  // If viewing own profile → hide follow
+  if (currentUserId.toString() === targetUserId.toString()) {
+    return null;
+  }
+
+  const followExists = await UserFollower.exists({
+    followerId: currentUserId,
+    userId: targetUserId,
+  });
+
+  return !!followExists;
+};
