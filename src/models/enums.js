@@ -96,6 +96,9 @@ const NotificationType = {
   // Moderation & Safety
   CONTENT_REPORTED: "Content Reported",
   MODERATION_ACTION: "Moderation Action",
+
+  // Chat
+  NEW_MESSAGE: "New Message Received",
 };
 
 const NotificationStatus = {
