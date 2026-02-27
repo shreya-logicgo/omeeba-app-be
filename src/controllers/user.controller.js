@@ -28,6 +28,8 @@ import {
   uploadBufferToStorage,
 } from "../services/storage.service.js";
 import User from "../models/users/User.js";
+import {getProfileFollowStatus} from "../utils/followUtils.js";
+import { UserFollower } from "../models/index.js";
 
 /**
  * Get liked content IDs for a user (bulk query for efficiency)
@@ -162,6 +164,7 @@ const getEngagementMetrics = async (contentItems) => {
     [ContentType.POST]: [],
     [ContentType.WRITE_POST]: [],
     [ContentType.ZEAL]: [],
+    [ContentType.POLL]: []
   };
 
   contentItems.forEach((item) => {
@@ -274,6 +277,15 @@ export const updateProfile = async (req, res) => {
         : null;
 
     if (profileFile) {
+      if (!profileFile.mimetype.startsWith("image/")) {
+        return sendError(
+          res,
+          "Only image files are allowed for profile picture",
+          "Validation Error",
+          "Invalid file type",
+          StatusCodes.BAD_REQUEST
+        );
+      }
       const storageKey = generateStorageKey(
         userId.toString(),
         "image",
@@ -289,6 +301,15 @@ export const updateProfile = async (req, res) => {
     }
 
     if (coverFile) {
+      if (!coverFile.mimetype.startsWith("image/")) {
+        return sendError(
+          res,
+          "Only image files are allowed for cover photo",
+          "Validation Error",
+          "Invalid file type",
+          StatusCodes.BAD_REQUEST
+        );
+      }
       const storageKey = generateStorageKey(
         userId.toString(),
         "image",
@@ -536,12 +557,23 @@ export const getUserPost = async (req, res) => {
       };
     });
 
-    // Get pagination metadata
+    const targetUserId = userId || req.user._id;
+
+    const isFollowing = await getProfileFollowStatus(
+      currentUserId,
+      targetUserId
+    );
+
     const pagination = getPaginationMeta(total, page, limit);
+
+    const responseData = {
+      posts: postsWithMetadata,
+      isFollowing,
+    };
 
     return sendPaginated(
       res,
-      postsWithMetadata,
+      responseData,
       pagination,
       "User post fetch successfully.",
       StatusCodes.OK
@@ -642,12 +674,23 @@ export const getUserWritePosts = async (req, res) => {
       };
     });
 
-    // Get pagination metadata
+    const targetUserId = userId || req.user._id;
+
+    const isFollowing = await getProfileFollowStatus(
+      currentUserId,
+      targetUserId
+    );
+
     const pagination = getPaginationMeta(total, page, limit);
+
+    const responseData = {
+      posts: postsWithMetadata,
+      isFollowing,
+    };
 
     return sendPaginated(
       res,
-      postsWithMetadata,
+      responseData,
       pagination,
       "User post fetch successfully.",
       StatusCodes.OK
@@ -678,15 +721,16 @@ export const getUserWritePosts = async (req, res) => {
 export const getUserPolls = async (req, res) => {
   try {
     const filter = {};
-    const { date, createdBy } = req.query;
+    const { date, userId } = req.query; // target user
 
-    // Validate createdBy (userId) if provided
-    if (createdBy) {
-      await validateUserId(createdBy);
-      filter.createdBy = new mongoose.Types.ObjectId(createdBy);
-    } else {
-      filter.createdBy = req.user._id;
-    }
+    // Determine target user
+    const targetUserId = userId || req.user._id;
+    await validateUserId(targetUserId);
+
+    const targetUserIdObj = new mongoose.Types.ObjectId(targetUserId);
+    const authUserIdObj = new mongoose.Types.ObjectId(req.user._id);
+
+    filter.createdBy = targetUserIdObj;
 
     if (date) {
       // date format: YYYY-MM-DD
@@ -703,12 +747,10 @@ export const getUserPolls = async (req, res) => {
 
     // Get pagination parameters
     const { page, limit, skip } = getPagination(req);
-
-    // Get total count for pagination
     const total = await Poll.countDocuments(filter);
 
     // Get paginated polls
-    const userPosts = await Poll.find(filter)
+    const userPolls = await Poll.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -719,32 +761,78 @@ export const getUserPolls = async (req, res) => {
       .populate(
         "userVotes.userId",
         "name username profileImage isAccountVerified isVerifiedBadge"
-      );
+      )
+      .lean();
+    
+      const pollsWithType = userPolls.map((poll) => ({
+      ...poll,
+      contentType: ContentType.POLL,
+    }));
 
-    // Get pagination metadata
-    const pagination = getPaginationMeta(total, page, limit);
+    // Get engagement metrics, liked and saved status
+    const currentUserId = req.user._id;
+    const [metricsMap, likedIds, savedIds] = await Promise.all([
+      getEngagementMetrics(pollsWithType),
+      getLikedContentIds(currentUserId, pollsWithType),
+      getSavedContentIds(currentUserId, pollsWithType),
+    ]);
 
-    // Add selectedByAuthUser on each option for the logged-in user
-    const authUserId = req.user._id;
-    const formattedPolls = userPosts.map((poll) => {
+    // Add shareable link, engagement metrics, and status to each post
+    const pollsWithMetadata = pollsWithType.map((poll) => {
+      const pollId = poll._id.toString();
+      const metrics = metricsMap.get(pollId) || { likeCount: 0, commentCount: 0 };
+      return {
+        ...poll,
+        likeCount: metrics.likeCount,
+        commentCount: metrics.commentCount,
+        isLiked: likedIds.has(pollId),
+        isSaved: savedIds.has(pollId),
+        shareableLink: generateShareableLink(ContentType.POLL, poll._id),
+      };
+    });
+
+    // Format polls: selectedByAuthUser (auth user = logged-in viewer)
+    // Support both: userId as ObjectId or as populated object { _id, ... }
+    const authIdStr = authUserIdObj.toString();
+    const getVoteUserIdStr = (v) => {
+      const u = v.userId;
+      if (!u) return null;
+      if (u._id != null) return String(u._id);
+      return String(u);
+    };
+    const formattedPolls = pollsWithMetadata.map((poll) => {
       const userVote = poll.userVotes?.find(
-        (v) => v.userId.toString() === authUserId.toString()
+        (v) => getVoteUserIdStr(v) === authIdStr
       );
       const userSelectedOptionId = userVote ? userVote.optionId : null;
       const optionsWithFlag = (poll.options || []).map((opt) => ({
-        ...(typeof opt.toObject === "function" ? opt.toObject() : opt),
+        ...opt,
         selectedByAuthUser:
           userSelectedOptionId != null && opt.optionId === userSelectedOptionId,
       }));
-      const pollObj = typeof poll.toObject === "function" ? poll.toObject() : { ...poll };
-      return { ...pollObj, options: optionsWithFlag };
+      return {
+        ...poll,
+        options: optionsWithFlag,
+      };
     });
+
+    // Determine follow status
+    let isFollowing = null;
+    if (authUserIdObj.toString() !== targetUserIdObj.toString()) {
+      const followDoc = await UserFollower.findOne({
+        userId: targetUserIdObj, // the poll creator
+        followerId: authUserIdObj, // the logged-in user
+      }).lean();
+      isFollowing = !!followDoc; // true if following, false if not
+    }
+
+    const pagination = getPaginationMeta(total, page, limit);
 
     return sendPaginated(
       res,
-      formattedPolls,
+      { posts: formattedPolls, isFollowing },
       pagination,
-      "User polls fetch successfully.",
+      "User polls fetched successfully.",
       StatusCodes.OK
     );
   } catch (error) {
@@ -847,12 +935,24 @@ export const getUserZeals = async (req, res) => {
       };
     });
 
-    // Get pagination metadata
+    // NEW: Follow Status Logic
+    const targetUserId = userId || req.user._id;
+
+    const isFollowing = await getProfileFollowStatus(
+      currentUserId,
+      targetUserId
+    );
+
+    const responseData = {
+      posts: zealsWithMetadata,
+      isFollowing,
+    };
+
     const pagination = getPaginationMeta(total, page, limit);
 
     return sendPaginated(
       res,
-      zealsWithMetadata,
+      responseData,
       pagination,
       "User zeals fetch successfully.",
       StatusCodes.OK

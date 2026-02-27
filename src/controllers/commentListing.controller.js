@@ -76,6 +76,18 @@ export const getCommentByIdHandler = async (req, res) => {
       return sendNotFound(res, "Comment not found or has been hidden");
     }
 
+    if (comment.isDeleted) {
+      return res.status(StatusCodes.NOT_FOUND).json({
+        success: false,
+        message: "Comment has been deleted",
+        errorType: "Deleted Comment",
+        error: `Comment with id ${commentId} has been deleted`,
+        data: {
+          commentId
+        }
+      });
+    }
+
     return sendSuccess(
       res,
       { comment },
