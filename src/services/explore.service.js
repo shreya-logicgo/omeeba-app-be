@@ -263,6 +263,7 @@ const getLikedContentIds = async (userId, contentItems) => {
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
+      [ContentType.POLL]: [],
     };
 
     contentItems.forEach((item) => {
@@ -320,6 +321,7 @@ const getSavedContentIds = async (userId, contentItems) => {
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
+      [ContentType.POLL]: []
     };
 
     contentItems.forEach((item) => {
