@@ -1100,19 +1100,217 @@ export const deleteNotification = async (notificationId, userId) => {
  * @param {Object} receiver - Receiver user object
  * @param {Object} sender - Sender user object
  * @param {string} message - Notification message
- * @param {Object} data - Additional data payload
+ * @param {Object} data - Additional data payload (notificationId, type, contentType, contentId, metadata, etc.)
+ *
+ * NOTE:
+ * - The OneSignal data payload matches the exact format of the notification list API response
+ * - This ensures consistency between push notifications and the getNotifications API
  */
 const sendPushNotificationAsync = async (receiver, sender, message, data = {}) => {
   try {
-    // Prepare notification payload
+    // Prepare notification payload (title/body/image for OneSignal UI)
     const notificationPayload = {
       title: sender.name || sender.username || "Omeeba",
       body: message,
       imageUrl: sender.profileImage || null,
     };
 
+    // Fetch notification from database to get all fields (status, createdAt, updatedAt, etc.)
+    let notification = null;
+    if (data.notificationId) {
+      try {
+        notification = await Notification.findById(data.notificationId)
+          .populate("senderId", "name username profileImage isAccountVerified isVerifiedBadge")
+          .populate("aggregatedUserIds", "name username profileImage isAccountVerified isVerifiedBadge")
+          .lean();
+      } catch (fetchError) {
+        logger.warn(`Could not fetch notification ${data.notificationId} for push payload:`, fetchError);
+      }
+    }
+
+    // Format notification exactly like getNotifications API response
+    let formattedNotification = null;
+    if (notification) {
+      // Get content if contentType and contentId exist
+      let content = null;
+      if (notification.contentType && notification.contentId) {
+        try {
+          const ContentModel = getContentModel(notification.contentType);
+          if (ContentModel) {
+            let selectFields = "images videos";
+            if (notification.contentType === ContentType.ZEAL) {
+              selectFields = "images videos thumbnailUrl";
+            }
+            
+            const contentDoc = await ContentModel.findById(notification.contentId)
+              .select(selectFields)
+              .lean();
+            
+            if (contentDoc) {
+              let imageUrl = null;
+              let imagesArray = Array.isArray(contentDoc.images) ? [...contentDoc.images] : [];
+              
+              if (notification.contentType === ContentType.ZEAL) {
+                if (contentDoc.thumbnailUrl) {
+                  imageUrl = contentDoc.thumbnailUrl;
+                  const thumbnailStr = String(contentDoc.thumbnailUrl);
+                  const thumbnailExists = imagesArray.some(img => String(img) === thumbnailStr);
+                  if (!thumbnailExists) {
+                    imagesArray = [contentDoc.thumbnailUrl, ...imagesArray];
+                  } else {
+                    imagesArray = imagesArray.filter(img => String(img) !== thumbnailStr);
+                    imagesArray = [contentDoc.thumbnailUrl, ...imagesArray];
+                  }
+                } else if (imagesArray.length > 0) {
+                  imageUrl = imagesArray[0];
+                } else {
+                  imageUrl = null;
+                  imagesArray = [];
+                }
+              } else if (notification.contentType === ContentType.POST) {
+                imageUrl = imagesArray.length > 0 ? imagesArray[0] : null;
+                if (imageUrl && !imagesArray.includes(imageUrl)) {
+                  imagesArray = [imageUrl, ...imagesArray];
+                }
+              } else if (notification.contentType === ContentType.WRITE_POST) {
+                imageUrl = null;
+                imagesArray = [];
+              }
+              
+              content = {
+                _id: contentDoc._id,
+                image: imageUrl,
+                images: imagesArray,
+                videos: contentDoc.videos || null,
+              };
+            }
+          }
+        } catch (contentError) {
+          logger.warn(`Error populating content for notification ${notification._id}:`, contentError);
+        }
+      }
+
+      // Check if current user follows the sender (for NEW_FOLLOWER notifications)
+      let isFollowingSender = null;
+      if (notification.type === NotificationType.NEW_FOLLOWER && notification.senderId) {
+        try {
+          const senderIdStr = notification.senderId._id?.toString();
+          if (senderIdStr && receiver?._id) {
+            const followRelation = await UserFollower.findOne({
+              userId: new mongoose.Types.ObjectId(senderIdStr),
+              followerId: receiver._id,
+            }).lean();
+            isFollowingSender = followRelation ? true : false;
+          }
+        } catch (followError) {
+          logger.warn(`Error checking follow status for push notification:`, followError);
+          isFollowingSender = null;
+        }
+      }
+
+      // Format exactly like getNotifications API - same structure for ALL notification types
+      formattedNotification = {
+        id: notification._id.toString(),
+        type: notification.type,
+        message: notification.message || message,
+        status: notification.status || NotificationStatus.UNREAD,
+        contentType: notification.contentType || null,
+        contentId: notification.contentId ? notification.contentId.toString() : null,
+        content: content, // Populated content object or null
+        sender: notification.senderId
+          ? {
+              id: notification.senderId._id.toString(),
+              name: notification.senderId.name,
+              username: notification.senderId.username,
+              profileImage: notification.senderId.profileImage,
+              isAccountVerified: notification.senderId.isAccountVerified || false,
+              isVerifiedBadge: notification.senderId.isVerifiedBadge || false,
+            }
+          : sender
+          ? {
+              id: sender._id?.toString() || sender._id || null,
+              name: sender.name || null,
+              username: sender.username || null,
+              profileImage: sender.profileImage || null,
+              isAccountVerified: sender.isAccountVerified || false,
+              isVerifiedBadge: sender.isVerifiedBadge || false,
+            }
+          : null,
+        isFollowingSender: isFollowingSender, // true/false/null - only for NEW_FOLLOWER type, null for others
+        isAggregated: notification.isAggregated || false,
+        aggregatedCount: notification.aggregatedCount || 0,
+        aggregatedUsers: (notification.aggregatedUserIds || []).map((user) => ({
+          id: user._id.toString(),
+          name: user.name,
+          username: user.username,
+          profileImage: user.profileImage,
+          isAccountVerified: user.isAccountVerified || false,
+          isVerifiedBadge: user.isVerifiedBadge || false,
+        })),
+        metadata: notification.metadata || {},
+        imageUrl: notification.imageUrl || notification.senderId?.profileImage || sender?.profileImage || null,
+        createdAt: notification.createdAt || new Date(),
+        updatedAt: notification.updatedAt || new Date(),
+      };
+    } else {
+      // Fallback: construct from data if notification not found in DB
+      // Check isFollowingSender for NEW_FOLLOWER type
+      let isFollowingSender = null;
+      if (data.type === NotificationType.NEW_FOLLOWER && sender?._id && receiver?._id) {
+        try {
+          const senderIdStr = sender._id.toString();
+          const followRelation = await UserFollower.findOne({
+            userId: new mongoose.Types.ObjectId(senderIdStr),
+            followerId: receiver._id,
+          }).lean();
+          isFollowingSender = followRelation ? true : false;
+        } catch (followError) {
+          logger.warn(`Error checking follow status for push notification (fallback):`, followError);
+          isFollowingSender = null;
+        }
+      }
+
+      formattedNotification = {
+        id: data.notificationId || null,
+        type: data.type || null,
+        message: message,
+        status: NotificationStatus.UNREAD,
+        contentType: data.contentType || null,
+        contentId: data.contentId || null,
+        content: null,
+        sender: sender
+          ? {
+              id: sender._id?.toString() || sender._id || null,
+              name: sender.name || null,
+              username: sender.username || null,
+              profileImage: sender.profileImage || null,
+              isAccountVerified: sender.isAccountVerified || false,
+              isVerifiedBadge: sender.isVerifiedBadge || false,
+            }
+          : null,
+        isFollowingSender: isFollowingSender, // true/false/null - only for NEW_FOLLOWER type, null for others
+        isAggregated: data.isAggregated ?? false,
+        aggregatedCount: data.aggregatedCount ?? 0,
+        aggregatedUsers: [],
+        metadata: data.metadata || {},
+        imageUrl: sender?.profileImage || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
+
+    // Final data sent to OneSignal - matches notification list API response format exactly
+    const pushData = formattedNotification;
+
+    // Debug log: full OneSignal payload snapshot
+    console.log("=== OneSignal Push Payload ===");
+    console.log("Receiver User ID:", receiver?._id?.toString?.() || receiver?._id || null);
+    console.log("Notification Payload (title/body/image):", JSON.stringify(notificationPayload, null, 2));
+    console.log("OneSignal Data (data payload):", JSON.stringify(pushData, null, 2));
+    console.log("================================");
+
     // Send push notification
-    await sendPushNotificationToUser(receiver, notificationPayload, data);
+    await sendPushNotificationToUser(receiver, notificationPayload, pushData);
   } catch (error) {
     // If token is invalid, we might want to remove it
     if (error.message === "INVALID_TOKEN") {
