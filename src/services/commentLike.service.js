@@ -7,6 +7,8 @@ import mongoose from "mongoose";
 import CommentLike from "../models/comments/CommentLike.js";
 import Comment from "../models/comments/Comment.js";
 import { User } from "../models/index.js";
+import { NotificationType } from "../models/enums.js";
+import { createNotification } from "./notification.service.js";
 import { formatNumber } from "../utils/timeAgo.js";
 import logger from "../utils/logger.js";
 
@@ -63,6 +65,25 @@ export const toggleCommentLike = async (userId, commentId) => {
       likeCount = await CommentLike.countDocuments({ commentId });
       
       logger.info(`Comment ${commentId} liked by user ${userId}`);
+
+      // Create notification for comment owner (if not self-like)
+      try {
+        const commentOwnerId = comment.userId;
+        if (commentOwnerId && commentOwnerId.toString() !== userId.toString()) {
+          await createNotification({
+            receiverId: commentOwnerId,
+            senderId: userId,
+            type: NotificationType.COMMENT_LIKED,
+            contentType: comment.contentType,
+            contentId: comment.contentId,
+            metadata: {
+              commentId: comment._id.toString(),
+            },
+          });
+        }
+      } catch (notificationError) {
+        logger.error("Error creating comment like notification:", notificationError);
+      }
     }
 
     // Format like count with commas
