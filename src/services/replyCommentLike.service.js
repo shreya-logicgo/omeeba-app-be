@@ -6,7 +6,10 @@
 import mongoose from "mongoose";
 import ReplyCommentLike from "../models/comments/ReplyCommentLike.js";
 import ReplyComment from "../models/comments/ReplyComment.js";
+import Comment from "../models/comments/Comment.js";
 import { User } from "../models/index.js";
+import { NotificationType } from "../models/enums.js";
+import { createNotification } from "./notification.service.js";
 import { formatNumber } from "../utils/timeAgo.js";
 import logger from "../utils/logger.js";
 
@@ -57,6 +60,33 @@ export const toggleReplyCommentLike = async (userId, replyCommentId) => {
       isLiked = true;
       likeCount = await ReplyCommentLike.countDocuments({ replyCommentId });
       logger.info(`Reply ${replyCommentId} liked by user ${userId}`);
+
+      // Create notification for reply owner (if not self-like)
+      try {
+        const replyOwnerId = reply.userId;
+        if (replyOwnerId && replyOwnerId.toString() !== userId.toString()) {
+          // Fetch parent comment to get contentType and contentId
+          const parentComment = await Comment.findById(reply.commentId).select(
+            "contentType contentId"
+          );
+
+          if (parentComment) {
+            await createNotification({
+              receiverId: replyOwnerId,
+              senderId: userId,
+              type: NotificationType.COMMENT_LIKED,
+              contentType: parentComment.contentType,
+              contentId: parentComment.contentId,
+              metadata: {
+                commentId: parentComment._id.toString(),
+                replyId: reply._id.toString(),
+              },
+            });
+          }
+        }
+      } catch (notificationError) {
+        logger.error("Error creating reply comment like notification:", notificationError);
+      }
     }
 
     const likeCountFormatted = formatNumber(likeCount);

@@ -121,6 +121,8 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     
     [NotificationType.CONTENT_REPORTED]: `Your content has been reported`,
     [NotificationType.MODERATION_ACTION]: `Moderation action has been taken on your content`,
+
+    [NotificationType.NEW_MESSAGE]: `${senderName} sent you a message: "${truncatedText || "New message"}"`,
   };
 
   return messages[type] || `${senderName} interacted with your content`;
@@ -214,6 +216,17 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
     } else {
       const othersCount = count - 1;
       return `${firstSenderName} and ${othersCount} ${othersCount === 1 ? "other" : "others"} voted on your poll`;
+    }
+  }
+
+  if (type === NotificationType.NEW_MESSAGE) {
+    if (count === 1) {
+      return truncatedText
+        ? `${latestSenderName} sent you a message: "${truncatedText}"`
+        : `${latestSenderName} sent you a message`;
+    } else {
+      const othersCount = count - 1;
+      return `${firstSenderName} and ${othersCount} ${othersCount === 1 ? "other" : "others"} sent you messages`;
     }
   }
 
@@ -430,7 +443,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         logger.error(`Error saving aggregated notification:`, saveError);
         throw saveError;
       }
-      
+
       // Verify it exists in database
       const savedNotification = await Notification.findById(notification._id);
       if (!savedNotification) {
@@ -586,7 +599,7 @@ export const createNotification = async (notificationData) => {
           metadata,
           imageUrl: finalImageUrl,
         });
-        
+
         // If aggregation returns null, create individual notification
         if (!notification) {
           logger.warn(`Aggregated notification returned null, creating individual notification for type: ${type}`);
@@ -762,7 +775,7 @@ export const createNotification = async (notificationData) => {
   } catch (error) {
     logger.error("Error creating notification:", error);
     logger.error("Error stack:", error.stack);
-    
+
     // Last resort: try to create a basic notification even if everything failed
     if (!notification) {
       try {
@@ -800,7 +813,7 @@ export const createNotification = async (notificationData) => {
         return null;
       }
     }
-    
+
     // If we have a notification, return it even if there was an error
     return notification;
   }
@@ -917,7 +930,7 @@ export const getNotifications = async (userId, options = {}) => {
     const senderIdsToCheck = newFollowerNotifications
       .map((n) => n.senderId?._id?.toString())
       .filter((id) => id);
-    
+
     const followingMap = new Map();
     if (senderIdsToCheck.length > 0) {
       try {
@@ -927,7 +940,7 @@ export const getNotifications = async (userId, options = {}) => {
         })
           .select("userId")
           .lean();
-        
+
         followRelations.forEach((rel) => {
           const id = rel.userId ? rel.userId.toString() : null;
           if (id) followingMap.set(id, true);
@@ -952,23 +965,23 @@ export const getNotifications = async (userId, options = {}) => {
               if (notification.contentType === ContentType.ZEAL) {
                 selectFields = "images videos thumbnailUrl"; // Zeal has thumbnailUrl
               }
-              
+
               content = await ContentModel.findById(notification.contentId)
                 .select(selectFields)
                 .lean();
-              
+
               // Format content with image field
               if (content) {
                 let imageUrl = null;
                 let imagesArray = Array.isArray(content.images) ? [...content.images] : [];
-                
+
                 // Determine image URL based on content type
                 if (notification.contentType === ContentType.ZEAL) {
                   // For Zeal: 
                   // 1. If thumbnail exists: use it for image and images array
                   // 2. If no thumbnail but has images: use first image for image and images array
                   // 3. If no thumbnail and no images (only videos): image = null, images = []
-                  
+
                   if (content.thumbnailUrl) {
                     // Has thumbnail: use thumbnail for image and images
                     imageUrl = content.thumbnailUrl;
@@ -993,7 +1006,7 @@ export const getNotifications = async (userId, options = {}) => {
                 } else if (notification.contentType === ContentType.POST) {
                   // For Post: use first image
                   imageUrl = imagesArray.length > 0 ? imagesArray[0] : null;
-                  
+
                   // Ensure that if we have a single image, it's in the images array
                   if (imageUrl && !imagesArray.includes(imageUrl)) {
                     imagesArray = [imageUrl, ...imagesArray];
@@ -1003,7 +1016,7 @@ export const getNotifications = async (userId, options = {}) => {
                   imageUrl = null;
                   imagesArray = [];
                 }
-                
+
                 content = {
                   _id: content._id,
                   image: imageUrl, // Single image URL for notification display
@@ -1037,13 +1050,13 @@ export const getNotifications = async (userId, options = {}) => {
           content: content, // Populated content object
           sender: notification.senderId
             ? {
-                id: notification.senderId._id.toString(),
-                name: notification.senderId.name,
-                username: notification.senderId.username,
-                profileImage: notification.senderId.profileImage,
-                isAccountVerified: notification.senderId.isAccountVerified,
-                isVerifiedBadge: notification.senderId.isVerifiedBadge,
-              }
+              id: notification.senderId._id.toString(),
+              name: notification.senderId.name,
+              username: notification.senderId.username,
+              profileImage: notification.senderId.profileImage,
+              isAccountVerified: notification.senderId.isAccountVerified,
+              isVerifiedBadge: notification.senderId.isVerifiedBadge,
+            }
             : null,
           isFollowingSender: isFollowingSender, // true/false/null - only for NEW_FOLLOWER type
           isAggregated: notification.isAggregated || false,
@@ -1165,15 +1178,15 @@ const sendPushNotificationAsync = async (receiver, sender, message, imageUrl = n
             if (notification.contentType === ContentType.ZEAL) {
               selectFields = "images videos thumbnailUrl";
             }
-            
+
             const contentDoc = await ContentModel.findById(notification.contentId)
               .select(selectFields)
               .lean();
-            
+
             if (contentDoc) {
               let imageUrl = null;
               let imagesArray = Array.isArray(contentDoc.images) ? [...contentDoc.images] : [];
-              
+
               if (notification.contentType === ContentType.ZEAL) {
                 if (contentDoc.thumbnailUrl) {
                   imageUrl = contentDoc.thumbnailUrl;
@@ -1200,7 +1213,7 @@ const sendPushNotificationAsync = async (receiver, sender, message, imageUrl = n
                 imageUrl = null;
                 imagesArray = [];
               }
-              
+
               content = {
                 _id: contentDoc._id,
                 image: imageUrl,
@@ -1243,15 +1256,15 @@ const sendPushNotificationAsync = async (receiver, sender, message, imageUrl = n
         content: content, // Populated content object or null
         sender: notification.senderId
           ? {
-              id: notification.senderId._id.toString(),
-              name: notification.senderId.name,
-              username: notification.senderId.username,
-              profileImage: notification.senderId.profileImage,
-              isAccountVerified: notification.senderId.isAccountVerified || false,
-              isVerifiedBadge: notification.senderId.isVerifiedBadge || false,
-            }
+            id: notification.senderId._id.toString(),
+            name: notification.senderId.name,
+            username: notification.senderId.username,
+            profileImage: notification.senderId.profileImage,
+            isAccountVerified: notification.senderId.isAccountVerified || false,
+            isVerifiedBadge: notification.senderId.isVerifiedBadge || false,
+          }
           : sender
-          ? {
+            ? {
               id: sender._id?.toString() || sender._id || null,
               name: sender.name || null,
               username: sender.username || null,
@@ -1259,7 +1272,7 @@ const sendPushNotificationAsync = async (receiver, sender, message, imageUrl = n
               isAccountVerified: sender.isAccountVerified || false,
               isVerifiedBadge: sender.isVerifiedBadge || false,
             }
-          : null,
+            : null,
         isFollowingSender: isFollowingSender, // true/false/null - only for NEW_FOLLOWER type, null for others
         isAggregated: notification.isAggregated || false,
         aggregatedCount: notification.aggregatedCount || 0,
@@ -1304,13 +1317,13 @@ const sendPushNotificationAsync = async (receiver, sender, message, imageUrl = n
         content: null,
         sender: sender
           ? {
-              id: sender._id?.toString() || sender._id || null,
-              name: sender.name || null,
-              username: sender.username || null,
-              profileImage: sender.profileImage || null,
-              isAccountVerified: sender.isAccountVerified || false,
-              isVerifiedBadge: sender.isVerifiedBadge || false,
-            }
+            id: sender._id?.toString() || sender._id || null,
+            name: sender.name || null,
+            username: sender.username || null,
+            profileImage: sender.profileImage || null,
+            isAccountVerified: sender.isAccountVerified || false,
+            isVerifiedBadge: sender.isVerifiedBadge || false,
+          }
           : null,
         isFollowingSender: isFollowingSender, // true/false/null - only for NEW_FOLLOWER type, null for others
         isAggregated: data.isAggregated ?? false,
