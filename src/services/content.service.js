@@ -3,6 +3,7 @@ import logger from "../utils/logger.js";
 import { ContentType } from "../models/enums.js";
 import ContentLike from "../models/interactions/ContentLike.js";
 import Comment from "../models/comments/Comment.js";
+import ContentShare from "../models/interactions/ContentShare.js";
 
 import {getIsFollowing} from "../utils/followUtils.js";
 import { UserFollower } from "../models/index.js";
@@ -169,10 +170,13 @@ export const getSingleContent = async (contentType, contentId, currentUserId = n
     const content = await query;
     if (!content) throw new Error(`${contentType} not found`);
 
-    // Metrics
-    const [likeCount, commentCount] = await Promise.all([
-      ContentLike.countDocuments({ contentType, contentId }),
-      Comment.countDocuments({ contentType, contentId }),
+    const contentIdObj = new mongoose.Types.ObjectId(contentId);
+
+    // Metrics: likeCount, commentCount, shareCount (same as feed APIs)
+    const [likeCount, commentCount, shareCount] = await Promise.all([
+      ContentLike.countDocuments({ contentType, contentId: contentIdObj }),
+      Comment.countDocuments({ contentType, contentId: contentIdObj, isDeleted: false }),
+      ContentShare.countDocuments({ contentType, contentId: contentIdObj }),
     ]);
 
     // Check if current user liked
@@ -180,20 +184,44 @@ export const getSingleContent = async (contentType, contentId, currentUserId = n
     if (currentUserId) {
       const existingLike = await ContentLike.findOne({
         contentType,
-        contentId,
+        contentId: contentIdObj,
         userId: currentUserId,
       });
       isLiked = !!existingLike;
     }
 
-    // Format content normally
+    // Format content normally (includes likeCount, commentCount, shareCount)
     const formatted = formatContent(
       content,
       contentType,
-      { likeCount, commentCount },
+      { likeCount, commentCount, shareCount },
       isLiked,
       false // isSaved
     );
+
+    if (contentType === ContentType.POLL && content) {
+      const userVotes = content.userVotes || [];
+      const getVoteUserIdStr = (v) => {
+        const u = v.userId;
+        if (!u) return null;
+        if (u._id != null) return String(u._id);
+        return String(u);
+      };
+      const userVote = userVotes.find(
+        (v) => getVoteUserIdStr(v) === currentUserId
+      );
+      const userSelectedOptionId = userVote ? userVote.optionId : null;
+      // Same option shape as GET /polls/:pollId
+      formatted.options = (formatted.options || []).map((option) => ({
+        optionId: option.optionId,
+        optionText: option.optionText,
+        voteCount: option.voteCount,
+        votePercentage: option.votePercentage,
+        selectedByAuthUser:
+          userSelectedOptionId != null &&
+          option.optionId === userSelectedOptionId,
+      }));
+    }
 
     // --- Add isFollowing dynamically ---
     if (currentUserId) {
@@ -282,27 +310,27 @@ export const updateContent = async (
 
   const updatedItem = await query;
 
-  const [likeCount, commentCount] = await Promise.all([
-    ContentLike.countDocuments({ contentType, contentId }),
-    Comment.countDocuments({ contentType, contentId }),
+  const contentIdObj = new mongoose.Types.ObjectId(contentId);
+  const [likeCount, commentCount, shareCount] = await Promise.all([
+    ContentLike.countDocuments({ contentType, contentId: contentIdObj }),
+    Comment.countDocuments({ contentType, contentId: contentIdObj, isDeleted: false }),
+    ContentShare.countDocuments({ contentType, contentId: contentIdObj }),
   ]);
 
   let isLiked = false;
-
   if (currentUserId) {
     const existingLike = await ContentLike.findOne({
       contentType,
-      contentId,
+      contentId: contentIdObj,
       userId: currentUserId,
     });
-
     isLiked = !!existingLike;
   }
 
   return formatContent(
     updatedItem,
     contentType,
-    { likeCount, commentCount },
+    { likeCount, commentCount, shareCount },
     isLiked
   );
 };
