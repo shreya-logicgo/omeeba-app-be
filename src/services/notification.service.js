@@ -355,31 +355,6 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         }
 
         logger.info(`Aggregated notification updated and saved: ${existingNotification._id}`);
-
-        // Send push notification for aggregated update (non-blocking) - only after save
-        if (receiver && latestSender) {
-          sendPushNotificationAsync(
-            receiver,
-            latestSender,
-            existingNotification.message,
-            existingNotification.imageUrl,
-            {
-              notificationId: existingNotification._id.toString(),
-              type: existingNotification.type,
-              contentType: existingNotification.contentType || null,
-              contentId: existingNotification.contentId
-                ? existingNotification.contentId.toString()
-                : null,
-              isAggregated: true,
-              aggregatedCount: existingNotification.aggregatedCount,
-              ...existingNotification.metadata,
-            }
-          ).catch((error) => {
-            logger.error("Failed to send push notification for aggregated update:", error);
-          });
-        } else if (receiver && !latestSender) {
-          logger.warn(`Notification saved but push not sent - sender not found: ${senderId}`);
-        }
       } else {
         logger.info(`Sender ${senderId} already exists in aggregated notification ${existingNotification._id}`);
       }
@@ -439,28 +414,6 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
       }
 
       logger.info(`New aggregated notification created and saved: ${notification._id} for type: ${type}, receiverId: ${receiverId}, senderId: ${senderId}`);
-
-      // Send push notification for new aggregated notification (non-blocking) - only after save
-      if (receiver && sender) {
-        sendPushNotificationAsync(receiver, sender, message, notification.imageUrl, {
-          notificationId: notification._id.toString(),
-          type: notification.type,
-          contentType: contentType || null,
-          contentId: contentId ? contentId.toString() : null,
-          isAggregated: true,
-          aggregatedCount: 1,
-          ...metadata,
-        }).catch((error) => {
-          logger.error("Failed to send push notification for new aggregated notification:", error);
-        });
-      } else {
-        if (!receiver) {
-          logger.warn(`Notification saved but push not sent - receiver not found: ${receiverId}`);
-        }
-        if (!sender) {
-          logger.warn(`Notification saved but push not sent - sender not found: ${senderId}`);
-        }
-      }
 
       return notification;
     }
@@ -531,6 +484,31 @@ export const createNotification = async (notificationData) => {
       logger.info(`Skipping self-notification: ${senderId}`);
       return null;
     }
+
+    // ====== DEDUPLICATION GUARD (prevent duplicate notifications & double OneSignal push) ======
+    // If an identical notification (same receiver, sender, type, contentType, contentId)
+    // was created very recently, don't create/send another one.
+    try {
+      const recentWindow = new Date(Date.now() - 5 * 1000); // last 5 seconds
+      const existingRecent = await Notification.findOne({
+        receiverId,
+        senderId,
+        type,
+        contentType: contentType || null,
+        contentId: contentId || null,
+        createdAt: { $gte: recentWindow },
+      }).lean();
+
+      if (existingRecent) {
+        logger.warn(
+          `Skipping duplicate notification (type=${type}) for receiver=${receiverId}, sender=${senderId}, contentType=${contentType}, contentId=${contentId}`
+        );
+        return null;
+      }
+    } catch (dedupeError) {
+      logger.warn("Error checking for duplicate notification (continuing without dedupe):", dedupeError);
+    }
+    // ====== END DEDUPLICATION GUARD ======
 
     // Get sender user - but continue even if not found
     try {
