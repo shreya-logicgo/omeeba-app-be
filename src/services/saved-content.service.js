@@ -585,6 +585,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
               $match: {
                 contentType: type,
                 contentId: { $in: ids },
+                isDeleted: false,
               },
             },
             {

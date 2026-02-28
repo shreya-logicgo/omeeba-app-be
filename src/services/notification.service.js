@@ -76,7 +76,7 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     [NotificationType.NEW_FOLLOWER]: `${senderName} started following you`,
     [NotificationType.FOLLOW_REQUEST]: `${senderName} sent you a follow request`,
     [NotificationType.FOLLOW_REQUEST_ACCEPTED]: `${senderName} accepted your follow request`,
-    
+
     [NotificationType.POST_LIKED]: `${senderName} liked your post`,
     [NotificationType.ZEAL_LIKED]: `${senderName} liked your zeal`,
     [NotificationType.WRITE_LIKED]: `${senderName} liked your write`,
@@ -562,6 +562,34 @@ export const createNotification = async (notificationData) => {
 
     // Always use sender's profileImage for imageUrl (unless explicitly provided)
     notificationImageUrl = finalImageUrl || (sender ? sender.profileImage : null) || null;
+
+    // Check if this type should be push-only (not saved to DB)
+    const isPushOnlyType = type === NotificationType.NEW_MESSAGE;
+
+    if (isPushOnlyType) {
+      logger.info(`Skipping database creation for push-only notification type: ${type}`);
+
+      // Still send push notification (non-blocking)
+      if (receiver && sender) {
+        sendPushNotificationAsync(receiver, sender, notificationMessage, notificationImageUrl, {
+          notificationId: null, // No DB ID for push-only
+          type: type,
+          contentType: contentType || null,
+          contentId: contentId ? contentId.toString() : null,
+          ...metadata,
+        }).catch((error) => {
+          logger.error("Failed to send push notification for push-only type:", error);
+        });
+      }
+
+      return {
+        isPushOnly: true,
+        type,
+        message: notificationMessage,
+        receiverId,
+        senderId
+      };
+    }
 
     // Check if this type supports aggregation
     if (isAggregatableType(type)) {
