@@ -180,7 +180,7 @@ export const getComments = async (contentType, contentId, currentUserId, page = 
 
     return {
       comments: formattedComments,
-      pagination: getPaginationMeta(finalComments.length, page, limit),
+      pagination: getPaginationMeta(total, page, limit),
     };
   } catch (error) {
     logger.error("Error in getComments:", error);
