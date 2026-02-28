@@ -11,12 +11,13 @@ import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
 import { User } from "../models/index.js";
-import { MessageType, MessageStatus, ChatType, ContentType, ZealStatus } from "../models/enums.js";
+import { MessageType, MessageStatus, ChatType, ContentType, ZealStatus, NotificationType } from "../models/enums.js";
 import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatTime12Hour } from "../utils/timeFormatter.js";
 import { getMediaForUser } from "./media.service.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import { getOrCreateChatRoom } from "./chatRoom.service.js";
+import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
 
 /** ContentType (Post, Write Post, Zeal Post) -> MessageType for chat */
@@ -191,6 +192,23 @@ export const sendMessage = async (roomId, senderId, messageData) => {
     };
 
     logger.info(`Message sent in room ${roomId} by user ${senderId}`);
+
+    // Trigger push notification (non-blocking)
+    createNotification({
+      receiverId: otherUserId,
+      senderId: senderId,
+      type: NotificationType.NEW_MESSAGE,
+      message: message || "Sent you a message",
+      metadata: {
+        roomId: roomId.toString(),
+        messageId: newMessage._id.toString(),
+        commentText: message,
+      },
+    }).then(notification => {
+      if (notification) {
+        logger.info(`Notification created for message ${newMessage._id}: ${notification._id}`);
+      }
+    }).catch((err) => logger.warn("Failed to create chat notification:", err.message));
 
     return formattedMessage;
   } catch (error) {
