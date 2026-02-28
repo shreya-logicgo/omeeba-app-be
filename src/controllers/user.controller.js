@@ -200,13 +200,14 @@ const getEngagementMetrics = async (contentItems) => {
       ])
     );
 
-    // Get comments
+    // Get comments (only non-deleted, to match comments API count)
     metricPromises.push(
       Comment.aggregate([
         {
           $match: {
             contentType,
             contentId: { $in: contentIds },
+            isDeleted: false,
           },
         },
         {
