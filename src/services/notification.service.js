@@ -39,7 +39,6 @@ const isAggregatableType = (type) => {
     NotificationType.ZEAL_LIKED,
     NotificationType.WRITE_LIKED,
     NotificationType.COMMENT_LIKED,
-    NotificationType.NEW_FOLLOWER,
     NotificationType.POST_COMMENT,
     NotificationType.ZEAL_COMMENT,
     NotificationType.WRITE_COMMENT,
@@ -188,10 +187,11 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
   if (type === NotificationType.NEW_FOLLOWER) {
     if (count === 1) {
       return `${latestSenderName} started following you`;
-    } else {
-      const othersCount = count - 1;
-      return `${firstSenderName} and ${othersCount} ${othersCount === 1 ? "other" : "others"} started following you`;
-    }
+    } 
+    // else {
+    //   const othersCount = count - 1;
+    //   return `${firstSenderName} and ${othersCount} ${othersCount === 1 ? "other" : "others"} started following you`;
+    // }
   }
 
   if (type === NotificationType.POST_COMMENT || 
