@@ -559,9 +559,8 @@ export const forgotPassword = async (email) => {
     });
 
     if (!user) {
-      // Don't reveal if user exists or not for security
-      logger.warn(`Forgot password requested for non-existent email: ${email}`);
-      return { message: "If the email exists, an OTP has been sent" };
+      // Don't reveal that email doesn't exist - return success message
+      throw new Error("No account exists with the provided email.");
     }
 
     // Check if account is verified
