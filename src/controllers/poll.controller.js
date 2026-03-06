@@ -33,6 +33,7 @@ export const createPoll = async (req, res) => {
             optionText: option.optionText,
             voteCount: option.voteCount,
             votePercentage: option.votePercentage,
+            selectedByAuthUser: false,
           })),
           totalVotes: poll.totalVotes,
           status: poll.status,

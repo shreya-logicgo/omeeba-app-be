@@ -620,45 +620,37 @@ export const getSavedContentListing = async (userId, options = {}) => {
     });
 
     // Add metadata to content items
-    const authUserIdStr = userId?.toString?.() || String(userId);
-
+    const authUserIdStr = userId.toString();
     const contentWithMetadata = orderedContent.map((item) => {
       const contentIdStr = item._id.toString();
 
-      // Base enriched item with counts and shareable link
-      const enrichedItem = {
+      // For Poll: add selectedByAuthUser on each option
+      if (item.contentType === ContentType.POLL) {
+        const userVote = (item.userVotes || []).find(
+          (v) => v.userId && v.userId.toString() === authUserIdStr
+        );
+        const userSelectedOptionId = userVote ? userVote.optionId : null;
+        const optionsWithFlag = (item.options || []).map((opt) => ({
+          ...opt,
+          selectedByAuthUser:
+            userSelectedOptionId != null && opt.optionId === userSelectedOptionId,
+        }));
+
+        return {
+          ...item,
+          options: optionsWithFlag,
+          likeCount: likeCountMap.get(contentIdStr) || 0,
+          commentCount: commentCountMap.get(contentIdStr) || 0,
+          shareableLink: generateShareableLink(item.contentType, item._id),
+        };
+      }
+
+      return {
         ...item,
         likeCount: likeCountMap.get(contentIdStr) || 0,
         commentCount: commentCountMap.get(contentIdStr) || 0,
         shareableLink: generateShareableLink(item.contentType, item._id),
       };
-
-      // For Polls only: add selectedByAuthUser flag on each option
-      if (enrichedItem.contentType === ContentType.POLL) {
-        const userVotes = enrichedItem.userVotes || [];
-
-        // Support both shapes: userId as ObjectId or populated object { _id, ... }
-        const getVoteUserIdStr = (vote) => {
-          const u = vote.userId;
-          if (!u) return null;
-          if (u._id != null) return String(u._id);
-          return String(u);
-        };
-
-        const userVote = userVotes.find(
-          (v) => getVoteUserIdStr(v) === authUserIdStr
-        );
-        const userSelectedOptionId = userVote ? userVote.optionId : null;
-
-        enrichedItem.options = (enrichedItem.options || []).map((opt) => ({
-          ...opt,
-          selectedByAuthUser:
-            userSelectedOptionId != null &&
-            opt.optionId === userSelectedOptionId,
-        }));
-      }
-
-      return enrichedItem;
     });
 
     // Get accurate total count (this is approximate due to potential deleted content)
