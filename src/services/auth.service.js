@@ -593,7 +593,7 @@ export const forgotPassword = async (email) => {
     }
 
     // Return success (don't reveal if user exists)
-    return { message: "If the email exists, an OTP has been sent" };
+    return { message: "If an account with this email exists, an OTP has been sent." };
   } catch (error) {
     logger.error("Error in forgotPassword:", error);
     throw error;
