@@ -70,7 +70,7 @@ export const getTrending = async (req, res) => {
 export const search = async (req, res) => {
   try {
     const userId = req.user?._id || null;
-    const { query = "", type, contentType } = req.query;
+    const { query = "", type, contentType } = req.body;
 
     // Validate type
     const validTypes = ["explore", "trending", "polls", "users", "hashtag", "posts", "zeals"];

@@ -1,6 +1,6 @@
 import express from "express";
 import { optionalProtect } from "../middleware/auth.js";
-import { validateQuery } from "../utils/validation.js";
+import { validateBody, validateQuery } from "../utils/validation.js";
 import {
   getTrending,
   search,
@@ -70,10 +70,10 @@ router.get(
  * - Fixed limit: 15 items per type
  * - No pagination
  */
-router.get(
+router.post(
   "/search",
   optionalProtect,
-  validateQuery(searchSchema),
+  validateBody(searchSchema),
   search
 );
 

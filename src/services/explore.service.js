@@ -2614,30 +2614,36 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
       }));
 
       return { data: formattedUsers };
-    } else if (type === "hashtag") {
-      // Hashtags: search hashtag table and return count
-      const hashtagQuery = {};
+    }else if (type === "hashtag") {
+  // Normalize search term (remove # if user types it)
+  let hashtagSearch = safeSearchTerm;
 
-      if (safeSearchTerm) {
-        hashtagQuery.tag = { $regex: safeSearchTerm, $options: "i" };
-      } else {
-        // If no search term, return top hashtags by count
-        hashtagQuery.contentCount = { $gt: 0 };
-      }
+  if (hashtagSearch && hashtagSearch.startsWith("#")) {
+    hashtagSearch = hashtagSearch.substring(1);
+  }
 
-      const hashtags = await Hashtag.find(hashtagQuery)
-        .select("tag contentCount lastUsedAt")
-        .sort({ contentCount: -1, lastUsedAt: -1 })
-        .limit(limit)
-        .lean();
+  const hashtagQuery = {};
 
-      const formattedHashtags = hashtags.map((hashtag) => ({
-        tag: `#${hashtag.tag}`,
-        contentCount: hashtag.contentCount || 0,
-      }));
+  if (hashtagSearch) {
+    hashtagQuery.tag = { $regex: hashtagSearch, $options: "i" };
+  } else {
+    // If no search term, return top hashtags by count
+    hashtagQuery.contentCount = { $gt: 0 };
+  }
 
-      return { data: formattedHashtags };
-    }
+  const hashtags = await Hashtag.find(hashtagQuery)
+    .select("tag contentCount lastUsedAt")
+    .sort({ contentCount: -1, lastUsedAt: -1 })
+    .limit(limit)
+    .lean();
+
+  const formattedHashtags = hashtags.map((hashtag) => ({
+    tag: `#${hashtag.tag}`,
+    contentCount: hashtag.contentCount || 0,
+  }));
+
+  return { data: formattedHashtags };
+}
 
     return { data: [] };
   } catch (error) {
