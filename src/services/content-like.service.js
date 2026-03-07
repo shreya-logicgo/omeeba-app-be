@@ -33,7 +33,7 @@ const verifyContentExists = async (contentType, contentId) => {
       case ContentType.POLL:
         content = await Poll.findOne({
           _id: contentId,
-          status: PollStatus.ACTIVE, // Only allow likes on active polls
+          // status: PollStatus.ACTIVE, // Only allow likes on active polls
         });
         break;
       default:

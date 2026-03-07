@@ -36,7 +36,7 @@ const verifyContentExists = async (contentType, contentId) => {
       case ContentType.POLL:
         content = await Poll.findOne({
           _id: contentId,
-          status: PollStatus.ACTIVE, // Only allow saving active polls
+          // status: PollStatus.ACTIVE, // Only allow saving active polls
         });
         break;
       default:
@@ -342,7 +342,7 @@ export const cleanupStaleSavedContent = async (userId = null) => {
               (
                 await Poll.find({
                   _id: { $in: contentIds },
-                  status: PollStatus.ACTIVE,
+                  // status: PollStatus.ACTIVE,
                 })
                   .select("_id")
                   .lean()
@@ -491,7 +491,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
       savedByType[ContentType.POLL].length > 0
         ? Poll.find({
             _id: { $in: savedByType[ContentType.POLL] },
-            status: PollStatus.ACTIVE, // Only show active polls
+            // status: PollStatus.ACTIVE, // Only show active polls
           })
             .populate(
               "createdBy",

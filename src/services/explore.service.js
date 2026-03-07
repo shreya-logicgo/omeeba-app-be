@@ -712,7 +712,7 @@ const fetchLatestPollsByUsers = async (userIds, limit) => {
   if (!userIds || userIds.length === 0 || limit <= 0) return [];
   const polls = await Poll.find({
     createdBy: { $in: userIds },
-    status: PollStatus.ACTIVE,
+    // status: PollStatus.ACTIVE,
   })
     .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
     .select("-__v")
@@ -732,7 +732,7 @@ const fetchTrendingPolls = async (validUserIds, limit) => {
   if (!validUserIds || validUserIds.length === 0 || limit <= 0) return [];
   const polls = await Poll.find({
     createdBy: { $in: validUserIds },
-    status: PollStatus.ACTIVE,
+    // status: PollStatus.ACTIVE,
   })
     .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
     .select("-__v")
@@ -943,7 +943,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     if (contentType === "all" || contentType === "poll") {
       const pollQuery = {
         createdBy: { $in: validUserIds },
-        status: PollStatus.ACTIVE,
+        // status: PollStatus.ACTIVE,
       };
 
       if (reportedContentIds[ContentType.POLL]?.length) {
@@ -1596,7 +1596,7 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
     if (type === "all" || type === "polls") {
       const pollQuery = {
         createdBy: { $in: validUserIds },
-        status: PollStatus.ACTIVE,
+        // status: PollStatus.ACTIVE,
       };
 
       if (isHashtagQuery) {
@@ -1684,7 +1684,7 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
       hashtagPromises.push(
         Poll.find({
           createdBy: { $in: validUserIds },
-          status: PollStatus.ACTIVE,
+          // status: PollStatus.ACTIVE,
           caption: hashtagRegex,
         })
           .select("caption")
@@ -1893,7 +1893,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
         const polls = await Poll.find({
           _id: { $in: contentIdsByType.Poll },
           createdBy: { $in: validUserIds },
-          status: PollStatus.ACTIVE,
+          // status: PollStatus.ACTIVE,
         })
           .select("createdBy")
           .lean();
@@ -2118,7 +2118,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     if (pollIds.length > 0) {
       const pollQuery = {
         createdBy: { $in: validUserIds },
-        status: PollStatus.ACTIVE,
+        // status: PollStatus.ACTIVE,
         _id: { $in: pollIds },
       };
 
@@ -2538,7 +2538,7 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
       // Polls: only polls
       const pollQuery = {
         createdBy: { $in: validUserIds },
-        status: PollStatus.ACTIVE,
+        // status: PollStatus.ACTIVE,
       };
 
       if (safeSearchTerm) {
