@@ -36,7 +36,7 @@ const verifyContentExists = async (contentType, contentId) => {
       case ContentType.POLL:
         content = await Poll.findOne({
           _id: contentId,
-          status: PollStatus.ACTIVE, // Only allow sharing active polls
+          // status: PollStatus.ACTIVE, // Only allow sharing active polls
         });
         break;
       default:
