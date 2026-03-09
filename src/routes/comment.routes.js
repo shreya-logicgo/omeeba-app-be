@@ -27,7 +27,7 @@ import {
   getRepliesToReplyHandler,
 } from "../controllers/commentReply.controller.js";
 import { deleteCommentHandler } from "../controllers/commentDeletion.controller.js";
-import { reportCommentHandler } from "../controllers/commentReport.controller.js";
+import { reportCommentHandler, reportReplyCommentHandler } from "../controllers/commentReport.controller.js";
 import { getCommentsHandler, getCommentByIdHandler } from "../controllers/commentListing.controller.js";
 
 const router = express.Router();
@@ -105,6 +105,19 @@ router.post(
   validateParams(commentIdParamsSchema),
   validateBody(reportCommentBodySchema),
   reportCommentHandler
+);
+
+/**
+ * @route   POST /api/v1/comments/replies/:replyId/report
+ * @desc    Report a reply comment
+ * @access  Private
+ */
+router.post(
+  "/replies/:replyId/report",
+  protect,
+  validateParams(replyIdParamsSchema),
+  validateBody(reportCommentBodySchema),
+  reportReplyCommentHandler
 );
 
 /**
