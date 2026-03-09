@@ -489,6 +489,12 @@ const formatContentList = async (userId, contentItems) => {
     };
     const isLiked = likedContentIds.has(item._id.toString());
     const isSaved = savedContentIds.has(item._id.toString());
+    
+    // Handle Poll content type separately
+    if (item.contentType === ContentType.POLL) {
+      return formatPollForFeed(item, metrics, isLiked, isSaved);
+    }
+    
     return formatContentItem(
       item,
       metrics,
@@ -742,7 +748,7 @@ const fetchTrendingPolls = async (validUserIds, limit) => {
   return polls.map((p) => ({ ...p, contentType: ContentType.POLL }));
 };
 
-const formatPollForFeed = (poll) => ({
+const formatPollForFeed = (poll, metrics = {}, isLiked = false, isSaved = false) => ({
   id: poll._id.toString(),
   contentType: ContentType.POLL,
   shareableLink: generateShareableLink(ContentType.POLL, poll._id),
@@ -761,9 +767,13 @@ const formatPollForFeed = (poll) => ({
         isVerifiedBadge: poll.createdBy.isVerifiedBadge,
       }
     : null,
-  likeCount: 0,
-  commentCount: 0,
+  likeCount: metrics.likeCount || 0,
+  commentCount: metrics.commentCount || 0,
+  shareCount: metrics.shareCount || 0,
+  isLiked,
+  isSaved,
   createdAt: poll.createdAt,
+  updatedAt: poll.updatedAt,
 });
 
 /** Get optionId the user voted for, or null */
@@ -1155,8 +1165,26 @@ export const getHomeFeed = async (userId, options = {}) => {
     const includePolls = contentTypeSet.has(ContentType.POLL);
 
     // Helper: add selectedByAuthUser flag on each option for logged-in user
-    const attachSelectedOption = (poll) => {
-      const formattedPoll = formatPollForFeed(poll);
+    const attachSelectedOption = async (poll) => {
+      // Get metrics and user status for this poll
+      const pollMetrics = await getEngagementMetrics([poll]);
+      const metrics = pollMetrics.get(poll._id.toString()) || {
+        likeCount: 0,
+        commentCount: 0,
+        shareCount: 0,
+      };
+      
+      const [likedContentIds, savedContentIds] = userId
+        ? await Promise.all([
+            getLikedContentIds(userId, [poll]),
+            getSavedContentIds(userId, [poll]),
+          ])
+        : [new Set(), new Set()];
+      
+      const isLiked = likedContentIds.has(poll._id.toString());
+      const isSaved = savedContentIds.has(poll._id.toString());
+      
+      const formattedPoll = formatPollForFeed(poll, metrics, isLiked, isSaved);
       const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
       const optionsWithFlag = addSelectedByAuthUserToOptions(
         formattedPoll.options,
@@ -1234,7 +1262,8 @@ export const getHomeFeed = async (userId, options = {}) => {
     // 2b) Followed users' polls (latest)
     if (includePolls && followedUserIds.length > 0) {
       const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, fetchLimit);
-      addUnique(followedPollsRaw.map(attachSelectedOption));
+      const followedPollsFormatted = await Promise.all(followedPollsRaw.map(attachSelectedOption));
+      addUnique(followedPollsFormatted);
     }
 
     // 3) Suggested/trending posts
@@ -1260,7 +1289,8 @@ export const getHomeFeed = async (userId, options = {}) => {
     addUnique(trendingContent);
     if (includePolls) {
       const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit);
-      addUnique(trendingPollsRaw.map(attachSelectedOption));
+      const trendingPollsFormatted = await Promise.all(trendingPollsRaw.map(attachSelectedOption));
+      addUnique(trendingPollsFormatted);
     }
 
     // 4) Recent fallback (global latest)
@@ -1274,7 +1304,8 @@ export const getHomeFeed = async (userId, options = {}) => {
     addUnique(latestContent);
     if (includePolls) {
       const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit);
-      addUnique(latestPollsRaw.map(attachSelectedOption));
+      const latestPollsFormatted = await Promise.all(latestPollsRaw.map(attachSelectedOption));
+      addUnique(latestPollsFormatted);
     }
 
     combined.forEach(item => {
