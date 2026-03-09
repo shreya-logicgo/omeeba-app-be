@@ -1147,7 +1147,7 @@ export const getHomeFeed = async (userId, options = {}) => {
       zeals: [ContentType.ZEAL],
       poll: [ContentType.POLL],
       polls: [ContentType.POLL],
-      all: [ContentType.POST, ContentType.WRITE_POST, ContentType.POLL],
+      all: [ContentType.POST, ContentType.WRITE_POST, ContentType.ZEAL, ContentType.POLL],
     };
 
     const contentTypes = itemMap[normalizedItem] || itemMap.all;
@@ -1279,7 +1279,11 @@ export const getHomeFeed = async (userId, options = {}) => {
 
     combined.forEach(item => {
       item.isFollowing = getIsFollowing(item, userId, followedUserIdSet);
-  });
+    });
+
+    // Sort combined content by createdAt (latest first) for proper home feed ordering
+    combined.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
     const paginated = combined.slice(skip, skip + limit);
     const total = combined.length;
 
