@@ -569,7 +569,7 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
         });
 
         // Update room's last message
-        room.lastMessage = "📸 Snap";
+        room.lastMessage = "📸 Byte Opened";
         room.lastMessageType = MessageType.SNAP;
         room.lastMessageAt = message.createdAt;
         await room.save();

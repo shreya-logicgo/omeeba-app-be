@@ -80,9 +80,9 @@ const NotificationType = {
   CONTENT_SHARED: "Content Shared",
   CONTENT_SHARED_WITH_YOU: "Content Shared With You",
   
-  // Snaps
-  NEW_SNAP_RECEIVED: "New Snap Received",
-  SNAP_VIEWED: "Snap Viewed",
+  // Byte Opened
+  NEW_BYTE_OPENED_RECEIVED: "New Byte Opened Received",
+  BYTE_OPENED_VIEWED: "Byte Opened Viewed",
   
   // Polls
   POLL_VOTED: "Poll Voted",

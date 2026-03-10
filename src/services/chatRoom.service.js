@@ -214,7 +214,7 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         lastMessage.senderId.toString() === otherUserId;
 
       // Format last message preview with status indicator
-      // lastMessageStatus: "new" = from other, unread (dot); "read" = messages read but snap not viewed; "delivered" = sent by me, delivered; "open" = sent by me, recipient saw
+      // lastMessageStatus: "new" = from other, unread (dot); "read" = messages read but snap not viewed; "Delivered" = sent by me, delivered; "Byte Opened" = sent by me, recipient saw
       let lastMessagePreview = null;
       let lastMessageStatus = null;
       const hasUnread = participant && participant.unreadCount > 0;
@@ -235,11 +235,11 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         } else if (!lastMessageFromOther && lastMessage) {
           // Message sent by current user
           if (lastMessage.status === MessageStatus.SEEN) {
-            lastMessageStatus = "open"; // samne wale ne dekha
+            lastMessageStatus = "Byte Opened"; // samne wale ne dekha
           } else if (lastMessage.status === MessageStatus.DELIVERED) {
-            lastMessageStatus = "delivered"; // sent by me, delivered
+            lastMessageStatus = "Delivered"; // sent by me, delivered
           } else {
-            lastMessageStatus = "sent"; // sent
+            lastMessageStatus = "Delivered"; // sent
           }
         }
 
