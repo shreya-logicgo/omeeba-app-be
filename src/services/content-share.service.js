@@ -4,11 +4,13 @@ import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
 import Poll from "../models/content/Poll.js";
 import User from "../models/users/User.js";
-import { ContentType, ZealStatus, PollStatus, NotificationType } from "../models/enums.js";
+import { ContentType, ZealStatus, PollStatus, NotificationType, ChatType, MessageType, MessageStatus } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
+import { sendMessage } from "./chatMessage.service.js";
+import ChatRoom from "../models/chat/ChatRoom.js";
 
 /**
  * Verify content exists and is accessible
@@ -157,6 +159,57 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
 
     // Insert all share records
     const createdShares = await ContentShare.insertMany(shareRecords);
+
+    // Create chat messages for each share (if chat room exists)
+    try {
+      for (const share of createdShares) {
+        const receiverId = share.receiverIds[0];
+        
+        // Check if chat room exists between sender and receiver
+        const existingRoom = await ChatRoom.findOne({
+          $or: [
+            { userA: senderId, userB: receiverId },
+            { userA: receiverId, userB: senderId }
+          ]
+        });
+
+        if (existingRoom) {
+          // Determine message type based on content type
+          let messageType = MessageType.TEXT;
+          let messageText = "";
+          
+          switch (contentType) {
+            case ContentType.POST:
+              messageType = MessageType.POST;
+              messageText = "Shared a post";
+              break;
+            case ContentType.WRITE_POST:
+              messageType = MessageType.WRITE_POST;
+              messageText = "Shared a write post";
+              break;
+            case ContentType.ZEAL:
+              messageType = MessageType.ZEAL;
+              messageText = "Shared a zeal";
+              break;
+            case ContentType.POLL:
+              messageType = MessageType.POLL;
+              messageText = "Shared a poll";
+              break;
+          }
+
+          // Create chat message with content reference
+          await sendMessage(existingRoom._id.toString(), senderId, {
+            messageType,
+            message: messageText,
+            contentId: contentId.toString(),
+            contentType,
+          });
+        }
+      }
+    } catch (chatError) {
+      logger.error("Error creating chat messages for shares:", chatError);
+      // Don't fail the share operation if chat message creation fails
+    }
 
     // Increment share count on the content document (atomic operation)
     // This tracks share count for analytics and virality tracking
