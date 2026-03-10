@@ -410,9 +410,12 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
     const skip = (page - 1) * limit;
 
     const baseQuery = {
-      $or: [{ userA: userId }, { userB: userId }],
       chatType: ChatType.REQUEST,
-      requesterId: { $ne: userId } // Only show requests RECEIVED by the user (User C sees A and B)
+      requesterId: { $ne: userId }, // Exclude requests sent by this user
+      $or: [
+        { userA: userId, requesterId: { $ne: "$userA" } }, // User A is recipient (not requester)
+        { userB: userId, requesterId: { $ne: "$userB" } }  // User B is recipient (not requester)
+      ]
     };
     if (search && search.trim()) {
       const matchingUsers = await User.find({
@@ -502,12 +505,19 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
         if (!lastMessagePreview) {
           if (room.lastMessageType === MessageType.TEXT) {
             lastMessagePreview = room.lastMessage;
-          } else if (room.lastMessageType === MessageType.IMAGE) lastMessagePreview = "📷 Image";
-          else if (room.lastMessageType === MessageType.SNAP) lastMessagePreview = "📸 Snap"; // Viewed snap
-          else if (room.lastMessageType === MessageType.POST) lastMessagePreview = "📌 Post";
-          else if (room.lastMessageType === MessageType.WRITE_POST) lastMessagePreview = "✍️ Write Post";
-          else if (room.lastMessageType === MessageType.ZEAL) lastMessagePreview = "🎬 Zeal";
-          else lastMessagePreview = room.lastMessage;
+          } else if (room.lastMessageType === MessageType.IMAGE) {
+            lastMessagePreview = "Image";
+          } else if (room.lastMessageType === MessageType.SNAP) {
+            lastMessagePreview = "Snap"; // Viewed snap
+          } else if (room.lastMessageType === MessageType.POST) {
+            lastMessagePreview = "Post";
+          } else if (room.lastMessageType === MessageType.WRITE_POST) {
+            lastMessagePreview = "Write Post";
+          } else if (room.lastMessageType === MessageType.ZEAL) {
+            lastMessagePreview = "Zeal";
+          } else {
+            lastMessagePreview = room.lastMessage;
+          }
         }
       }
 
