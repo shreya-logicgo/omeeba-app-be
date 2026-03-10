@@ -250,7 +250,7 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
           } else if (room.lastMessageType === MessageType.IMAGE) {
             lastMessagePreview = "Image";
           } else if (room.lastMessageType === MessageType.SNAP) {
-            lastMessagePreview = "Snap"; // Viewed snap or sent by me
+            lastMessagePreview = "Byte Opened"; // Viewed Byte Opened or sent by me
           } else if (room.lastMessageType === MessageType.POST) {
             lastMessagePreview = "Post";
           } else if (room.lastMessageType === MessageType.WRITE_POST) {
@@ -508,7 +508,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
           } else if (room.lastMessageType === MessageType.IMAGE) {
             lastMessagePreview = "Image";
           } else if (room.lastMessageType === MessageType.SNAP) {
-            lastMessagePreview = "Snap"; // Viewed snap
+            lastMessagePreview = "Byte Opened"; // Viewed Byte Opened
           } else if (room.lastMessageType === MessageType.POST) {
             lastMessagePreview = "Post";
           } else if (room.lastMessageType === MessageType.WRITE_POST) {
