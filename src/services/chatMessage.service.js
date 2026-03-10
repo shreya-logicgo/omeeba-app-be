@@ -122,7 +122,14 @@ export const sendMessage = async (roomId, senderId, messageData) => {
     });
 
     // Update room's last message
-    const lastPreview = message || (messageType === MessageType.IMAGE ? "📷 Image" : messageType === MessageType.SNAP ? "📸 Snap" : null);
+    const lastPreview = message || 
+      (messageType === MessageType.IMAGE ? "Image" : 
+       messageType === MessageType.SNAP ? "Snap" : 
+       messageType === MessageType.POST ? "Post" :
+       messageType === MessageType.WRITE_POST ? "Write Post" :
+       messageType === MessageType.ZEAL ? "Zeal" :
+       messageType === MessageType.POLL ? "Poll" :
+       null);
     room.lastMessage = lastPreview;
     room.lastMessageType = messageType;
     room.lastMessageAt = newMessage.createdAt;

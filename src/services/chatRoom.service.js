@@ -248,15 +248,15 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
           if (room.lastMessageType === MessageType.TEXT) {
             lastMessagePreview = room.lastMessage;
           } else if (room.lastMessageType === MessageType.IMAGE) {
-            lastMessagePreview = "📷 Image";
+            lastMessagePreview = "Image";
           } else if (room.lastMessageType === MessageType.SNAP) {
-            lastMessagePreview = "📸 Snap"; // Viewed snap or sent by me
+            lastMessagePreview = "Snap"; // Viewed snap or sent by me
           } else if (room.lastMessageType === MessageType.POST) {
-            lastMessagePreview = "📌 Post";
+            lastMessagePreview = "Post";
           } else if (room.lastMessageType === MessageType.WRITE_POST) {
-            lastMessagePreview = "✍️ Write Post";
+            lastMessagePreview = "Write Post";
           } else if (room.lastMessageType === MessageType.ZEAL) {
-            lastMessagePreview = "🎬 Zeal";
+            lastMessagePreview = "Zeal";
           } else {
             lastMessagePreview = room.lastMessage;
           }
