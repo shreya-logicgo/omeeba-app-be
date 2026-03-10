@@ -192,7 +192,7 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       contentType: newMessage.contentType,
       status: newMessage.status,
       statusDisplay: newMessage.status === MessageStatus.SEEN ? "seen" : 
-                     newMessage.status === MessageStatus.DELIVERED ? "delivered" : "sent",
+                     newMessage.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered",
       timestamp: formatTime12Hour(newMessage.createdAt), // 12-hour format "11:02 AM"
       timeAgo: getTimeAgo(newMessage.createdAt), // Keep for backward compatibility
       createdAt: newMessage.createdAt,
@@ -279,7 +279,7 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
       contentType: msg.contentType,
       status: msg.status,
       statusDisplay: msg.status === MessageStatus.SEEN ? "seen" : 
-                     msg.status === MessageStatus.DELIVERED ? "delivered" : "sent", // For UI display
+                     msg.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered", // For UI display
       timestamp: formatTime12Hour(msg.createdAt), // 12-hour format "11:02 AM"
       timeAgo: getTimeAgo(msg.createdAt), // Keep for backward compatibility
       createdAt: msg.createdAt,
@@ -338,7 +338,7 @@ export const deleteMessage = async (roomId, messageId, userId) => {
     if (lastMsg) {
       let lastPreview = lastMsg.message;
       if (lastMsg.messageType === MessageType.IMAGE) lastPreview = "📷 Image";
-      else if (lastMsg.messageType === MessageType.SNAP) lastPreview = "📸 Snap";
+      else if (lastMsg.messageType === MessageType.SNAP) lastPreview = "📸 Byte Opened";
       else if (lastMsg.messageType === MessageType.POST) lastPreview = "📌 Post";
       else if (lastMsg.messageType === MessageType.WRITE_POST) lastPreview = "✍️ Write Post";
       else if (lastMsg.messageType === MessageType.ZEAL) lastPreview = "🎬 Zeal";
