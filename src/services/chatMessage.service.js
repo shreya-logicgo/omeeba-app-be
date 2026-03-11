@@ -18,6 +18,7 @@ import { getMediaForUser } from "./media.service.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import { getOrCreateChatRoom } from "./chatRoom.service.js";
 import { createNotification } from "./notification.service.js";
+import { canSendMessage } from "./chatBlock.service.js";
 import logger from "../utils/logger.js";
 
 /** ContentType (Post, Write Post, Zeal Post) -> MessageType for chat */
@@ -99,6 +100,14 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       throw new Error("Chat room not found or access denied");
     }
 
+    // Check if users have blocked each other
+    const otherUserId = room.userA.toString() === senderId ? room.userB : room.userA;
+    const blockCheck = await canSendMessage(senderId, otherUserId);
+    
+    if (!blockCheck.canSend) {
+      throw new Error(blockCheck.message);
+    }
+
     // Message request rules: only requester can send; recipient cannot send until they accept
     // Sender can send multiple messages (all stay in same request thread)
     if (room.chatType === ChatType.REQUEST) {
@@ -136,7 +145,7 @@ export const sendMessage = async (roomId, senderId, messageData) => {
     await room.save();
 
     // Update unread counts (increment for other user, reset for sender)
-    const otherUserId = room.userA.toString() === senderId ? room.userB : room.userA;
+    // Note: otherUserId is already declared above in block check
 
     await Promise.all([
       // Increment unread count for other user
@@ -246,6 +255,10 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
       throw new Error("Chat room not found or access denied");
     }
 
+    // Check block status between users
+    const otherUserId = room.userA.toString() === userId ? room.userB : room.userA;
+    const blockStatus = await checkBlockStatus(userId, otherUserId);
+
     // Fetch messages (oldest first for pagination, then reverse for display)
     const messages = await ChatMessage.find({ roomId })
       .populate("senderId", "name username profileImage bio isVerifiedBadge")
@@ -289,6 +302,7 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
       messages: formattedMessages,
       pagination: getPaginationMeta(total, page, limit),
       requestStatus,
+      blockStatus,
     };
   } catch (error) {
     logger.error("Error in getMessages:", error);

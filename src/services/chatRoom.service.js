@@ -15,6 +15,7 @@ import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatChatListTime } from "../utils/timeFormatter.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
+import { checkBlockStatus } from "./chatBlock.service.js";
 
 /**
  * Get or create a chat room between two users.
@@ -199,11 +200,14 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
     });
 
     // Format rooms
-    const formattedRooms = rooms.map((room) => {
+    const formattedRooms = await Promise.all(rooms.map(async (room) => {
       const roomId = room._id.toString();
       const participant = participantMap.get(roomId);
       const otherUser = room.userA._id.toString() === userId ? room.userB : room.userA;
       const otherUserId = otherUser._id.toString();
+
+      // Check block status between users
+      const blockStatus = await checkBlockStatus(userId, otherUserId);
 
       // Get followers count
       const followersCount = followersMap.get(otherUserId) || 0;
@@ -288,10 +292,11 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         timeAgo: room.lastMessageAt ? getTimeAgo(room.lastMessageAt) : null, // Keep for backward compatibility
         unreadCount: participant ? participant.unreadCount : 0,
         isBlocked: room.isBlocked,
+        blockStatus: blockStatus,
         createdAt: room.createdAt,
         updatedAt: room.updatedAt,
       };
-    });
+    }));
 
     return {
       rooms: formattedRooms,
