@@ -1157,7 +1157,8 @@ export const getHomeFeed = async (userId, options = {}) => {
       zeals: [ContentType.ZEAL],
       poll: [ContentType.POLL],
       polls: [ContentType.POLL],
-      all: [ContentType.POST, ContentType.WRITE_POST, ContentType.ZEAL, ContentType.POLL],
+      all: [ContentType.POST, ContentType.WRITE_POST
+        , ContentType.POLL],
     };
 
     const contentTypes = itemMap[normalizedItem] || itemMap.all;
