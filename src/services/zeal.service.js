@@ -18,6 +18,7 @@ import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
 import { generateThumbnailFromUrl } from "./thumbnail.service.js";
 import config from "../config/env.js";
 import logger from "../utils/logger.js";
+import { createNotification } from "./notification.service.js";
 
 // Allowed file types
 const ALLOWED_VIDEO_TYPES = [
@@ -295,6 +296,24 @@ export const createZeal = async (userId, zealDraftId, zealData) => {
     await draft.save();
 
     logger.info(`Zeal post created: ${zealPost._id} for user: ${userId}`);
+
+    // Create notifications for mentioned users
+    if (zealData.mentionedUserIds && zealData.mentionedUserIds.length > 0) {
+      for (const mentionedUserId of zealData.mentionedUserIds) {
+        try {
+          await createNotification({
+            receiverId: mentionedUserId,
+            senderId: userId,
+            type: "MENTION_IN_ZEAL",
+            contentType: ContentType.ZEAL,
+            contentId: zealPost._id,
+            message: zealData.caption || ""
+          });
+        } catch (error) {
+          logger.error(`Error creating mention notification for user ${mentionedUserId}:`, error);
+        }
+      }
+    }
 
     // Start async processing (in a real app, this would be a background job)
     // For now, we'll simulate processing by updating status after a delay
