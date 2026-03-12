@@ -61,6 +61,7 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
         userB,
         chatType: effectiveChatType,
         requesterId,
+        requestStatus: effectiveChatType === ChatType.REQUEST ? "pending" : null,
       });
 
       // Create participant records for both users
@@ -78,6 +79,13 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
       ]);
 
       logger.info(`Created chat room ${room._id} between users ${userA} and ${userB}`);
+    } else if (room.chatType === ChatType.REQUEST && room.requestStatus === "rejected") {
+      // If room exists but was rejected, reset to pending when requester sends new message
+      if (room.requesterId && room.requesterId.toString() === currentUserId) {
+        room.requestStatus = "pending";
+        await room.save();
+        logger.info(`Reset rejected request ${room._id} to pending for user ${currentUserId}`);
+      }
     }
 
     // Format and return room with participant info
@@ -416,6 +424,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
 
     const baseQuery = {
       chatType: ChatType.REQUEST,
+      requestStatus: "pending", // Only show pending requests
       requesterId: { $ne: userId }, // Exclude requests sent by this user
       $or: [
         { userA: userId, requesterId: { $ne: "$userA" } }, // User A is recipient (not requester)
@@ -624,10 +633,10 @@ export const acceptMessageRequest = async (roomId, userId) => {
 };
 
 /**
- * Reject (Delete) a message request: remove thread; sender is not notified and can send again later
+ * Reject a message request: change status to rejected; room remains but not visible to recipient
  * @param {string} roomId - Room ID
  * @param {string} userId - User ID (must be the recipient)
- * @returns {Promise<boolean>} Success
+ * @returns {Promise<Object>} Updated room
  */
 export const rejectMessageRequest = async (roomId, userId) => {
   try {
@@ -646,14 +655,21 @@ export const rejectMessageRequest = async (roomId, userId) => {
       throw new Error("Only the recipient can reject the request");
     }
 
-    await Promise.all([
-      ChatMessage.deleteMany({ roomId: room._id }),
-      ChatParticipant.deleteMany({ roomId: room._id }),
-    ]);
-    await ChatRoom.deleteOne({ _id: roomId });
+    // Update room status to rejected
+    room.requestStatus = "rejected";
+    await room.save();
 
-    logger.info(`Message request ${roomId} rejected (deleted) by user ${userId}; sender can request again`);
-    return true;
+    logger.info(`Message request ${roomId} rejected by user ${userId}; status changed to rejected`);
+    
+    return {
+      id: roomId,
+      roomId: roomId,
+      chatType: ChatType.REQUEST,
+      requestStatus: "rejected",
+      requesterId: requesterIdStr,
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+    };
   } catch (error) {
     logger.error("Error in rejectMessageRequest:", error);
     throw error;
