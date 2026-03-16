@@ -1,6 +1,8 @@
 import https from "https";
 import { URL } from "url";
 import { google } from "googleapis";
+import jwt from "jsonwebtoken";
+import jwksClient from "jwks-rsa";
 import SubscriptionPlan from "../models/subscriptions/SubscriptionPlan.js";
 import SubscriptionPayment from "../models/subscriptions/SubscriptionPayment.js";
 import UserSubscription from "../models/subscriptions/UserSubscription.js";
@@ -11,12 +13,116 @@ import logger from "../utils/logger.js";
 import config from "../config/env.js";
 
 /**
+ * Verify StoreKit 2 JWT receipt
+ * @param {string} jwtToken - JWT token from StoreKit 2
+ * @returns {Promise<Object>} Verified transaction data
+ */
+const verifyStoreKit2Receipt = async (jwtToken) => {
+  try {
+    logger.info("Verifying StoreKit 2 JWT receipt...");
+    
+    // Decode JWT without verification first to get header
+    const decoded = jwt.decode(jwtToken, { complete: true });
+    
+    if (!decoded || !decoded.header || !decoded.header.kid) {
+      throw new Error("Invalid JWT token format");
+    }
+    
+    const kid = decoded.header.kid;
+    logger.info(`JWT Key ID: ${kid}`);
+    
+    // Get Apple's public key
+    const client = jwksClient({
+      jwksUri: 'https://api.storekit.itunes.apple.com/.well-known/jwks',
+      cache: true,
+      rateLimit: true,
+      jwksRequestsPerMinute: 5
+    });
+    
+    // Get signing key
+    const key = await new Promise((resolve, reject) => {
+      client.getSigningKey(kid, (err, key) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(key);
+        }
+      });
+    });
+    
+    // Verify JWT
+    const verified = jwt.verify(jwtToken, key.getPublicKey(), {
+      algorithms: ['ES256']
+    });
+    
+    logger.info("JWT verification successful");
+    
+    // Extract transaction information
+    const transactionData = {
+      transactionId: verified.transactionId,
+      originalTransactionId: verified.originalTransactionId,
+      productId: verified.productId,
+      purchaseDate: new Date(verified.purchaseDate),
+      expiresDate: verified.expiresDate ? new Date(verified.expiresDate) : null,
+      environment: verified.environment,
+      type: verified.type,
+      signedDate: new Date(verified.signedDate),
+      webOrderLineItemId: verified.webOrderLineItemId,
+      quantity: verified.quantity,
+      bundleId: verified.bundleId,
+      appAccountToken: verified.appAccountToken
+    };
+    
+    logger.info(`Transaction verified: ${transactionData.productId}, Environment: ${transactionData.environment}`);
+    
+    return {
+      status: 0,
+      environment: transactionData.environment.toLowerCase(),
+      receipt: {
+        in_app: [{
+          product_id: transactionData.productId,
+          transaction_id: transactionData.transactionId,
+          original_transaction_id: transactionData.originalTransactionId,
+          purchase_date_ms: transactionData.purchaseDate.getTime(),
+          expires_date_ms: transactionData.expiresDate ? transactionData.expiresDate.getTime() : null,
+          quantity: transactionData.quantity || 1,
+          web_order_line_item_id: transactionData.webOrderLineItemId
+        }]
+      },
+      latest_receipt_info: [{
+        product_id: transactionData.productId,
+        transaction_id: transactionData.transactionId,
+        original_transaction_id: transactionData.originalTransactionId,
+        purchase_date_ms: transactionData.purchaseDate.getTime(),
+        expires_date_ms: transactionData.expiresDate ? transactionData.expiresDate.getTime() : null,
+        quantity: transactionData.quantity || 1,
+        web_order_line_item_id: transactionData.webOrderLineItemId
+      }],
+      transactionData // Include raw transaction data for debugging
+    };
+    
+  } catch (error) {
+    logger.error("StoreKit 2 JWT verification failed:", error.message);
+    throw new Error(`JWT verification failed: ${error.message}`);
+  }
+};
+
+/**
  * Verify Apple App Store receipt
- * @param {string} receiptData - Base64 encoded receipt data
+ * @param {string} receiptData - Base64 encoded receipt data or JWT token
  * @param {boolean} isProduction - Whether to use production or sandbox endpoint
+ * @param {string} receiptFormat - "JWT" for StoreKit 2 or "Base64" for StoreKit 1
  * @returns {Promise<Object>} Verified receipt data
  */
-const verifyAppleReceipt = async (receiptData, isProduction = true) => {
+const verifyAppleReceipt = async (receiptData, isProduction = true, receiptFormat = "Base64") => {
+  // Handle StoreKit 2 JWT tokens
+  if (receiptFormat === "JWT" || receiptData.startsWith('eyJ')) {
+    logger.info("Using StoreKit 2 JWT verification");
+    return await verifyStoreKit2Receipt(receiptData);
+  }
+  
+  // Handle StoreKit 1 Base64 receipts (legacy)
+  logger.info("Using StoreKit 1 Base64 receipt verification");
   return new Promise((resolve, reject) => {
     const verifyUrl = isProduction
       ? "https://buy.itunes.apple.com/verifyReceipt"
@@ -263,16 +369,17 @@ const revokeVerifiedBadge = async (userId) => {
 };
 
 /**
- * Verify and process Apple App Store purchase
+ * Verify Apple purchase and update user subscription
  * @param {string} userId - User ID
- * @param {string} receiptData - Base64 encoded receipt data
+ * @param {string} receiptData - Receipt data (JWT token or Base64)
  * @param {string} productId - Product ID (optional, extracted from receipt if not provided)
+ * @param {string} receiptFormat - "JWT" for StoreKit 2 or "Base64" for StoreKit 1
  * @returns {Promise<Object>} Verification result
  */
-export const verifyApplePurchase = async (userId, receiptData, productId = null) => {
+export const verifyApplePurchase = async (userId, receiptData, productId = null, receiptFormat = "Base64") => {
   try {
     // Verify receipt with Apple
-    const verificationResult = await verifyAppleReceipt(receiptData);
+    const verificationResult = await verifyAppleReceipt(receiptData, true, receiptFormat);
 
     if (!verificationResult.receipt || !verificationResult.receipt.in_app) {
       throw new Error("Invalid receipt data from Apple");
