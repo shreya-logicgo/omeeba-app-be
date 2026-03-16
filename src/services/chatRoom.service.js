@@ -425,11 +425,11 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
     const baseQuery = {
       chatType: ChatType.REQUEST,
       requestStatus: "pending", // Only show pending requests
-      requesterId: { $ne: userId }, // Exclude requests sent by this user
       $or: [
-        { userA: userId, requesterId: { $ne: "$userA" } }, // User A is recipient (not requester)
-        { userB: userId, requesterId: { $ne: "$userB" } }  // User B is recipient (not requester)
-      ]
+        { userA: userId }, // User A is recipient
+        { userB: userId }  // User B is recipient
+      ],
+      requesterId: { $ne: userId } // Exclude requests sent by this user
     };
     if (search && search.trim()) {
       const matchingUsers = await User.find({

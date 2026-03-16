@@ -10,6 +10,7 @@ import ChatParticipant from "../models/chat/ChatParticipant.js";
 import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
+import Poll from "../models/content/Poll.js";
 import { User } from "../models/index.js";
 import { MessageType, MessageStatus, ChatType, ContentType, ZealStatus, NotificationType } from "../models/enums.js";
 import { getTimeAgo } from "../utils/timeAgo.js";
@@ -18,7 +19,7 @@ import { getMediaForUser } from "./media.service.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import { getOrCreateChatRoom } from "./chatRoom.service.js";
 import { createNotification } from "./notification.service.js";
-import { canSendMessage } from "./chatBlock.service.js";
+import { canSendMessage, checkBlockStatus } from "./chatBlock.service.js";
 import logger from "../utils/logger.js";
 
 /** ContentType (Post, Write Post, Zeal Post) -> MessageType for chat */
@@ -272,31 +273,72 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
     // Request status: "pending" = message request not accepted yet, "accepted" = normal/direct chat
     const requestStatus = room.chatType === ChatType.REQUEST ? "pending" : "accepted";
 
-    // Format messages
-    const formattedMessages = messages.map((msg) => ({
-      id: msg._id.toString(),
-      roomId: roomId.toString(),
-      sender: {
-        id: msg.senderId._id.toString(),
-        name: msg.senderId.name,
-        username: msg.senderId.username,
-        profileImage: msg.senderId.profileImage,
-        bio: msg.senderId.bio,
-        isVerifiedBadge: msg.senderId.isVerifiedBadge,
-      },
-      messageType: msg.messageType,
-      message: msg.message,
-      mediaUrl: msg.mediaUrl,
-      thumbnailUrl: msg.thumbnailUrl,
-      contentId: msg.contentId ? msg.contentId.toString() : null,
-      contentType: msg.contentType,
-      status: msg.status,
-      statusDisplay: msg.status === MessageStatus.SEEN ? "seen" : 
-                     msg.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered", // For UI display
-      timestamp: formatTime12Hour(msg.createdAt), // 12-hour format "11:02 AM"
-      timeAgo: getTimeAgo(msg.createdAt), // Keep for backward compatibility
-      createdAt: msg.createdAt,
-    }));
+    // Format messages and fetch content creators
+    const formattedMessages = await Promise.all(
+      messages.map(async (msg) => {
+        const formattedMessage = {
+          id: msg._id.toString(),
+          roomId: roomId.toString(),
+          sender: {
+            id: msg.senderId._id.toString(),
+            name: msg.senderId.name,
+            username: msg.senderId.username,
+            profileImage: msg.senderId.profileImage,
+            bio: msg.senderId.bio,
+            isVerifiedBadge: msg.senderId.isVerifiedBadge,
+          },
+          messageType: msg.messageType,
+          message: msg.message,
+          mediaUrl: msg.mediaUrl,
+          thumbnailUrl: msg.thumbnailUrl,
+          contentId: msg.contentId ? msg.contentId.toString() : null,
+          contentType: msg.contentType,
+          status: msg.status,
+          statusDisplay: msg.status === MessageStatus.SEEN ? "seen" : 
+                         msg.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered", // For UI display
+          timestamp: formatTime12Hour(msg.createdAt), // 12-hour format "11:02 AM"
+          timeAgo: getTimeAgo(msg.createdAt), // Keep for backward compatibility
+          createdAt: msg.createdAt,
+        };
+
+        // Add content creator profile for shared content
+        if (msg.contentId && msg.contentType) {
+          try {
+            let creator = null;
+            
+            if (msg.contentType === "Post") {
+              const post = await Post.findById(msg.contentId).populate('userId', 'name username profileImage bio isVerifiedBadge').lean();
+              if (post && post.userId) creator = post.userId;
+            } else if (msg.contentType === "Write Post") {
+              const writePost = await WritePost.findById(msg.contentId).populate('userId', 'name username profileImage bio isVerifiedBadge').lean();
+              if (writePost && writePost.userId) creator = writePost.userId;
+            } else if (msg.contentType === "Zeal") {
+              const zealPost = await ZealPost.findById(msg.contentId).populate('userId', 'name username profileImage bio isVerifiedBadge').lean();
+              if (zealPost && zealPost.userId) creator = zealPost.userId;
+            } else if (msg.contentType === "Poll") {
+              const poll = await Poll.findById(msg.contentId).populate('createdBy', 'name username profileImage bio isVerifiedBadge').lean();
+              if (poll && poll.createdBy) creator = poll.createdBy;
+            }
+
+            if (creator) {
+              formattedMessage.contentCreator = {
+                id: creator._id.toString(),
+                name: creator.name,
+                username: creator.username,
+                profileImage: creator.profileImage,
+                bio: creator.bio,
+                isVerifiedBadge: creator.isVerifiedBadge,
+              };
+            }
+          } catch (error) {
+            logger.warn(`Failed to fetch content creator for message ${msg._id}:`, error.message);
+            // Don't add contentCreator if fetch fails
+          }
+        }
+
+        return formattedMessage;
+      })
+    );
 
     return {
       messages: formattedMessages,

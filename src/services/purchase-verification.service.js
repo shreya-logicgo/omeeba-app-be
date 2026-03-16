@@ -30,6 +30,10 @@ const verifyAppleReceipt = async (receiptData, isProduction = true) => {
       "exclude-old-transactions": true,
     });
 
+    logger.info(`Apple verification request - Environment: ${isProduction ? 'production' : 'sandbox'}`);
+    logger.info(`Apple verification URL: ${verifyUrl}`);
+    logger.info(`Apple verification data preview: ${postData.substring(0, 200)}...`);
+
     const url = new URL(verifyUrl);
     const options = {
       hostname: url.hostname,
@@ -51,6 +55,9 @@ const verifyAppleReceipt = async (receiptData, isProduction = true) => {
 
       res.on("end", () => {
         try {
+          logger.info(`Apple verification response status: ${res.statusCode}`);
+          logger.info(`Apple verification response data: ${data.substring(0, 200)}...`);
+          
           const response = JSON.parse(data);
           if (response.status === 0) {
             resolve(response);
@@ -67,10 +74,18 @@ const verifyAppleReceipt = async (receiptData, isProduction = true) => {
             verifyAppleReceipt(receiptData, true)
               .then(resolve)
               .catch(reject);
+          } else if (response.status === 21002) {
+            // Receipt data is invalid or malformed
+            logger.error(`Apple receipt data invalid. Environment: ${isProduction ? 'production' : 'sandbox'}`);
+            logger.error(`Receipt data preview: ${JSON.stringify(receiptData).substring(0, 200)}...`);
+            reject(new Error(`Invalid receipt data. Please check the receipt format and environment. Status: ${response.status}`));
           } else {
+            logger.error(`Apple verification failed with unexpected status: ${response.status}`);
+            logger.error(`Full response: ${JSON.stringify(response)}`);
             reject(new Error(`Apple verification failed with status: ${response.status}`));
           }
         } catch (error) {
+          logger.error(`Failed to parse Apple verification response. Response was: ${data.substring(0, 200)}...`);
           reject(new Error(`Failed to parse Apple verification response: ${error.message}`));
         }
       });
