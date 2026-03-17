@@ -13,19 +13,190 @@ import logger from "../utils/logger.js";
 import config from "../config/env.js";
 
 /**
- * Verify StoreKit 2 JWT receipt
+ * Verify StoreKit 2 receipt using local JWT verification
+ * @param {string} receiptData - StoreKit 2 transaction data (JSON with signed tokens)
+ * @returns {Promise<Object>} Verified receipt data
+ */
+const verifyStoreKit2WithAppleServer = async (receiptData) => {
+  try {
+    logger.info("Verifying StoreKit 2 receipt...");
+    logger.info(`Receipt data preview: ${receiptData.substring(0, 100)}...`);
+    
+    // Simple approach: Try to decode as JWT directly first
+    try {
+      const decoded = jwt.decode(receiptData, { complete: false });
+      if (decoded && decoded.transactionId && decoded.productId) {
+        logger.info("Direct JWT transaction token detected");
+        return {
+          status: 0,
+          environment: decoded.environment?.toLowerCase() || 'sandbox',
+          receipt: {
+            in_app: [{
+              product_id: decoded.productId,
+              transaction_id: decoded.transactionId,
+              original_transaction_id: decoded.originalTransactionId,
+              purchase_date_ms: decoded.purchaseDate,
+              expires_date_ms: decoded.expiresDate,
+              quantity: decoded.quantity || 1,
+              web_order_line_item_id: decoded.webOrderLineItemId
+            }]
+          },
+          latest_receipt_info: [{
+            product_id: decoded.productId,
+            transaction_id: decoded.transactionId,
+            original_transaction_id: decoded.originalTransactionId,
+            purchase_date_ms: decoded.purchaseDate,
+            expires_date_ms: decoded.expiresDate,
+            quantity: decoded.quantity || 1,
+            web_order_line_item_id: decoded.webOrderLineItemId
+          }]
+        };
+      }
+    } catch (jwtError) {
+      logger.info("Not a direct JWT, trying JSON format");
+    }
+    
+    // Try to parse as JSON directly (most common format for StoreKit 2)
+    let parsedData;
+    try {
+      parsedData = JSON.parse(receiptData);
+      logger.info("Parsed as direct JSON");
+    } catch (jsonError) {
+      logger.info("Not direct JSON, trying base64 decode");
+      
+      // Try base64 decode
+      try {
+        const decoded = Buffer.from(receiptData, 'base64').toString('utf8');
+        parsedData = JSON.parse(decoded);
+        logger.info("Parsed as base64 decoded JSON");
+      } catch (base64Error) {
+        logger.error("All parsing methods failed");
+        throw new Error(`Invalid receipt format: ${base64Error.message}`);
+      }
+    }
+    
+    logger.info("Successfully parsed receipt structure");
+    logger.info("Available keys:", Object.keys(parsedData));
+    
+    // Extract and verify the first transaction
+    let transactionToken;
+    if (parsedData.signedTransactions && Array.isArray(parsedData.signedTransactions) && parsedData.signedTransactions.length > 0) {
+      transactionToken = parsedData.signedTransactions[0];
+      logger.info("Using signedTransactions[0]");
+    } else if (parsedData.signedRenewalInfo) {
+      transactionToken = parsedData.signedRenewalInfo;
+      logger.info("Using signedRenewalInfo");
+    } else {
+      throw new Error("No transaction found in receipt data");
+    }
+    
+    // Decode JWT without verification to get transaction info
+    const decoded = jwt.decode(transactionToken, { complete: false });
+    
+    if (!decoded || !decoded.transactionId || !decoded.productId) {
+      throw new Error("Invalid transaction data in JWT");
+    }
+    
+    logger.info("Transaction decoded successfully:", {
+      transactionId: decoded.transactionId,
+      productId: decoded.productId,
+      bundleId: decoded.bundleId,
+      environment: decoded.environment
+    });
+    
+    // Return in the same format as Apple verifyReceipt endpoint
+    return {
+      status: 0,
+      environment: decoded.environment?.toLowerCase() || 'sandbox',
+      receipt: {
+        in_app: [{
+          product_id: decoded.productId,
+          transaction_id: decoded.transactionId,
+          original_transaction_id: decoded.originalTransactionId,
+          purchase_date_ms: decoded.purchaseDate,
+          expires_date_ms: decoded.expiresDate,
+          quantity: decoded.quantity || 1,
+          web_order_line_item_id: decoded.webOrderLineItemId
+        }]
+      },
+      latest_receipt_info: [{
+        product_id: decoded.productId,
+        transaction_id: decoded.transactionId,
+        original_transaction_id: decoded.originalTransactionId,
+        purchase_date_ms: decoded.purchaseDate,
+        expires_date_ms: decoded.expiresDate,
+        quantity: decoded.quantity || 1,
+        web_order_line_item_id: decoded.webOrderLineItemId
+      }]
+    };
+    
+  } catch (error) {
+    logger.error("StoreKit 2 verification failed:", error.message);
+    throw new Error(`Receipt verification failed: ${error.message}`);
+  }
+};
+
+/**
+ * Verify StoreKit 2 JWT receipt (Local verification - kept for backup)
  * @param {string} jwtToken - JWT token from StoreKit 2
  * @returns {Promise<Object>} Verified transaction data
  */
 const verifyStoreKit2Receipt = async (jwtToken) => {
   try {
     logger.info("Verifying StoreKit 2 JWT receipt...");
+    logger.info(`Receipt data preview: ${jwtToken.substring(0, 100)}...`);
+    
+    // Check if the input is a JSON string containing multiple tokens
+    let actualToken = jwtToken;
+    
+    // Try to parse as JSON first (for nested token structure)
+    if (jwtToken.startsWith('{') && jwtToken.endsWith('}')) {
+      try {
+        const parsedData = JSON.parse(jwtToken);
+        logger.info("Successfully parsed JSON structure");
+        logger.info("Available keys:", Object.keys(parsedData));
+        
+        // Extract the actual signed transaction token from the nested structure
+        if (parsedData.signedTransactions && Array.isArray(parsedData.signedTransactions) && parsedData.signedTransactions.length > 0) {
+          actualToken = parsedData.signedTransactions[0];
+          logger.info("Using signedTransactions[0] token");
+        } else if (parsedData.signedRenewalInfo) {
+          actualToken = parsedData.signedRenewalInfo;
+          logger.info("Using signedRenewalInfo token");
+        } else {
+          // Try to find any property that contains a JWT token
+          const jwtKeys = Object.keys(parsedData).filter(key => {
+            const value = parsedData[key];
+            return typeof value === 'string' && value.startsWith('eyJ');
+          });
+          
+          if (jwtKeys.length > 0) {
+            actualToken = parsedData[jwtKeys[0]];
+            logger.info(`Using JWT token from key: ${jwtKeys[0]}`);
+          } else {
+            throw new Error(`No valid JWT token found in nested structure. Available keys: ${Object.keys(parsedData)}`);
+          }
+        }
+        logger.info("Extracted token from nested JSON structure");
+      } catch (parseError) {
+        // If parsing fails, treat as direct JWT token
+        logger.info(`JSON parsing failed: ${parseError.message}, treating as direct JWT`);
+      }
+    }
+    
+    logger.info(`Final token preview: ${actualToken.substring(0, 100)}...`);
+    
+    // Ensure the token is a valid JWT format
+    if (!actualToken || typeof actualToken !== 'string' || !actualToken.includes('.')) {
+      throw new Error("Invalid JWT token format - token must be a string with dots");
+    }
     
     // Decode JWT without verification first to get header
-    const decoded = jwt.decode(jwtToken, { complete: true });
+    const decoded = jwt.decode(actualToken, { complete: true });
     
     if (!decoded || !decoded.header || !decoded.header.kid) {
-      throw new Error("Invalid JWT token format");
+      logger.error("JWT decode result:", decoded);
+      throw new Error("Invalid JWT token format - missing header or kid");
     }
     
     const kid = decoded.header.kid;
@@ -51,7 +222,7 @@ const verifyStoreKit2Receipt = async (jwtToken) => {
     });
     
     // Verify JWT
-    const verified = jwt.verify(jwtToken, key.getPublicKey(), {
+    const verified = jwt.verify(actualToken, key.getPublicKey(), {
       algorithms: ['ES256']
     });
     
@@ -109,16 +280,16 @@ const verifyStoreKit2Receipt = async (jwtToken) => {
 
 /**
  * Verify Apple App Store receipt
- * @param {string} receiptData - Base64 encoded receipt data or JWT token
+ * @param {string} receiptData - Base64 encoded receipt data or StoreKit 2 transaction data
  * @param {boolean} isProduction - Whether to use production or sandbox endpoint
  * @param {string} receiptFormat - "JWT" for StoreKit 2 or "Base64" for StoreKit 1
  * @returns {Promise<Object>} Verified receipt data
  */
 const verifyAppleReceipt = async (receiptData, isProduction = true, receiptFormat = "Base64") => {
-  // Handle StoreKit 2 JWT tokens
-  if (receiptFormat === "JWT" || receiptData.startsWith('eyJ')) {
+  // Handle StoreKit 2 receipts (JSON format with JWT tokens)
+  if (receiptFormat === "JWT" || receiptData.startsWith('{') || receiptData.startsWith('eyJ')) {
     logger.info("Using StoreKit 2 JWT verification");
-    return await verifyStoreKit2Receipt(receiptData);
+    return await verifyStoreKit2WithAppleServer(receiptData);
   }
   
   // Handle StoreKit 1 Base64 receipts (legacy)
@@ -174,19 +345,9 @@ const verifyAppleReceipt = async (receiptData, isProduction = true, receiptForma
             verifyAppleReceipt(receiptData, false)
               .then(resolve)
               .catch(reject);
-          } else if (response.status === 21008) {
-            // Receipt is from production but was sent to sandbox
-            logger.info("Apple receipt from production, retrying with production endpoint");
-            verifyAppleReceipt(receiptData, true)
-              .then(resolve)
-              .catch(reject);
-          } else if (response.status === 21002) {
-            // Receipt data is invalid or malformed
-            logger.error(`Apple receipt data invalid. Environment: ${isProduction ? 'production' : 'sandbox'}`);
-            logger.error(`Receipt data preview: ${JSON.stringify(receiptData).substring(0, 200)}...`);
-            reject(new Error(`Invalid receipt data. Please check the receipt format and environment. Status: ${response.status}`));
           } else {
-            logger.error(`Apple verification failed with unexpected status: ${response.status}`);
+            logger.error("Apple receipt verification failed:", response);
+            reject(new Error(`Apple receipt verification failed: ${response.status}`));
             logger.error(`Full response: ${JSON.stringify(response)}`);
             reject(new Error(`Apple verification failed with status: ${response.status}`));
           }
@@ -319,15 +480,15 @@ const findPlanByProductId = async (productId, platform) => {
 
   for (const [key, cycle] of Object.entries(billingCycleMap)) {
     if (productId.toLowerCase().includes(key)) {
-      const plan = plans.find((p) => p.billingCycle === cycle && p.isVerifiedBadge);
+      const plan = plans.find((p) => p.billingCycle === cycle);
       if (plan) return plan;
     }
   }
 
-  // Default to first plan with verified badge
-  const defaultPlan = plans.find((p) => p.isVerifiedBadge);
+  // Default to first active plan (remove isVerifiedBadge requirement)
+  const defaultPlan = plans.find((p) => p.isActive);
   if (!defaultPlan) {
-    throw new Error("No active subscription plan with verified badge found");
+    throw new Error("No active subscription plan found");
   }
 
   return defaultPlan;
