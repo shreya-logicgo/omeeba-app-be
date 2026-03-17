@@ -21,11 +21,38 @@ const verifyStoreKit2Receipt = async (jwtToken) => {
   try {
     logger.info("Verifying StoreKit 2 JWT receipt...");
     
-    // Decode JWT without verification first to get header
-    const decoded = jwt.decode(jwtToken, { complete: true });
+    // Validate input
+    if (!jwtToken || typeof jwtToken !== 'string') {
+      throw new Error("JWT token is required and must be a string");
+    }
     
-    if (!decoded || !decoded.header || !decoded.header.kid) {
-      throw new Error("Invalid JWT token format");
+    // Remove potential whitespace and check basic JWT format
+    const cleanToken = jwtToken.trim();
+    logger.info(`Received JWT token: length=${cleanToken.length}, startsWith_ey=${cleanToken.startsWith('eyJ')}, first_50_chars=${cleanToken.substring(0, 50)}`);
+    
+    if (!cleanToken.startsWith('eyJ')) {
+      throw new Error("Invalid JWT token format - must start with 'eyJ'");
+    }
+    
+    // Decode JWT without verification first to get header
+    const decoded = jwt.decode(cleanToken, { complete: true });
+    
+    logger.info(`Decoded JWT structure:`, {
+      hasHeader: !!decoded?.header,
+      hasPayload: !!decoded?.payload,
+      headerKid: decoded?.header?.kid,
+      headerAlg: decoded?.header?.alg,
+      fullHeader: decoded?.header,
+      headerKeys: decoded?.header ? Object.keys(decoded.header) : []
+    });
+    
+    if (!decoded || !decoded.header) {
+      throw new Error("Invalid JWT token format - missing header");
+    }
+    
+    if (!decoded.header.kid) {
+      logger.error("JWT header missing 'kid' field. Available fields:", Object.keys(decoded.header));
+      throw new Error("Invalid JWT token format - missing key ID (kid) in header");
     }
     
     const kid = decoded.header.kid;
@@ -51,7 +78,7 @@ const verifyStoreKit2Receipt = async (jwtToken) => {
     });
     
     // Verify JWT
-    const verified = jwt.verify(jwtToken, key.getPublicKey(), {
+    const verified = jwt.verify(cleanToken, key.getPublicKey(), {
       algorithms: ['ES256']
     });
     
@@ -102,8 +129,9 @@ const verifyStoreKit2Receipt = async (jwtToken) => {
     };
     
   } catch (error) {
-    logger.error("StoreKit 2 JWT verification failed:", error.message);
-    throw new Error(`JWT verification failed: ${error.message}`);
+    const errorMessage = typeof error === 'string' ? error : (error.message || 'Unknown JWT verification error');
+    logger.error("StoreKit 2 JWT verification failed:", { error: errorMessage, stack: error.stack });
+    throw new Error(`JWT verification failed: ${errorMessage}`);
   }
 };
 
