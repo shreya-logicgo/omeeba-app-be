@@ -22,11 +22,12 @@ import { createNotification } from "./notification.service.js";
 import { canSendMessage, checkBlockStatus } from "./chatBlock.service.js";
 import logger from "../utils/logger.js";
 
-/** ContentType (Post, Write Post, Zeal Post) -> MessageType for chat */
+/** ContentType (Post, Write Post, Zeal Post, Poll) -> MessageType for chat */
 const contentTypeToMessageType = {
   [ContentType.POST]: MessageType.POST,
   [ContentType.WRITE_POST]: MessageType.WRITE_POST,
   [ContentType.ZEAL]: MessageType.ZEAL,
+  [ContentType.POLL]: MessageType.POLL,
 };
 
 /**
@@ -431,24 +432,26 @@ const verifyContentForShare = async (contentType, contentId) => {
       return WritePost.findById(contentId).lean();
     case ContentType.ZEAL:
       return ZealPost.findOne({ _id: contentId, status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] } }).lean();
+    case ContentType.POLL:
+      return Poll.findById(contentId).lean();
     default:
       return null;
   }
 };
 
 /**
- * Send one content (Zeal / Post / Write Post) to multiple users' personal chats at once.
+ * Send one content (Zeal / Post / Write Post / Poll) to multiple users' personal chats at once.
  * For each recipient: get or create room with them, then send the content as a chat message.
  * @param {string} senderId - Sender user ID
- * @param {string} contentType - "Post" | "Write Post" | "Zeal Post"
- * @param {string} contentId - Content ID (postId / writePostId / zealId)
+ * @param {string} contentType - "Post" | "Write Post" | "Zeal Post" | "Poll"
+ * @param {string} contentId - Content ID (postId / writePostId / zealId / pollId)
  * @param {string[]} recipientIds - Array of recipient user IDs
  * @returns {Promise<{ results: Array<{ roomId, recipientId, message?, error? }>, successCount, failCount }>}
  */
 export const sendContentToMultipleChats = async (senderId, contentType, contentId, recipientIds) => {
   const messageType = contentTypeToMessageType[contentType];
   if (!messageType) {
-    throw new Error("Invalid contentType. Use: Post, Write Post, or Zeal Post");
+    throw new Error("Invalid contentType. Use: Post, Write Post, Zeal Post, or Poll");
   }
 
   const content = await verifyContentForShare(contentType, contentId);
