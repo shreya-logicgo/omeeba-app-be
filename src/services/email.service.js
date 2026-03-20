@@ -68,6 +68,19 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       const errorMessage =
         responseData.message || `Brevo API error: ${response.status}`;
       logger.error(`Brevo API error:`, responseData);
+      
+      // If API key is invalid/enabled, skip email but continue registration
+      if (responseData.code === "unauthorized" || errorMessage.includes("API Key is not enabled")) {
+        logger.warn(
+          "Brevo API key issue. Email sending will be skipped but registration continues."
+        );
+        return {
+          success: false,
+          skipped: true,
+          error: "Email service temporarily unavailable",
+        };
+      }
+      
       throw new Error(errorMessage);
     }
 
