@@ -5,6 +5,7 @@ import config from "./config/env.js";
 import { startPollCronJob } from "./services/poll-cron.service.js";
 import { startVerifiedBadgeCronJob } from "./services/verified-badge-cron.service.js";
 import { startSavedContentCleanupCronJob } from "./services/saved-content-cron.service.js";
+import { startAppleSubscriptionCronJob } from "./services/apple-subscription-cron.service.js";
 import { initializeSocket } from "./socket/socket.js";
 
 // Handle uncaught exceptions
@@ -25,6 +26,9 @@ startVerifiedBadgeCronJob();
 
 // Start saved content cleanup cron job
 startSavedContentCleanupCronJob();
+
+// Start Apple subscription verification cron job
+startAppleSubscriptionCronJob();
 
 // Start server
 const server = app.listen(config.port, () => {
