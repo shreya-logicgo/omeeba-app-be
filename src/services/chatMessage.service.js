@@ -22,11 +22,12 @@ import { createNotification } from "./notification.service.js";
 import { canSendMessage, checkBlockStatus } from "./chatBlock.service.js";
 import logger from "../utils/logger.js";
 
-/** ContentType (Post, Write Post, Zeal Post) -> MessageType for chat */
+/** ContentType (Post, Write Post, Zeal Post, Poll) -> MessageType for chat */
 const contentTypeToMessageType = {
   [ContentType.POST]: MessageType.POST,
   [ContentType.WRITE_POST]: MessageType.WRITE_POST,
   [ContentType.ZEAL]: MessageType.ZEAL,
+  [ContentType.POLL]: MessageType.POLL,
 };
 
 /**
@@ -431,30 +432,45 @@ const verifyContentForShare = async (contentType, contentId) => {
       return WritePost.findById(contentId).lean();
     case ContentType.ZEAL:
       return ZealPost.findOne({ _id: contentId, status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] } }).lean();
+    case ContentType.POLL:
+      return Poll.findById(contentId).lean();
     default:
       return null;
   }
 };
 
 /**
- * Send one content (Zeal / Post / Write Post) to multiple users' personal chats at once.
+ * Send one content (Zeal / Post / Write Post / Poll) to multiple users' personal chats at once.
  * For each recipient: get or create room with them, then send the content as a chat message.
  * @param {string} senderId - Sender user ID
- * @param {string} contentType - "Post" | "Write Post" | "Zeal Post"
- * @param {string} contentId - Content ID (postId / writePostId / zealId)
+ * @param {string} contentType - "Post" | "Write Post" | "Zeal Post" | "Poll"
+ * @param {string} contentId - Content ID (postId / writePostId / zealId / pollId)
  * @param {string[]} recipientIds - Array of recipient user IDs
  * @returns {Promise<{ results: Array<{ roomId, recipientId, message?, error? }>, successCount, failCount }>}
  */
 export const sendContentToMultipleChats = async (senderId, contentType, contentId, recipientIds) => {
+  logger.info(`sendContentToMultipleChats called with:`, {
+    senderId,
+    contentType,
+    contentId,
+    recipientIds
+  });
+  
   const messageType = contentTypeToMessageType[contentType];
   if (!messageType) {
-    throw new Error("Invalid contentType. Use: Post, Write Post, or Zeal Post");
+    logger.error(`Invalid contentType: ${contentType}. Available types:`, Object.keys(contentTypeToMessageType));
+    throw new Error("Invalid contentType. Use: Post, Write Post, Zeal Post, or Poll");
   }
+
+  logger.info(`Mapped contentType ${contentType} to messageType ${messageType}`);
 
   const content = await verifyContentForShare(contentType, contentId);
   if (!content) {
+    logger.error(`Content not found or not shareable: ${contentType} ${contentId}`);
     throw new Error("Content not found or not shareable (Zeal must be published)");
   }
+
+  logger.info(`Content verified successfully:`, { contentType, contentId });
 
   const uniqueRecipientIds = [...new Set(recipientIds.map((id) => id.toString()))];
   const selfId = senderId.toString();
@@ -471,28 +487,35 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
     .lean();
   const validIds = new Set(validUsers.map((u) => u._id.toString()));
 
+  logger.info(`Found ${validUsers.length} valid recipients out of ${filtered.length} requested`);
+
   const results = [];
   let successCount = 0;
   let failCount = 0;
 
   for (const recipientId of filtered) {
     if (!validIds.has(recipientId)) {
+      logger.warn(`Invalid recipient: ${recipientId}`);
       results.push({ roomId: null, recipientId, error: "User not found or deleted" });
       failCount++;
       continue;
     }
 
     try {
+      logger.info(`Processing recipient: ${recipientId}`);
       const room = await getOrCreateChatRoom(senderId, recipientId);
       const roomId = room.id || room._id?.toString();
 
-      // ChatMessage contentType enum is "Post" | "Write Post" | "Zeal" (not "Zeal Post")
+      logger.info(`Created/retrieved room ${roomId} for recipient ${recipientId}`);
+
+      // ChatMessage contentType enum is "Post" | "Write Post" | "Zeal" | "Poll"
       const formattedMessage = await sendMessage(roomId, senderId, {
         messageType,
         contentId,
         contentType: messageType,
       });
 
+      logger.info(`Successfully sent message to ${recipientId}, message ID: ${formattedMessage?.id}`);
       results.push({ roomId, recipientId, message: formattedMessage });
       successCount++;
     } catch (err) {

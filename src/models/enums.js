@@ -118,6 +118,7 @@ const MessageType = {
   POST: "Post",
   WRITE_POST: "Write Post",
   ZEAL: "Zeal",
+  POLL: "Poll",
 };
 
 const MessageStatus = {

@@ -48,8 +48,8 @@ const chatMessageSchema = new mongoose.Schema(
     },
     contentType: {
       type: String,
-      enum: [MessageType.POST, MessageType.WRITE_POST, MessageType.ZEAL],
-      default: null, // post / write_post / zeal
+      enum: [MessageType.POST, MessageType.WRITE_POST, MessageType.ZEAL, MessageType.POLL],
+      default: null, // post / write_post / zeal / poll
     },
     contentTypeRef: {
       type: String,
@@ -84,6 +84,7 @@ chatMessageSchema.pre("save", function (next) {
       [MessageType.POST]: ContentType.POST,
       [MessageType.WRITE_POST]: ContentType.WRITE_POST,
       [MessageType.ZEAL]: ContentType.ZEAL,
+      [MessageType.POLL]: ContentType.POLL,
     };
     const contentType = messageTypeToContentType[this.contentType];
     if (contentType) {
