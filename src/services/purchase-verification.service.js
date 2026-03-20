@@ -611,125 +611,96 @@ const revokeVerifiedBadge = async (userId) => {
  * @param {string} receiptFormat - "JWT" for StoreKit 2 or "Base64" for StoreKit 1
  * @returns {Promise<Object>} Verification result
  */
-export const verifyApplePurchase = async (
-  userId,
-  receiptData,
-  productId = null,
-  receiptFormat = "Base64"
-) => {
+export const verifyApplePurchase = async (userId, receiptData, productId = null, receiptFormat = "Base64") => {
   try {
     // Verify receipt with Apple
-    const verificationResult = await verifyAppleReceipt(
-      receiptData,
-      true,
-      receiptFormat
-    );
+    const verificationResult = await verifyAppleReceipt(receiptData, true, receiptFormat);
 
     if (!verificationResult.receipt || !verificationResult.receipt.in_app) {
       throw new Error("Invalid receipt data from Apple");
     }
 
     // Get the latest transaction
-    const latestTransaction = verificationResult.receipt.in_app.sort(
-      (a, b) => parseInt(b.purchase_date_ms) - parseInt(a.purchase_date_ms)
-    )[0];
+    const latestTransaction = verificationResult.receipt.in_app
+      .sort((a, b) => parseInt(b.purchase_date_ms) - parseInt(a.purchase_date_ms))[0];
 
     if (!latestTransaction) {
       throw new Error("No transactions found in receipt");
     }
 
     const transactionId = latestTransaction.transaction_id;
-    const actualProductId = productId || latestTransaction.product_id;
+    const originalTransactionId = latestTransaction.original_transaction_id;
+    const productId = latestTransaction.product_id;
+    const purchaseDate = new Date(parseInt(latestTransaction.purchase_date_ms));
+    const expiresDate = latestTransaction.expires_date_ms 
+      ? new Date(parseInt(latestTransaction.expires_date_ms))
+      : null;
 
-    // Check for duplicate transaction
-    const existingPayment = await SubscriptionPayment.findOne({
-      transactionId: transactionId,
-      paymentProvider: PAYMENT_PROVIDERS.APPLE,
+    // Check if this subscription already exists
+    let existingSubscription = await UserSubscription.findOne({
+      originalTransactionId,
+      userId
     });
 
-    if (existingPayment) {
-      // Transaction already processed - return existing subscription info
-      const subscription = await UserSubscription.findById(
-        existingPayment.subscriptionId
-      ).populate("planId");
+    if (existingSubscription) {
+      // Update existing subscription
+      existingSubscription.latestTransactionId = transactionId;
+      existingSubscription.productId = productId;
+      existingSubscription.startDate = purchaseDate;
+      existingSubscription.endDate = expiresDate || purchaseDate;
+      existingSubscription.expiresAt = expiresDate || purchaseDate;
+      existingSubscription.lastVerifiedAt = new Date();
+      existingSubscription.status = expiresDate && expiresDate > new Date() 
+        ? SubscriptionStatus.ACTIVE 
+        : SubscriptionStatus.EXPIRED;
+      
+      await existingSubscription.save();
+      
+      logger.info(`Updated existing subscription for user ${userId}, transaction ${transactionId}`);
+    } else {
+      // Create new subscription
+      const newSubscription = new UserSubscription({
+        userId,
+        planId: null, // Will be determined based on productId
+        originalTransactionId,
+        latestTransactionId: transactionId,
+        productId,
+        status: expiresDate && expiresDate > new Date() 
+          ? SubscriptionStatus.ACTIVE 
+          : SubscriptionStatus.EXPIRED,
+        startDate: purchaseDate,
+        endDate: expiresDate || purchaseDate,
+        expiresAt: expiresDate || purchaseDate,
+        environment: verificationResult.environment === 'sandbox' ? 'sandbox' : 'production',
+        autoRenewStatus: true // Default to true, will be updated by webhooks
+      });
 
-      return {
-        verified: true,
-        alreadyProcessed: true,
-        subscription: {
-          status: subscription.status,
-          endDate: subscription.endDate,
-          plan: subscription.planId,
-        },
-      };
+      await newSubscription.save();
+      
+      logger.info(`Created new subscription for user ${userId}, transaction ${transactionId}`);
+      existingSubscription = newSubscription;
     }
-
-    // Find or create subscription plan
-    const plan = await findPlanByProductId(actualProductId, "apple");
-
-    // Calculate expiration date
-    let expirationDate = calculateExpirationDate(plan.billingCycle);
-
-    // If Apple provides an expires_date_ms (for subscriptions), prefer that
-    if (latestTransaction.expires_date_ms) {
-      const appleExpiry = new Date(
-        parseInt(latestTransaction.expires_date_ms, 10)
-      );
-      if (!Number.isNaN(appleExpiry.getTime())) {
-        expirationDate = appleExpiry;
-      }
-    }
-
-    // Create user subscription
-    const subscription = new UserSubscription({
-      userId,
-      planId: plan._id,
-      status: SubscriptionStatus.ACTIVE,
-      startDate: new Date(),
-      endDate: expirationDate,
-    });
-
-    await subscription.save();
 
     // Create payment record
     const payment = new SubscriptionPayment({
       userId,
-      subscriptionId: subscription._id,
-      amount: plan.price,
-      currency: plan.currency,
+      subscriptionId: existingSubscription._id,
+      amount: 0, // Amount not available in receipt verification
+      currency: "USD",
       paymentProvider: PAYMENT_PROVIDERS.APPLE,
-      transactionId: transactionId,
-      status: SubscriptionStatus.ACTIVE,
-      receiptData: receiptData,
-      productId: actualProductId,
+      transactionId,
+      status: existingSubscription.status,
+      receiptData,
+      productId
     });
 
     await payment.save();
 
-    // Grant verified badge
-    await grantVerifiedBadge(userId, expirationDate);
-
-    logger.info(
-      `Apple purchase verified for user ${userId}, transaction: ${transactionId}`
-    );
-
     return {
       verified: true,
-      subscription: {
-        status: subscription.status,
-        startDate: subscription.startDate,
-        endDate: subscription.endDate,
-        plan: {
-          id: plan._id,
-          name: plan.name,
-          billingCycle: plan.billingCycle,
-        },
-      },
-      payment: {
-        transactionId: transactionId,
-        amount: payment.amount,
-        currency: payment.currency,
-      },
+      alreadyProcessed: false,
+      subscription: existingSubscription,
+      payment
     };
   } catch (error) {
     logger.error("Apple purchase verification error:", error);
