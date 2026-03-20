@@ -514,7 +514,9 @@ export const loginUser = async (email, password) => {
 
     // Check if account is verified
     if (!user.isAccountVerified) {
-      throw new Error("Please verify your email address first");
+      const error = new Error("Please verify your email address first");
+      error.errorType = "UnverifiedUser";
+      throw error;
     }
 
     // Verify password
