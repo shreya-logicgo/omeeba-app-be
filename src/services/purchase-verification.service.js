@@ -644,7 +644,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
 
     const transactionId = latestTransaction.transaction_id;
     const originalTransactionId = latestTransaction.original_transaction_id;
-    const productId = latestTransaction.product_id;
+    const receiptProductId = latestTransaction.product_id;
     const purchaseDate = new Date(parseInt(latestTransaction.purchase_date_ms));
     const expiresDate = latestTransaction.expires_date_ms 
       ? new Date(parseInt(latestTransaction.expires_date_ms))
@@ -653,7 +653,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
     console.log('🔍 Transaction Details:', {
       transactionId,
       originalTransactionId,
-      productId,
+      productId: receiptProductId,
       purchaseDate,
       expiresDate
     });
@@ -669,7 +669,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
     if (existingSubscription) {
       // Update existing subscription
       existingSubscription.latestTransactionId = transactionId;
-      existingSubscription.productId = productId;
+      existingSubscription.productId = receiptProductId;
       existingSubscription.startDate = purchaseDate;
       existingSubscription.endDate = expiresDate || purchaseDate;
       existingSubscription.expiresAt = expiresDate || purchaseDate;
@@ -688,7 +688,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
         planId: null, // Will be determined based on productId
         originalTransactionId,
         latestTransactionId: transactionId,
-        productId,
+        productId: receiptProductId,
         status: expiresDate && expiresDate > new Date() 
           ? SubscriptionStatus.ACTIVE 
           : SubscriptionStatus.EXPIRED,
@@ -715,7 +715,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
       transactionId,
       status: existingSubscription.status,
       receiptData,
-      productId
+      productId: receiptProductId
     });
 
     await payment.save();
