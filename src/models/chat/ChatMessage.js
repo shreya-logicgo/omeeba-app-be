@@ -56,6 +56,10 @@ const chatMessageSchema = new mongoose.Schema(
       enum: Object.values(ContentModelName),
       default: null,
     },
+    contentData: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null, // Store actual content data for polls and write posts
+    },
     status: {
       type: String,
       enum: Object.values(MessageStatus),

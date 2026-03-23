@@ -77,7 +77,7 @@ const getContentMediaForMessage = async (messageType, contentId) => {
  */
 export const sendMessage = async (roomId, senderId, messageData) => {
   try {
-    const { messageType, message, mediaId, mediaUrl, thumbnailUrl, contentId, contentType } = messageData;
+    const { messageType, message, mediaId, mediaUrl, thumbnailUrl, contentId, contentType, contentData } = messageData;
 
     let resolvedMediaUrl = mediaUrl || null;
     let resolvedThumbnailUrl = thumbnailUrl || null;
@@ -129,6 +129,7 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       thumbnailUrl: resolvedThumbnailUrl,
       contentId: contentId || null,
       contentType: contentType || null,
+      contentData: contentData || null,
       status: MessageStatus.SENT,
     });
 
@@ -201,6 +202,7 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       thumbnailUrl: newMessage.thumbnailUrl,
       contentId: newMessage.contentId ? newMessage.contentId.toString() : null,
       contentType: newMessage.contentType,
+      contentData: newMessage.contentData,
       status: newMessage.status,
       statusDisplay: newMessage.status === MessageStatus.SEEN ? "seen" : 
                      newMessage.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered",
@@ -277,6 +279,84 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
     // Format messages and fetch content creators
     const formattedMessages = await Promise.all(
       messages.map(async (msg) => {
+        // Fetch contentData on-demand if missing or incomplete for content types
+        let contentData = msg.contentData;
+        if ((!contentData || msg.contentType === "Poll") && msg.contentId && msg.contentType) {
+          try {
+            switch (msg.contentType) {
+              case "Post":
+                // For regular posts, contentData is typically not needed
+                contentData = null;
+                break;
+              case "Write Post": {
+                const writePost = await WritePost.findById(msg.contentId)
+                  .select("title content userId")
+                  .lean();
+                if (writePost) {
+                  contentData = {
+                    title: writePost.title,
+                    content: writePost.content,
+                    excerpt: writePost.content ? writePost.content.substring(0, 150) + (writePost.content.length > 150 ? "..." : "") : "",
+                    author: writePost.userId
+                  };
+                }
+                break;
+              }
+              case "Zeal": {
+                const zealPost = await ZealPost.findById(msg.contentId)
+                  .select("title description mediaUrl thumbnailUrl userId")
+                  .lean();
+                if (zealPost) {
+                  contentData = {
+                    title: zealPost.title,
+                    description: zealPost.description,
+                    mediaUrl: zealPost.mediaUrl,
+                    thumbnailUrl: zealPost.thumbnailUrl,
+                    userId: zealPost.userId
+                  };
+                }
+                break;
+              }
+              case "Poll": {
+                const poll = await Poll.findById(msg.contentId)
+                  .select("caption options totalVotes duration createdBy userVotes")
+                  .lean();
+                if (poll) {
+                  // Check if current user has voted on this poll
+                  const currentUserIdStr = userId.toString();
+                  logger.info(`Checking vote for user ${currentUserIdStr} in poll ${msg.contentId}`);
+                  logger.info(`Poll userVotes:`, JSON.stringify(poll.userVotes || []));
+                  
+                  const userVote = poll.userVotes ? poll.userVotes.find(vote => {
+                    const voteUserIdStr = vote.userId.toString();
+                    logger.info(`Comparing vote user ${voteUserIdStr} with current user ${currentUserIdStr}`);
+                    return voteUserIdStr === currentUserIdStr;
+                  }) : null;
+                  
+                  const selectedOptionId = userVote ? userVote.optionId : null;
+                  const hasVoted = !!userVote;
+                  
+                  logger.info(`User vote result: hasVoted=${hasVoted}, selectedOptionId=${selectedOptionId}`);
+                  
+                  contentData = {
+                    question: poll.caption, // Use caption field as question
+                    options: poll.options,
+                    totalVotes: poll.totalVotes || 0,
+                    expiresAt: poll.duration, // Use duration field as expiresAt
+                    createdBy: poll.createdBy,
+                    userVoted: hasVoted,
+                    selectedOptionId: selectedOptionId
+                  };
+                }
+                break;
+              }
+            }
+          } catch (error) {
+            logger.warn(`Failed to fetch contentData for message ${msg._id}:`, error.message);
+            contentData = null;
+          }
+        }
+
         const formattedMessage = {
           id: msg._id.toString(),
           roomId: roomId.toString(),
@@ -294,6 +374,7 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
           thumbnailUrl: msg.thumbnailUrl,
           contentId: msg.contentId ? msg.contentId.toString() : null,
           contentType: msg.contentType,
+          contentData: contentData,
           status: msg.status,
           statusDisplay: msg.status === MessageStatus.SEEN ? "seen" : 
                          msg.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered", // For UI display
@@ -455,8 +536,12 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
     contentId,
     recipientIds
   });
-  
+
+  logger.info(`Available ContentType values:`, Object.values(ContentType));
+  logger.info(`Checking contentType: "${contentType}" (type: ${typeof contentType})`);
+
   const messageType = contentTypeToMessageType[contentType];
+  logger.info(`Mapped contentType "${contentType}" to messageType "${messageType}"`);
   if (!messageType) {
     logger.error(`Invalid contentType: ${contentType}. Available types:`, Object.keys(contentTypeToMessageType));
     throw new Error("Invalid contentType. Use: Post, Write Post, Zeal Post, or Poll");
@@ -464,13 +549,77 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
 
   logger.info(`Mapped contentType ${contentType} to messageType ${messageType}`);
 
-  const content = await verifyContentForShare(contentType, contentId);
+  // Fetch content with required fields for contentData
+  logger.info(`Starting content fetch for ${contentType} ${contentId}`);
+  let content;
+  switch (contentType) {
+    case ContentType.POST:
+      content = await Post.findById(contentId).lean();
+      break;
+    case ContentType.WRITE_POST:
+      content = await WritePost.findById(contentId)
+        .select('title content userId createdAt')
+        .lean();
+      break;
+    case ContentType.ZEAL:
+      content = await ZealPost.findOne({ 
+        _id: contentId, 
+        status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] } 
+      })
+      .select('title description mediaUrl thumbnailUrl userId createdAt')
+      .lean();
+      break;
+    case ContentType.POLL:
+      content = await Poll.findById(contentId)
+        .select('question options totalVotes expiresAt createdBy createdAt')
+        .lean();
+      break;
+    default:
+      content = null;
+  }
+
+  logger.info(`Fetched content: ${JSON.stringify(content)}`);
+
   if (!content) {
     logger.error(`Content not found or not shareable: ${contentType} ${contentId}`);
     throw new Error("Content not found or not shareable (Zeal must be published)");
   }
 
   logger.info(`Content verified successfully:`, { contentType, contentId });
+
+  // Prepare contentData for polls and write posts
+  let contentData = null;
+  logger.info(`About to prepare contentData. contentType: ${contentType}, has content: ${!!content}`);
+  
+  if (contentType === ContentType.WRITE_POST && content) {
+    contentData = {
+      title: content.title,
+      content: content.content,
+      excerpt: content.content ? content.content.substring(0, 150) + (content.content.length > 150 ? "..." : "") : "",
+      author: content.userId
+    };
+    logger.info(`Write post content data prepared: ${JSON.stringify(contentData)}`);
+  } else if (contentType === ContentType.POLL && content) {
+    contentData = {
+      question: content.question,
+      options: content.options,
+      totalVotes: content.totalVotes || 0,
+      expiresAt: content.expiresAt,
+      createdBy: content.createdBy
+    };
+    logger.info(`Poll content data prepared: ${JSON.stringify(contentData)}`);
+  } else if (contentType === ContentType.ZEAL && content) {
+    contentData = {
+      title: content.title,
+      description: content.description,
+      mediaUrl: content.mediaUrl,
+      thumbnailUrl: content.thumbnailUrl,
+      userId: content.userId
+    };
+    logger.info(`Zeal content data prepared: ${JSON.stringify(contentData)}`);
+  } else {
+    logger.info(`No contentData prepared for contentType: ${contentType}`);
+  }
 
   const uniqueRecipientIds = [...new Set(recipientIds.map((id) => id.toString()))];
   const selfId = senderId.toString();
@@ -513,6 +662,7 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
         messageType,
         contentId,
         contentType: messageType,
+        contentData, // Include contentData for polls, write posts, and zeal posts
       });
 
       logger.info(`Successfully sent message to ${recipientId}, message ID: ${formattedMessage?.id}`);

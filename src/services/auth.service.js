@@ -514,6 +514,30 @@ export const loginUser = async (email, password) => {
 
     // Check if account is verified
     if (!user.isAccountVerified) {
+      // Generate new OTP for account verification
+      const otp = generateOTP();
+      const otpExpireAt = new Date();
+      otpExpireAt.setMinutes(
+        otpExpireAt.getMinutes() + config.otp.expireMinutes
+      );
+
+      // Update user with new OTP
+      user.otp = otp;
+      user.otpExpireAt = otpExpireAt;
+      await user.save();
+
+      // Send OTP email
+      try {
+        await sendOTPEmail(user.email, otp);
+        logger.info(`OTP sent to unverified user during login attempt: ${user.email}`);
+      } catch (emailError) {
+        logger.error(
+          `Failed to send OTP email to ${user.email}:`,
+          emailError
+        );
+        // Don't throw error - continue with the UnverifiedUser error
+      }
+
       const error = new Error("Please verify your email address first");
       error.errorType = "UnverifiedUser";
       throw error;
