@@ -613,10 +613,23 @@ const revokeVerifiedBadge = async (userId) => {
  */
 export const verifyApplePurchase = async (userId, receiptData, productId = null, receiptFormat = "Base64") => {
   try {
+    console.log('🍎 Apple Purchase Verification Started');
+    console.log('📝 UserId:', userId);
+    console.log('📦 ProductId:', productId);
+    console.log('📄 ReceiptFormat:', receiptFormat);
+    console.log('📊 ReceiptData preview:', receiptData ? receiptData.substring(0, 100) + '...' : 'null');
+    
     // Verify receipt with Apple
     const verificationResult = await verifyAppleReceipt(receiptData, true, receiptFormat);
+    
+    console.log('✅ Verification Result:', {
+      hasReceipt: !!verificationResult.receipt,
+      hasInApp: !!(verificationResult.receipt && verificationResult.receipt.in_app),
+      environment: verificationResult.environment
+    });
 
     if (!verificationResult.receipt || !verificationResult.receipt.in_app) {
+      console.log('❌ Invalid receipt data from Apple');
       throw new Error("Invalid receipt data from Apple");
     }
 
@@ -625,6 +638,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
       .sort((a, b) => parseInt(b.purchase_date_ms) - parseInt(a.purchase_date_ms))[0];
 
     if (!latestTransaction) {
+      console.log('❌ No transactions found in receipt');
       throw new Error("No transactions found in receipt");
     }
 
@@ -636,11 +650,21 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
       ? new Date(parseInt(latestTransaction.expires_date_ms))
       : null;
 
+    console.log('🔍 Transaction Details:', {
+      transactionId,
+      originalTransactionId,
+      productId,
+      purchaseDate,
+      expiresDate
+    });
+
     // Check if this subscription already exists
     let existingSubscription = await UserSubscription.findOne({
       originalTransactionId,
       userId
     });
+
+    console.log('🔎 Existing Subscription:', existingSubscription ? 'Found' : 'Not Found');
 
     if (existingSubscription) {
       // Update existing subscription
@@ -656,7 +680,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
       
       await existingSubscription.save();
       
-      logger.info(`Updated existing subscription for user ${userId}, transaction ${transactionId}`);
+      console.log('🔄 Updated existing subscription for user', userId, 'with status:', existingSubscription.status);
     } else {
       // Create new subscription
       const newSubscription = new UserSubscription({
@@ -677,7 +701,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
 
       await newSubscription.save();
       
-      logger.info(`Created new subscription for user ${userId}, transaction ${transactionId}`);
+      console.log('➕ Created new subscription for user', userId, 'with status:', newSubscription.status);
       existingSubscription = newSubscription;
     }
 
@@ -696,6 +720,18 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
 
     await payment.save();
 
+    // Update user's verified badge to true on successful purchase verification
+    if (existingSubscription.status === SubscriptionStatus.ACTIVE) {
+      console.log('🏆 Setting verified badge to TRUE for user', userId);
+      await User.findByIdAndUpdate(userId, {
+        isVerifiedBadge: true
+      });
+      logger.info(`Verified badge set to true for user ${userId} due to successful Apple purchase verification`);
+    } else {
+      console.log('⚠️ Subscription not active, not setting verified badge. Status:', existingSubscription.status);
+    }
+
+    console.log('✅ Apple Purchase Verification Completed Successfully');
     return {
       verified: true,
       alreadyProcessed: false,
@@ -703,6 +739,7 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null,
       payment
     };
   } catch (error) {
+    console.log('❌ Apple Purchase Verification Error:', error.message);
     logger.error("Apple purchase verification error:", error);
     throw error;
   }

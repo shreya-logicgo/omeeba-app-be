@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import https from 'https';
 import UserSubscription from '../models/subscriptions/UserSubscription.js';
 import SubscriptionPayment from '../models/subscriptions/SubscriptionPayment.js';
+import User from '../models/users/User.js';
 import { SubscriptionStatus } from '../models/enums.js';
 import { PAYMENT_PROVIDERS } from '../constants/index.js';
 import logger from '../utils/logger.js';
@@ -132,6 +133,14 @@ const handleSubscriptionStarted = async (transactionInfo, renewalInfo) => {
 
   await subscription.save();
 
+  // Update user's verified badge to true on successful purchase
+  if (subscription.userId) {
+    await User.findByIdAndUpdate(subscription.userId, {
+      isVerifiedBadge: true
+    });
+    logger.info(`Verified badge set to true for user ${subscription.userId} due to successful Apple subscription`);
+  }
+
   // Create payment record
   await createPaymentRecord(subscription.userId, transactionInfo, SubscriptionStatus.ACTIVE);
 
@@ -164,6 +173,14 @@ const handleSubscriptionRenewed = async (transactionInfo, renewalInfo) => {
   subscription.cancellationReason = null;
 
   await subscription.save();
+
+  // Update user's verified badge to true on successful renewal
+  if (subscription.userId) {
+    await User.findByIdAndUpdate(subscription.userId, {
+      isVerifiedBadge: true
+    });
+    logger.info(`Verified badge maintained for user ${subscription.userId} due to Apple subscription renewal`);
+  }
 
   // Create payment record for renewal
   await createPaymentRecord(subscription.userId, transactionInfo, SubscriptionStatus.ACTIVE);
@@ -200,6 +217,14 @@ const handleSubscriptionExpired = async (transactionInfo, renewalInfo) => {
   }
 
   await subscription.save();
+
+  // Update user's verified badge to false when subscription expires
+  if (subscription.userId) {
+    await User.findByIdAndUpdate(subscription.userId, {
+      isVerifiedBadge: false
+    });
+    logger.info(`Verified badge set to false for user ${subscription.userId} due to Apple subscription expiration`);
+  }
 
   logger.info(`Subscription expired for originalTransactionId: ${originalTransactionId}`);
 };
@@ -268,6 +293,14 @@ const handleGracePeriodExpired = async (transactionInfo, renewalInfo) => {
 
   await subscription.save();
 
+  // Update user's verified badge to false when grace period expires
+  if (subscription.userId) {
+    await User.findByIdAndUpdate(subscription.userId, {
+      isVerifiedBadge: false
+    });
+    logger.info(`Verified badge set to false for user ${subscription.userId} due to Apple subscription grace period expiration`);
+  }
+
   logger.info(`Grace period expired for originalTransactionId: ${originalTransactionId}`);
 };
 
@@ -292,6 +325,14 @@ const handleRefund = async (transactionInfo, renewalInfo) => {
   subscription.lastVerifiedAt = new Date();
 
   await subscription.save();
+
+  // Update user's verified badge to false when subscription is refunded
+  if (subscription.userId) {
+    await User.findByIdAndUpdate(subscription.userId, {
+      isVerifiedBadge: false
+    });
+    logger.info(`Verified badge set to false for user ${subscription.userId} due to Apple subscription refund`);
+  }
 
   // Update payment record to show refund
   await SubscriptionPayment.findOneAndUpdate(
@@ -324,6 +365,14 @@ const handleRevoked = async (transactionInfo, renewalInfo) => {
   subscription.lastVerifiedAt = new Date();
 
   await subscription.save();
+
+  // Update user's verified badge to false when subscription is revoked
+  if (subscription.userId) {
+    await User.findByIdAndUpdate(subscription.userId, {
+      isVerifiedBadge: false
+    });
+    logger.info(`Verified badge set to false for user ${subscription.userId} due to Apple subscription revocation`);
+  }
 
   logger.info(`Subscription revoked for originalTransactionId: ${originalTransactionId}`);
 };
