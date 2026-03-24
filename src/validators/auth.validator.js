@@ -31,16 +31,20 @@ export const registerSchema = createSchema(
       }),
     name: commonValidations.stringRequired(2, 100),
     username: Joi.string()
-      .alphanum()
+      .trim()
+      .lowercase()
       .min(3)
       .max(30)
+      .pattern(/^[a-z0-9_]+$/, "valid characters")
+      .pattern(/^(?!_)/, "start underscore")
+      .pattern(/(?<!_)$/, "end underscore")
+      .pattern(/^(?!.*__)/, "double underscore")
       .required()
-      .lowercase()
       .messages({
-        "string.alphanum": "must contain only letters and numbers",
-        "string.min": "must be at least 3 characters",
-        "string.max": "must be at most 30 characters",
-        "any.required": "is required",
+        "string.pattern.name": "Username {#name} rule violated",
+        "string.min": "Username must be at least 3 characters",
+        "string.max": "Username must be at most 30 characters",
+        "any.required": "Username is required"
       }),
     password: commonValidations.password,
   },

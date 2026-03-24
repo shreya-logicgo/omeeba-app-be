@@ -1,10 +1,12 @@
 /**
  * Comment Report Service
- * Business logic for comment reporting
+ * Business logic for comment and reply comment reporting
  */
 
 import CommentReport from "../models/comments/CommentReport.js";
 import Comment from "../models/comments/Comment.js";
+import ReplyCommentReport from "../models/comments/ReplyCommentReport.js";
+import ReplyComment from "../models/comments/ReplyComment.js";
 import { User, ReportCategory, ReportSubCategory } from "../models/index.js";
 import logger from "../utils/logger.js";
 
@@ -149,6 +151,150 @@ export const createCommentReport = async (userId, commentId, reportData) => {
     throw error;
   }
 };
+
+/**
+ * Create a report for a reply comment
+ * @param {string} userId - ID of user reporting
+ * @param {string} replyId - Reply comment ID
+ * @param {Object} reportData - Report data (subCategoryId, details)
+ * @returns {Promise<Object>} Created report
+ */
+export const createReplyCommentReport = async (userId, replyId, reportData) => {
+  try {
+    const { subCategoryId, details } = reportData;
+
+    // Validate user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    if (user.isDeleted) {
+      throw new Error("User account has been deleted");
+    }
+
+    // Validate reply exists
+    const reply = await ReplyComment.findById(replyId);
+    if (!reply) {
+      throw new Error("Reply not found");
+    }
+
+    // Prevent self-reporting
+    if (reply.userId.toString() === userId) {
+      throw new Error("You cannot report your own reply");
+    }
+
+    // Verify sub-category exists and get categoryId from it
+    const subCategory = await ReportSubCategory.findOne({
+      _id: subCategoryId,
+      isActive: true,
+    });
+
+    if (!subCategory) {
+      throw new Error("Sub-category not found or inactive");
+    }
+
+    // Get categoryId from subCategory
+    const categoryId = subCategory.categoryId;
+
+    // Verify category exists and is active
+    const category = await ReportCategory.findOne({
+      _id: categoryId,
+      isActive: true,
+    });
+
+    if (!category) {
+      throw new Error("Category not found or inactive");
+    }
+
+    // Check if user has already reported this reply
+    const existingReport = await ReplyCommentReport.findOne({
+      replyId,
+      reportedBy: userId,
+    });
+
+    if (existingReport) {
+      throw new Error("You have already reported this reply");
+    }
+
+    // Create report
+    const report = new ReplyCommentReport({
+      replyId,
+      reportedBy: userId,
+      categoryId: categoryId.toString(),
+      subCategoryId: subCategoryId,
+      details: details ? details.trim() : "",
+    });
+
+    await report.save();
+
+    logger.info(
+      `Reply comment report created: ${report._id} by user ${userId} for reply ${replyId}. Reply will be hidden for reporting user.`
+    );
+
+    // Fetch/Join related data manually
+    const [categoryData, subCategoryData, userData] = await Promise.all([
+      ReportCategory.findById(categoryId)
+        .select("_id name description displayOrder isActive")
+        .lean(),
+      subCategoryId
+        ? ReportSubCategory.findById(subCategoryId)
+            .select("_id name description displayOrder isActive categoryId")
+            .lean()
+        : null,
+      User.findById(userId).select("_id name username email profileImage").lean(),
+    ]);
+
+    // Format category
+    const formattedCategory = categoryData
+      ? {
+          id: categoryData._id.toString(),
+          name: categoryData.name,
+          description: categoryData.description,
+          displayOrder: categoryData.displayOrder,
+          isActive: categoryData.isActive,
+        }
+      : null;
+
+    // Format sub-category
+    const formattedSubCategory = subCategoryData
+      ? {
+          id: subCategoryData._id.toString(),
+          name: subCategoryData.name,
+          description: subCategoryData.description,
+          displayOrder: subCategoryData.displayOrder,
+          isActive: subCategoryData.isActive,
+          categoryId: subCategoryData.categoryId
+            ? subCategoryData.categoryId.toString()
+            : null,
+        }
+      : null;
+
+    // Format user (reportedBy)
+    const formattedUser = userData
+      ? {
+          id: userData._id.toString(),
+          name: userData.name,
+          username: userData.username,
+          email: userData.email,
+          profileImage: userData.profileImage,
+        }
+      : null;
+
+    return {
+      id: report._id.toString(),
+      replyId: report.replyId.toString(),
+      reportedBy: formattedUser,
+      category: formattedCategory,
+      subCategory: formattedSubCategory,
+      details: report.details,
+      createdAt: report.createdAt,
+    };
+  } catch (error) {
+    logger.error("Error in createReplyCommentReport:", error);
+    throw error;
+  }
+};
+
 
 export default {
   createCommentReport,

@@ -9,7 +9,16 @@ import {
   deleteChatRoom,
   getOrCreateChatRoom,
   getMessageRequests,
+  acceptMessageRequest,
+  rejectMessageRequest,
+  blockMessageRequest,
 } from "../services/chatRoom.service.js";
+import {
+  blockUser,
+  unblockUser,
+  getBlockedUsers,
+  checkBlockStatus,
+} from "../services/chatBlock.service.js";
 import {
   sendSuccess,
   sendError,
@@ -213,10 +222,132 @@ export const getMessageRequestsHandler = async (req, res) => {
   }
 };
 
+/**
+ * Block User from Chat
+ * @route POST /api/v1/chat/block
+ * @access Private
+ */
+export const blockUserHandler = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { blockedUserId } = req.body;
+
+    if (!blockedUserId) {
+      return sendBadRequest(res, "blockedUserId is required");
+    }
+
+    if (userId === blockedUserId) {
+      return sendBadRequest(res, "Cannot block yourself");
+    }
+
+    const block = await blockUser(userId, blockedUserId);
+
+    return sendSuccess(
+      res,
+      { block },
+      "User blocked successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Block user error:", error);
+
+    if (error.message) {
+      return sendBadRequest(res, error.message);
+    }
+
+    return sendError(
+      res,
+      "Failed to block user",
+      "Block User Error",
+      error.message || "An error occurred while blocking user",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Unblock User from Chat
+ * @route POST /api/v1/chat/unblock
+ * @access Private
+ */
+export const unblockUserHandler = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { blockedUserId } = req.body;
+
+    if (!blockedUserId) {
+      return sendBadRequest(res, "blockedUserId is required");
+    }
+
+    if (userId === blockedUserId) {
+      return sendBadRequest(res, "Cannot unblock yourself");
+    }
+
+    await unblockUser(userId, blockedUserId);
+
+    return sendSuccess(
+      res,
+      null,
+      "User unblocked successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Unblock user error:", error);
+
+    if (error.message) {
+      return sendBadRequest(res, error.message);
+    }
+
+    return sendError(
+      res,
+      "Failed to unblock user",
+      "Unblock User Error",
+      error.message || "An error occurred while unblocking user",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Get Blocked Users List
+ * @route GET /api/v1/chat/blocked
+ * @access Private
+ */
+export const getBlockedUsersHandler = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+
+    const result = await getBlockedUsers(userId, { page, limit });
+
+    return sendPaginated(
+      res,
+      result.blockedUsers,
+      result.pagination,
+      "Blocked users retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Get blocked users error:", error);
+
+    return sendError(
+      res,
+      "Failed to get blocked users",
+      "Get Blocked Users Error",
+      error.message || "An error occurred while retrieving blocked users",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   getOrCreateChatRoomHandler,
   getChatRoomsHandler,
   getChatRoomByIdHandler,
   deleteChatRoomHandler,
   getMessageRequestsHandler,
+  blockUserHandler,
+  unblockUserHandler,
+  getBlockedUsersHandler,
 };

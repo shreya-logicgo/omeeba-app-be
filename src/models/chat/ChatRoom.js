@@ -24,6 +24,12 @@ const chatRoomSchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
+    /** When chatType is REQUEST: status of the request (pending, rejected) */
+    requestStatus: {
+      type: String,
+      enum: ["pending", "rejected"],
+      default: "pending",
+    },
     isBlocked: {
       type: Boolean,
       default: false,

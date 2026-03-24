@@ -35,7 +35,7 @@ export const createSnapHandler = async (req, res) => {
     return sendSuccess(
       res,
       result,
-      "Snap created successfully. Upload media using the provided URL.",
+      "Byte Opened created successfully. Upload media using the provided URL.",
       StatusCodes.CREATED
     );
   } catch (error) {
@@ -82,7 +82,7 @@ export const confirmSnapUploadHandler = async (req, res) => {
     return sendSuccess(
       res,
       { snap },
-      "Snap uploaded and delivered successfully",
+      "Byte Opened uploaded and delivered successfully",
       StatusCodes.OK
     );
   } catch (error) {
@@ -121,7 +121,7 @@ export const viewSnapByMessageIdHandler = async (req, res) => {
     return sendSuccess(
       res,
       result,
-      "Snap retrieved successfully",
+      "Byte Opened retrieved successfully",
       StatusCodes.OK
     );
   } catch (error) {
@@ -162,7 +162,7 @@ export const viewSnapHandler = async (req, res) => {
     return sendSuccess(
       res,
       result,
-      "Snap retrieved successfully",
+      "Byte Opened retrieved successfully",
       StatusCodes.OK
     );
   } catch (error) {
@@ -208,7 +208,7 @@ export const getSnapsInboxHandler = async (req, res) => {
       res,
       result.snaps,
       result.pagination,
-      "Snaps retrieved successfully",
+      "Byte Opened retrieved successfully",
       StatusCodes.OK
     );
   } catch (error) {
@@ -245,7 +245,7 @@ export const getSentSnapsHandler = async (req, res) => {
       res,
       result.snaps,
       result.pagination,
-      "Sent snaps retrieved successfully",
+      "Sent Byte Opened retrieved successfully",
       StatusCodes.OK
     );
   } catch (error) {

@@ -4,11 +4,13 @@ import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
 import Poll from "../models/content/Poll.js";
 import User from "../models/users/User.js";
-import { ContentType, ZealStatus, PollStatus, NotificationType } from "../models/enums.js";
+import { ContentType, ZealStatus, PollStatus, NotificationType, ChatType, MessageType, MessageStatus } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import mongoose from "mongoose";
+import { sendMessage } from "./chatMessage.service.js";
+import ChatRoom from "../models/chat/ChatRoom.js";
 
 /**
  * Verify content exists and is accessible
@@ -25,19 +27,22 @@ const verifyContentExists = async (contentType, contentId) => {
         content = await Post.findById(contentId);
         break;
       case ContentType.WRITE_POST:
-        content = await WritePost.findById(contentId);
+        content = await WritePost.findById(contentId)
+          .select('title content userId createdAt');
         break;
       case ContentType.ZEAL:
         content = await ZealPost.findOne({
           _id: contentId,
           status: { $in: [ZealStatus.PUBLISHED, ZealStatus.READY] }, // Allow sharing published or ready zeal posts
-        });
+        })
+        .select('title description mediaUrl thumbnailUrl userId createdAt');
         break;
       case ContentType.POLL:
         content = await Poll.findOne({
           _id: contentId,
           // status: PollStatus.ACTIVE, // Only allow sharing active polls
-        });
+        })
+        .select('question options totalVotes expiresAt createdBy createdAt');
         break;
       default:
         return null;
@@ -132,7 +137,9 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
     }
 
     // Verify content exists and is accessible
+    logger.info(`Fetching content: ${contentType} ${contentId}`);
     const content = await verifyContentExists(contentType, contentId);
+    logger.info(`Fetched content: ${JSON.stringify(content)}`);
     if (!content) {
       throw new Error("Content not found or not accessible");
     }
@@ -157,6 +164,99 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
 
     // Insert all share records
     const createdShares = await ContentShare.insertMany(shareRecords);
+
+    // Create chat messages for each share (if chat room exists)
+    try {
+      for (const share of createdShares) {
+        const receiverId = share.receiverIds[0];
+        
+        // Check if chat room exists between sender and receiver
+        const existingRoom = await ChatRoom.findOne({
+          $or: [
+            { userA: senderId, userB: receiverId },
+            { userA: receiverId, userB: senderId }
+          ]
+        });
+
+        if (existingRoom) {
+          // Determine message type based on content type
+          let messageType = MessageType.TEXT;
+          let messageText = "";
+          let contentData = null;
+          
+          switch (contentType) {
+            case ContentType.POST:
+              messageType = MessageType.POST;
+              messageText = "Shared a post";
+              // For posts, we can just send the contentId and let the frontend fetch details
+              break;
+            case ContentType.WRITE_POST:
+              messageType = MessageType.WRITE_POST;
+              messageText = "Shared a write post";
+              // For write posts, include the actual content data since it's text-based
+              if (content && content.title) {
+                contentData = {
+                  title: content.title,
+                  content: content.content,
+                  excerpt: content.content ? content.content.substring(0, 150) + (content.content.length > 150 ? "..." : "") : "",
+                  author: content.userId
+                };
+                logger.info(`Write post content data prepared: ${JSON.stringify(contentData)}`);
+              } else {
+                logger.warn(`Write post content missing required fields: ${JSON.stringify(content)}`);
+              }
+              break;
+            case ContentType.ZEAL:
+              messageType = MessageType.ZEAL;
+              messageText = "Shared a zeal";
+              // For zeal posts, include the actual content data since it has media
+              if (content) {
+                contentData = {
+                  title: content.title,
+                  description: content.description,
+                  mediaUrl: content.mediaUrl,
+                  thumbnailUrl: content.thumbnailUrl,
+                  userId: content.userId
+                };
+                logger.info(`Zeal content data prepared: ${JSON.stringify(contentData)}`);
+              } else {
+                logger.warn(`Zeal content missing required fields: ${JSON.stringify(content)}`);
+              }
+              break;
+            case ContentType.POLL:
+              messageType = MessageType.POLL;
+              messageText = "Shared a poll";
+              // For polls, include the actual poll data since it's important for preview
+              if (content && content.question) {
+                contentData = {
+                  question: content.question,
+                  options: content.options,
+                  totalVotes: content.totalVotes || 0,
+                  expiresAt: content.expiresAt,
+                  createdBy: content.createdBy
+                };
+                logger.info(`Poll content data prepared: ${JSON.stringify(contentData)}`);
+              } else {
+                logger.warn(`Poll content missing required fields: ${JSON.stringify(content)}`);
+              }
+              break;
+          }
+
+          // Create chat message with content reference and data
+          logger.info(`Preparing to send message with contentData: ${JSON.stringify(contentData)}`);
+          await sendMessage(existingRoom._id.toString(), senderId, {
+            messageType,
+            message: messageText,
+            contentId: contentId.toString(),
+            contentType,
+            contentData, // Include actual content data for polls and write posts
+          });
+        }
+      }
+    } catch (chatError) {
+      logger.error("Error creating chat messages for shares:", chatError);
+      // Don't fail the share operation if chat message creation fails
+    }
 
     // Increment share count on the content document (atomic operation)
     // This tracks share count for analytics and virality tracking

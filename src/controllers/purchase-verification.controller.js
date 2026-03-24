@@ -20,13 +20,17 @@ import logger from "../utils/logger.js";
 export const verifyApplePurchaseController = async (req, res) => {
   try {
     const userId = req.user._id.toString();
-    const { receiptData, productId } = req.body;
+    const { receiptData, productId, receiptFormat } = req.body;
 
     if (!receiptData) {
       return sendBadRequest(res, "Receipt data is required");
     }
 
-    const result = await verifyApplePurchase(userId, receiptData, productId);
+    // Auto-detect format if not provided
+    const detectedFormat = receiptFormat || (receiptData.startsWith('eyJ') ? 'JWT' : 'Base64');
+    logger.info(`Verifying Apple purchase with format: ${detectedFormat}`);
+
+    const result = await verifyApplePurchase(userId, receiptData, productId, detectedFormat);
 
     return sendSuccess(
       res,
