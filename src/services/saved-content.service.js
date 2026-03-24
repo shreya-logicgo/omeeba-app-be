@@ -10,6 +10,9 @@ import { ContentType, ZealStatus, PollStatus } from "../models/enums.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { generateShareableLink } from "../utils/shareableLink.js";
+import { getIsFollowing } from "../utils/followUtils.js";
+import UserFollower from "../models/users/UserFollower.js";
+import mongoose from "mongoose";
 
 /**
  * Get liked content IDs for a user (bulk query for efficiency)
@@ -65,6 +68,28 @@ const getLikedContentIds = async (userId, contentItems) => {
     return likedIds;
   } catch (error) {
     logger.error("Error getting liked content IDs:", error);
+    return new Set();
+  }
+};
+
+/**
+ * Get followed user IDs for a user
+ * @param {mongoose.Types.ObjectId} userId - User ID
+ * @returns {Promise<Set<string>>} Set of followed user IDs as strings
+ */
+const getFollowedUserIdSet = async (userId) => {
+  if (!userId) return new Set();
+  try {
+    const followRows = await UserFollower.find({
+      followerId: new mongoose.Types.ObjectId(userId),
+    })
+      .select("userId")
+      .lean();
+    return new Set(
+      followRows.map((row) => row.userId?.toString()).filter(Boolean)
+    );
+  } catch (error) {
+    logger.error("Error getting followed user IDs:", error);
     return new Set();
   }
 };
@@ -747,13 +772,16 @@ export const getSavedContentListing = async (userId, options = {}) => {
     const authUserIdStr = userId.toString();
     
     // Get liked content IDs for all items at once
-    const likedContentIds = userId
-      ? await getLikedContentIds(userId, orderedContent)
-      : new Set();
+    // and followed user IDs for isFollowing flag
+    const [likedContentIds, followedUserIdSet] = await Promise.all([
+      userId ? getLikedContentIds(userId, orderedContent) : new Set(),
+      userId ? getFollowedUserIdSet(userId) : new Set(),
+    ]);
     
     const contentWithMetadata = orderedContent.map((item) => {
       const contentIdStr = item._id.toString();
       const isLiked = likedContentIds.has(contentIdStr);
+      const isFollowing = getIsFollowing(item, userId, followedUserIdSet);
 
       // For Poll: add selectedByAuthUser on each option
       if (item.contentType === ContentType.POLL) {
@@ -791,6 +819,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
           shareCount: shareCountMap.get(contentIdStr) || 0,
           isSaved: true, // This is saved content list, so always true
           isLiked, // Add isLiked property
+          isFollowing,
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
           savedAt: item.savedAt,
@@ -803,6 +832,7 @@ export const getSavedContentListing = async (userId, options = {}) => {
         commentCount: commentCountMap.get(contentIdStr) || 0,
         shareCount: shareCountMap.get(contentIdStr) || 0,
         isLiked, // Add isLiked for all content types
+        isFollowing,
         shareableLink: generateShareableLink(item.contentType, item._id),
       };
     });
