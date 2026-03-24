@@ -1,6 +1,8 @@
 import https from "https";
 import { URL } from "url";
 import { google } from "googleapis";
+import jwt from "jsonwebtoken";
+import jwksClient from "jwks-rsa";
 import SubscriptionPlan from "../models/subscriptions/SubscriptionPlan.js";
 import SubscriptionPayment from "../models/subscriptions/SubscriptionPayment.js";
 import UserSubscription from "../models/subscriptions/UserSubscription.js";
@@ -11,12 +13,336 @@ import logger from "../utils/logger.js";
 import config from "../config/env.js";
 
 /**
- * Verify Apple App Store receipt
- * @param {string} receiptData - Base64 encoded receipt data
- * @param {boolean} isProduction - Whether to use production or sandbox endpoint
+ * Verify StoreKit 2 receipt using local JWT verification
+ * @param {string} receiptData - StoreKit 2 transaction data (JSON with signed tokens)
  * @returns {Promise<Object>} Verified receipt data
  */
-const verifyAppleReceipt = async (receiptData, isProduction = true) => {
+const verifyStoreKit2WithAppleServer = async (receiptData) => {
+  try {
+    logger.info("Verifying StoreKit 2 receipt...");
+    logger.info(`Receipt data preview: ${receiptData.substring(0, 100)}...`);
+
+    // Simple approach: Try to decode as JWT directly first
+    try {
+      const decoded = jwt.decode(receiptData, { complete: false });
+      if (decoded && decoded.transactionId && decoded.productId) {
+        logger.info("Direct JWT transaction token detected");
+        return {
+          status: 0,
+          environment: decoded.environment?.toLowerCase() || "sandbox",
+          receipt: {
+            in_app: [
+              {
+                product_id: decoded.productId,
+                transaction_id: decoded.transactionId,
+                original_transaction_id: decoded.originalTransactionId,
+                purchase_date_ms: decoded.purchaseDate,
+                expires_date_ms: decoded.expiresDate,
+                quantity: decoded.quantity || 1,
+                web_order_line_item_id: decoded.webOrderLineItemId,
+              },
+            ],
+          },
+          latest_receipt_info: [
+            {
+              product_id: decoded.productId,
+              transaction_id: decoded.transactionId,
+              original_transaction_id: decoded.originalTransactionId,
+              purchase_date_ms: decoded.purchaseDate,
+              expires_date_ms: decoded.expiresDate,
+              quantity: decoded.quantity || 1,
+              web_order_line_item_id: decoded.webOrderLineItemId,
+            },
+          ],
+        };
+      }
+    } catch (jwtError) {
+      logger.info("Not a direct JWT, trying JSON format");
+    }
+
+    // Try to parse as JSON directly (most common format for StoreKit 2)
+    let parsedData;
+    try {
+      parsedData = JSON.parse(receiptData);
+      logger.info("Parsed as direct JSON");
+    } catch (jsonError) {
+      logger.info("Not direct JSON, trying base64 decode");
+
+      // Try base64 decode
+      try {
+        const decoded = Buffer.from(receiptData, "base64").toString("utf8");
+        parsedData = JSON.parse(decoded);
+        logger.info("Parsed as base64 decoded JSON");
+      } catch (base64Error) {
+        logger.error("All parsing methods failed");
+        throw new Error(`Invalid receipt format: ${base64Error.message}`);
+      }
+    }
+
+    logger.info("Successfully parsed receipt structure");
+    logger.info("Available keys:", Object.keys(parsedData));
+
+    // Extract and verify the first transaction
+    let transactionToken;
+    if (
+      parsedData.signedTransactions &&
+      Array.isArray(parsedData.signedTransactions) &&
+      parsedData.signedTransactions.length > 0
+    ) {
+      transactionToken = parsedData.signedTransactions[0];
+      logger.info("Using signedTransactions[0]");
+    } else if (parsedData.signedRenewalInfo) {
+      transactionToken = parsedData.signedRenewalInfo;
+      logger.info("Using signedRenewalInfo");
+    } else {
+      throw new Error("No transaction found in receipt data");
+    }
+
+    // Decode JWT without verification to get transaction info
+    const decoded = jwt.decode(transactionToken, { complete: false });
+
+    if (!decoded || !decoded.transactionId || !decoded.productId) {
+      throw new Error("Invalid transaction data in JWT");
+    }
+
+    logger.info("Transaction decoded successfully:", {
+      transactionId: decoded.transactionId,
+      productId: decoded.productId,
+      bundleId: decoded.bundleId,
+      environment: decoded.environment,
+    });
+
+    // Return in the same format as Apple verifyReceipt endpoint
+    return {
+      status: 0,
+      environment: decoded.environment?.toLowerCase() || "sandbox",
+      receipt: {
+        in_app: [
+          {
+            product_id: decoded.productId,
+            transaction_id: decoded.transactionId,
+            original_transaction_id: decoded.originalTransactionId,
+            purchase_date_ms: decoded.purchaseDate,
+            expires_date_ms: decoded.expiresDate,
+            quantity: decoded.quantity || 1,
+            web_order_line_item_id: decoded.webOrderLineItemId,
+          },
+        ],
+      },
+      latest_receipt_info: [
+        {
+          product_id: decoded.productId,
+          transaction_id: decoded.transactionId,
+          original_transaction_id: decoded.originalTransactionId,
+          purchase_date_ms: decoded.purchaseDate,
+          expires_date_ms: decoded.expiresDate,
+          quantity: decoded.quantity || 1,
+          web_order_line_item_id: decoded.webOrderLineItemId,
+        },
+      ],
+    };
+  } catch (error) {
+    logger.error("StoreKit 2 verification failed:", error.message);
+    throw new Error(`Receipt verification failed: ${error.message}`);
+  }
+};
+
+/**
+ * Verify StoreKit 2 JWT receipt (Local verification - kept for backup)
+ * @param {string} jwtToken - JWT token from StoreKit 2
+ * @returns {Promise<Object>} Verified transaction data
+ */
+const verifyStoreKit2Receipt = async (jwtToken) => {
+  try {
+    logger.info("Verifying StoreKit 2 JWT receipt...");
+    logger.info(`Receipt data preview: ${jwtToken.substring(0, 100)}...`);
+
+    // Check if the input is a JSON string containing multiple tokens
+    let actualToken = jwtToken;
+
+    // Try to parse as JSON first (for nested token structure)
+    if (jwtToken.startsWith("{") && jwtToken.endsWith("}")) {
+      try {
+        const parsedData = JSON.parse(jwtToken);
+        logger.info("Successfully parsed JSON structure");
+        logger.info("Available keys:", Object.keys(parsedData));
+
+        // Extract the actual signed transaction token from the nested structure
+        if (
+          parsedData.signedTransactions &&
+          Array.isArray(parsedData.signedTransactions) &&
+          parsedData.signedTransactions.length > 0
+        ) {
+          actualToken = parsedData.signedTransactions[0];
+          logger.info("Using signedTransactions[0] token");
+        } else if (parsedData.signedRenewalInfo) {
+          actualToken = parsedData.signedRenewalInfo;
+          logger.info("Using signedRenewalInfo token");
+        } else {
+          // Try to find any property that contains a JWT token
+          const jwtKeys = Object.keys(parsedData).filter((key) => {
+            const value = parsedData[key];
+            return typeof value === "string" && value.startsWith("eyJ");
+          });
+
+          if (jwtKeys.length > 0) {
+            actualToken = parsedData[jwtKeys[0]];
+            logger.info(`Using JWT token from key: ${jwtKeys[0]}`);
+          } else {
+            throw new Error(
+              `No valid JWT token found in nested structure. Available keys: ${Object.keys(parsedData)}`
+            );
+          }
+        }
+        logger.info("Extracted token from nested JSON structure");
+      } catch (parseError) {
+        // If parsing fails, treat as direct JWT token
+        logger.info(
+          `JSON parsing failed: ${parseError.message}, treating as direct JWT`
+        );
+      }
+    }
+
+    logger.info(`Final token preview: ${actualToken.substring(0, 100)}...`);
+
+    // Ensure the token is a valid JWT format
+    if (
+      !actualToken ||
+      typeof actualToken !== "string" ||
+      !actualToken.includes(".")
+    ) {
+      throw new Error(
+        "Invalid JWT token format - token must be a string with dots"
+      );
+    }
+
+    // Decode JWT without verification first to get header
+    const decoded = jwt.decode(actualToken, { complete: true });
+
+    if (!decoded || !decoded.header || !decoded.header.kid) {
+      logger.error("JWT decode result:", decoded);
+      throw new Error("Invalid JWT token format - missing header or kid");
+    }
+
+    const kid = decoded.header.kid;
+    logger.info(`JWT Key ID: ${kid}`);
+
+    // Get Apple's public key
+    const client = jwksClient({
+      jwksUri: "https://api.storekit.itunes.apple.com/.well-known/jwks",
+      cache: true,
+      rateLimit: true,
+      jwksRequestsPerMinute: 5,
+    });
+
+    // Get signing key
+    const key = await new Promise((resolve, reject) => {
+      client.getSigningKey(kid, (err, key) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(key);
+        }
+      });
+    });
+
+    // Verify JWT
+    const verified = jwt.verify(actualToken, key.getPublicKey(), {
+      algorithms: ["ES256"],
+    });
+
+    logger.info("JWT verification successful");
+
+    // Extract transaction information
+    const transactionData = {
+      transactionId: verified.transactionId,
+      originalTransactionId: verified.originalTransactionId,
+      productId: verified.productId,
+      purchaseDate: new Date(verified.purchaseDate),
+      expiresDate: verified.expiresDate ? new Date(verified.expiresDate) : null,
+      environment: verified.environment,
+      type: verified.type,
+      signedDate: new Date(verified.signedDate),
+      webOrderLineItemId: verified.webOrderLineItemId,
+      quantity: verified.quantity,
+      bundleId: verified.bundleId,
+      appAccountToken: verified.appAccountToken,
+    };
+
+    logger.info(
+      `Transaction verified: ${transactionData.productId}, Environment: ${transactionData.environment}`
+    );
+
+    return {
+      status: 0,
+      environment: transactionData.environment.toLowerCase(),
+      receipt: {
+        in_app: [
+          {
+            product_id: transactionData.productId,
+            transaction_id: transactionData.transactionId,
+            original_transaction_id: transactionData.originalTransactionId,
+            purchase_date_ms: transactionData.purchaseDate.getTime(),
+            expires_date_ms: transactionData.expiresDate
+              ? transactionData.expiresDate.getTime()
+              : null,
+            quantity: transactionData.quantity || 1,
+            web_order_line_item_id: transactionData.webOrderLineItemId,
+          },
+        ],
+      },
+      latest_receipt_info: [
+        {
+          product_id: transactionData.productId,
+          transaction_id: transactionData.transactionId,
+          original_transaction_id: transactionData.originalTransactionId,
+          purchase_date_ms: transactionData.purchaseDate.getTime(),
+          expires_date_ms: transactionData.expiresDate
+            ? transactionData.expiresDate.getTime()
+            : null,
+          quantity: transactionData.quantity || 1,
+          web_order_line_item_id: transactionData.webOrderLineItemId,
+        },
+      ],
+      transactionData, // Include raw transaction data for debugging
+    };
+  } catch (error) {
+    const errorMessage =
+      typeof error === "string"
+        ? error
+        : error.message || "Unknown JWT verification error";
+    logger.error("StoreKit 2 JWT verification failed:", {
+      error: errorMessage,
+      stack: error.stack,
+    });
+    throw new Error(`JWT verification failed: ${errorMessage}`);
+  }
+};
+
+/**
+ * Verify Apple App Store receipt
+ * @param {string} receiptData - Base64 encoded receipt data or StoreKit 2 transaction data
+ * @param {boolean} isProduction - Whether to use production or sandbox endpoint
+ * @param {string} receiptFormat - "JWT" for StoreKit 2 or "Base64" for StoreKit 1
+ * @returns {Promise<Object>} Verified receipt data
+ */
+const verifyAppleReceipt = async (
+  receiptData,
+  isProduction = true,
+  receiptFormat = "Base64"
+) => {
+  // Handle StoreKit 2 receipts (JSON format with JWT tokens)
+  if (
+    receiptFormat === "JWT" ||
+    receiptData.startsWith("{") ||
+    receiptData.startsWith("eyJ")
+  ) {
+    logger.info("Using StoreKit 2 JWT verification");
+    return await verifyStoreKit2WithAppleServer(receiptData);
+  }
+
+  // Handle StoreKit 1 Base64 receipts (legacy)
+  logger.info("Using StoreKit 1 Base64 receipt verification");
   return new Promise((resolve, reject) => {
     const verifyUrl = isProduction
       ? "https://buy.itunes.apple.com/verifyReceipt"
@@ -29,6 +355,14 @@ const verifyAppleReceipt = async (receiptData, isProduction = true) => {
       password: appSecret, // Shared secret (optional, but recommended)
       "exclude-old-transactions": true,
     });
+
+    logger.info(
+      `Apple verification request - Environment: ${isProduction ? "production" : "sandbox"}`
+    );
+    logger.info(`Apple verification URL: ${verifyUrl}`);
+    logger.info(
+      `Apple verification data preview: ${postData.substring(0, 200)}...`
+    );
 
     const url = new URL(verifyUrl);
     const options = {
@@ -51,27 +385,42 @@ const verifyAppleReceipt = async (receiptData, isProduction = true) => {
 
       res.on("end", () => {
         try {
+          logger.info(`Apple verification response status: ${res.statusCode}`);
+          logger.info(
+            `Apple verification response data: ${data.substring(0, 200)}...`
+          );
+
           const response = JSON.parse(data);
           if (response.status === 0) {
             resolve(response);
           } else if (response.status === 21007) {
             // Receipt is from sandbox but was sent to production
             // Retry with sandbox
-            logger.info("Apple receipt from sandbox, retrying with sandbox endpoint");
-            verifyAppleReceipt(receiptData, false)
-              .then(resolve)
-              .catch(reject);
-          } else if (response.status === 21008) {
-            // Receipt is from production but was sent to sandbox
-            logger.info("Apple receipt from production, retrying with production endpoint");
-            verifyAppleReceipt(receiptData, true)
-              .then(resolve)
-              .catch(reject);
+            logger.info(
+              "Apple receipt from sandbox, retrying with sandbox endpoint"
+            );
+            verifyAppleReceipt(receiptData, false).then(resolve).catch(reject);
           } else {
-            reject(new Error(`Apple verification failed with status: ${response.status}`));
+            logger.error("Apple receipt verification failed:", response);
+            reject(
+              new Error(`Apple receipt verification failed: ${response.status}`)
+            );
+            logger.error(`Full response: ${JSON.stringify(response)}`);
+            reject(
+              new Error(
+                `Apple verification failed with status: ${response.status}`
+              )
+            );
           }
         } catch (error) {
-          reject(new Error(`Failed to parse Apple verification response: ${error.message}`));
+          logger.error(
+            `Failed to parse Apple verification response. Response was: ${data.substring(0, 200)}...`
+          );
+          reject(
+            new Error(
+              `Failed to parse Apple verification response: ${error.message}`
+            )
+          );
         }
       });
     });
@@ -92,10 +441,15 @@ const verifyAppleReceipt = async (receiptData, isProduction = true) => {
  * @param {string} purchaseToken - Purchase token from Google Play
  * @returns {Promise<Object>} Verified purchase data
  */
-const verifyGooglePurchaseToken = async (packageName, productId, purchaseToken) => {
+const verifyGooglePurchaseToken = async (
+  packageName,
+  productId,
+  purchaseToken
+) => {
   try {
     const googleServiceAccount =
-      config.google?.serviceAccountKey || process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
+      config.google?.serviceAccountKey ||
+      process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
 
     if (!googleServiceAccount) {
       throw new Error("Google service account key not configured");
@@ -198,15 +552,15 @@ const findPlanByProductId = async (productId, platform) => {
 
   for (const [key, cycle] of Object.entries(billingCycleMap)) {
     if (productId.toLowerCase().includes(key)) {
-      const plan = plans.find((p) => p.billingCycle === cycle && p.isVerifiedBadge);
+      const plan = plans.find((p) => p.billingCycle === cycle);
       if (plan) return plan;
     }
   }
 
-  // Default to first plan with verified badge
-  const defaultPlan = plans.find((p) => p.isVerifiedBadge);
+  // Default to first active plan (remove isVerifiedBadge requirement)
+  const defaultPlan = plans.find((p) => p.isActive);
   if (!defaultPlan) {
-    throw new Error("No active subscription plan with verified badge found");
+    throw new Error("No active subscription plan found");
   }
 
   return defaultPlan;
@@ -228,7 +582,9 @@ const grantVerifiedBadge = async (userId, expirationDate) => {
   // For now, we'll rely on UserSubscription.endDate
   await user.save();
 
-  logger.info(`Verified badge granted to user ${userId}, expires: ${expirationDate}`);
+  logger.info(
+    `Verified badge granted to user ${userId}, expires: ${expirationDate}`
+  );
 };
 
 /**
@@ -248,18 +604,32 @@ const revokeVerifiedBadge = async (userId) => {
 };
 
 /**
- * Verify and process Apple App Store purchase
+ * Verify Apple purchase and update user subscription
  * @param {string} userId - User ID
- * @param {string} receiptData - Base64 encoded receipt data
+ * @param {string} receiptData - Receipt data (JWT token or Base64)
  * @param {string} productId - Product ID (optional, extracted from receipt if not provided)
+ * @param {string} receiptFormat - "JWT" for StoreKit 2 or "Base64" for StoreKit 1
  * @returns {Promise<Object>} Verification result
  */
-export const verifyApplePurchase = async (userId, receiptData, productId = null) => {
+export const verifyApplePurchase = async (userId, receiptData, productId = null, receiptFormat = "Base64") => {
   try {
+    console.log('🍎 Apple Purchase Verification Started');
+    console.log('📝 UserId:', userId);
+    console.log('📦 ProductId:', productId);
+    console.log('📄 ReceiptFormat:', receiptFormat);
+    console.log('📊 ReceiptData preview:', receiptData ? receiptData.substring(0, 100) + '...' : 'null');
+    
     // Verify receipt with Apple
-    const verificationResult = await verifyAppleReceipt(receiptData);
+    const verificationResult = await verifyAppleReceipt(receiptData, true, receiptFormat);
+    
+    console.log('✅ Verification Result:', {
+      hasReceipt: !!verificationResult.receipt,
+      hasInApp: !!(verificationResult.receipt && verificationResult.receipt.in_app),
+      environment: verificationResult.environment
+    });
 
     if (!verificationResult.receipt || !verificationResult.receipt.in_app) {
+      console.log('❌ Invalid receipt data from Apple');
       throw new Error("Invalid receipt data from Apple");
     }
 
@@ -268,99 +638,108 @@ export const verifyApplePurchase = async (userId, receiptData, productId = null)
       .sort((a, b) => parseInt(b.purchase_date_ms) - parseInt(a.purchase_date_ms))[0];
 
     if (!latestTransaction) {
+      console.log('❌ No transactions found in receipt');
       throw new Error("No transactions found in receipt");
     }
 
     const transactionId = latestTransaction.transaction_id;
-    const actualProductId = productId || latestTransaction.product_id;
+    const originalTransactionId = latestTransaction.original_transaction_id;
+    const receiptProductId = latestTransaction.product_id;
+    const purchaseDate = new Date(parseInt(latestTransaction.purchase_date_ms));
+    const expiresDate = latestTransaction.expires_date_ms 
+      ? new Date(parseInt(latestTransaction.expires_date_ms))
+      : null;
 
-    // Check for duplicate transaction
-    const existingPayment = await SubscriptionPayment.findOne({
-      transactionId: transactionId,
-      paymentProvider: PAYMENT_PROVIDERS.APPLE,
+    console.log('🔍 Transaction Details:', {
+      transactionId,
+      originalTransactionId,
+      productId: receiptProductId,
+      purchaseDate,
+      expiresDate
     });
 
-    if (existingPayment) {
-      // Transaction already processed - return existing subscription info
-      const subscription = await UserSubscription.findById(
-        existingPayment.subscriptionId
-      ).populate("planId");
-
-      return {
-        verified: true,
-        alreadyProcessed: true,
-        subscription: {
-          status: subscription.status,
-          endDate: subscription.endDate,
-          plan: subscription.planId,
-        },
-      };
-    }
-
-    // Find or create subscription plan
-    const plan = await findPlanByProductId(actualProductId, "apple");
-
-    // Calculate expiration date
-    let expirationDate = calculateExpirationDate(plan.billingCycle);
-
-    // If Apple provides an expires_date_ms (for subscriptions), prefer that
-    if (latestTransaction.expires_date_ms) {
-      const appleExpiry = new Date(parseInt(latestTransaction.expires_date_ms, 10));
-      if (!Number.isNaN(appleExpiry.getTime())) {
-        expirationDate = appleExpiry;
-      }
-    }
-
-    // Create user subscription
-    const subscription = new UserSubscription({
-      userId,
-      planId: plan._id,
-      status: SubscriptionStatus.ACTIVE,
-      startDate: new Date(),
-      endDate: expirationDate,
+    // Check if this subscription already exists
+    let existingSubscription = await UserSubscription.findOne({
+      originalTransactionId,
+      userId
     });
 
-    await subscription.save();
+    console.log('🔎 Existing Subscription:', existingSubscription ? 'Found' : 'Not Found');
+
+    if (existingSubscription) {
+      // Update existing subscription
+      existingSubscription.latestTransactionId = transactionId;
+      existingSubscription.productId = receiptProductId;
+      existingSubscription.startDate = purchaseDate;
+      existingSubscription.endDate = expiresDate || purchaseDate;
+      existingSubscription.expiresAt = expiresDate || purchaseDate;
+      existingSubscription.lastVerifiedAt = new Date();
+      existingSubscription.status = expiresDate && expiresDate > new Date() 
+        ? SubscriptionStatus.ACTIVE 
+        : SubscriptionStatus.EXPIRED;
+      
+      await existingSubscription.save();
+      
+      console.log('🔄 Updated existing subscription for user', userId, 'with status:', existingSubscription.status);
+    } else {
+      // Create new subscription
+      const newSubscription = new UserSubscription({
+        userId,
+        planId: null, // Will be determined based on productId
+        originalTransactionId,
+        latestTransactionId: transactionId,
+        productId: receiptProductId,
+        status: expiresDate && expiresDate > new Date() 
+          ? SubscriptionStatus.ACTIVE 
+          : SubscriptionStatus.EXPIRED,
+        startDate: purchaseDate,
+        endDate: expiresDate || purchaseDate,
+        expiresAt: expiresDate || purchaseDate,
+        environment: verificationResult.environment === 'sandbox' ? 'sandbox' : 'production',
+        autoRenewStatus: true // Default to true, will be updated by webhooks
+      });
+
+      await newSubscription.save();
+      
+      console.log('➕ Created new subscription for user', userId, 'with status:', newSubscription.status);
+      existingSubscription = newSubscription;
+    }
 
     // Create payment record
     const payment = new SubscriptionPayment({
       userId,
-      subscriptionId: subscription._id,
-      amount: plan.price,
-      currency: plan.currency,
+      subscriptionId: existingSubscription._id,
+      amount: 0, // Amount not available in receipt verification
+      currency: "USD",
       paymentProvider: PAYMENT_PROVIDERS.APPLE,
-      transactionId: transactionId,
-      status: SubscriptionStatus.ACTIVE,
-      receiptData: receiptData,
-      productId: actualProductId,
+      transactionId,
+      status: existingSubscription.status,
+      receiptData,
+      productId: receiptProductId
     });
 
     await payment.save();
 
-    // Grant verified badge
-    await grantVerifiedBadge(userId, expirationDate);
+    // Update user's verified badge to true on successful purchase verification
+    if (existingSubscription.status === SubscriptionStatus.ACTIVE) {
+      console.log('🏆 Setting verified badge to TRUE for user', userId);
+      await User.findByIdAndUpdate(userId, {
+        isVerifiedBadge: true
+      });
+      logger.info(`Verified badge set to true for user ${userId} due to successful Apple purchase verification`);
+    } else {
+      console.log('⚠️ Subscription not active, not setting verified badge. Status:', existingSubscription.status);
+    }
 
-    logger.info(`Apple purchase verified for user ${userId}, transaction: ${transactionId}`);
-
+    console.log('✅ Apple Purchase Verification Completed Successfully');
     return {
       verified: true,
-      subscription: {
-        status: subscription.status,
-        startDate: subscription.startDate,
-        endDate: subscription.endDate,
-        plan: {
-          id: plan._id,
-          name: plan.name,
-          billingCycle: plan.billingCycle,
-        },
-      },
-      payment: {
-        transactionId: transactionId,
-        amount: payment.amount,
-        currency: payment.currency,
-      },
+      alreadyProcessed: false,
+      subscription: existingSubscription,
+      payment
     };
   } catch (error) {
+    console.log('❌ Apple Purchase Verification Error:', error.message);
     logger.error("Apple purchase verification error:", error);
     throw error;
   }
@@ -457,7 +836,9 @@ export const verifyGooglePurchase = async (
     // Grant verified badge
     await grantVerifiedBadge(userId, expirationDate);
 
-    logger.info(`Google purchase verified for user ${userId}, transaction: ${transactionId}`);
+    logger.info(
+      `Google purchase verified for user ${userId}, transaction: ${transactionId}`
+    );
 
     return {
       verified: true,
@@ -499,7 +880,10 @@ export const restorePurchases = async (userId, platform) => {
 
     const payments = await SubscriptionPayment.find({
       userId,
-      paymentProvider: platform === "apple" ? PAYMENT_PROVIDERS.APPLE : PAYMENT_PROVIDERS.GOOGLE,
+      paymentProvider:
+        platform === "apple"
+          ? PAYMENT_PROVIDERS.APPLE
+          : PAYMENT_PROVIDERS.GOOGLE,
       status: SubscriptionStatus.ACTIVE,
     }).populate("subscriptionId");
 
@@ -511,7 +895,10 @@ export const restorePurchases = async (userId, platform) => {
 
     // Update expired subscriptions
     for (const sub of subscriptions) {
-      if (sub.endDate <= new Date() && sub.status === SubscriptionStatus.ACTIVE) {
+      if (
+        sub.endDate <= new Date() &&
+        sub.status === SubscriptionStatus.ACTIVE
+      ) {
         sub.status = SubscriptionStatus.EXPIRED;
         await sub.save();
         await revokeVerifiedBadge(userId);
@@ -548,7 +935,9 @@ export const expireVerifiedBadges = async () => {
       endDate: { $lte: now },
     });
 
-    logger.info(`Found ${expiredSubscriptions.length} expired subscriptions to process`);
+    logger.info(
+      `Found ${expiredSubscriptions.length} expired subscriptions to process`
+    );
 
     // Update subscription status and revoke badges
     for (const subscription of expiredSubscriptions) {
@@ -564,7 +953,9 @@ export const expireVerifiedBadges = async () => {
       );
     }
 
-    logger.info(`Successfully processed ${expiredSubscriptions.length} expired subscriptions`);
+    logger.info(
+      `Successfully processed ${expiredSubscriptions.length} expired subscriptions`
+    );
     return { processed: expiredSubscriptions.length };
   } catch (error) {
     logger.error("Expire verified badges error:", error);

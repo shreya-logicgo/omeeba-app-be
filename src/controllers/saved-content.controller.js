@@ -48,6 +48,7 @@ export const toggle = async (req, res) => {
       {
         action: result.action,
         isSaved: result.isSaved,
+        isLiked: result.isLiked,
         contentType,
         contentId,
       },
@@ -112,6 +113,7 @@ export const save = async (req, res) => {
       {
         action: result.action,
         isSaved: result.isSaved,
+        isLiked: result.isLiked,
         contentType,
         contentId,
       },
@@ -174,6 +176,7 @@ export const unsave = async (req, res) => {
       {
         action: result.action,
         isSaved: result.isSaved,
+        isLiked: result.isLiked,
         contentType,
         contentId,
       },
@@ -238,6 +241,7 @@ export const getStatus = async (req, res) => {
       res,
       {
         isSaved: result.isSaved,
+        isLiked: result.isLiked,
         contentType,
         contentId,
       },

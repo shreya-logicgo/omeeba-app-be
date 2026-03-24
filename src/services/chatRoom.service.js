@@ -15,6 +15,7 @@ import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatChatListTime } from "../utils/timeFormatter.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
+import { checkBlockStatus } from "./chatBlock.service.js";
 
 /**
  * Get or create a chat room between two users.
@@ -60,6 +61,7 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
         userB,
         chatType: effectiveChatType,
         requesterId,
+        requestStatus: effectiveChatType === ChatType.REQUEST ? "pending" : null,
       });
 
       // Create participant records for both users
@@ -77,6 +79,13 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
       ]);
 
       logger.info(`Created chat room ${room._id} between users ${userA} and ${userB}`);
+    } else if (room.chatType === ChatType.REQUEST && room.requestStatus === "rejected") {
+      // If room exists but was rejected, reset to pending when requester sends new message
+      if (room.requesterId && room.requesterId.toString() === currentUserId) {
+        room.requestStatus = "pending";
+        await room.save();
+        logger.info(`Reset rejected request ${room._id} to pending for user ${currentUserId}`);
+      }
     }
 
     // Format and return room with participant info
@@ -199,11 +208,14 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
     });
 
     // Format rooms
-    const formattedRooms = rooms.map((room) => {
+    const formattedRooms = await Promise.all(rooms.map(async (room) => {
       const roomId = room._id.toString();
       const participant = participantMap.get(roomId);
       const otherUser = room.userA._id.toString() === userId ? room.userB : room.userA;
       const otherUserId = otherUser._id.toString();
+
+      // Check block status between users
+      const blockStatus = await checkBlockStatus(userId, otherUserId);
 
       // Get followers count
       const followersCount = followersMap.get(otherUserId) || 0;
@@ -214,7 +226,7 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         lastMessage.senderId.toString() === otherUserId;
 
       // Format last message preview with status indicator
-      // lastMessageStatus: "new" = from other, unread (dot); "read" = messages read but snap not viewed; "delivered" = sent by me, delivered; "open" = sent by me, recipient saw
+      // lastMessageStatus: "new" = from other, unread (dot); "read" = messages read but snap not viewed; "Delivered" = sent by me, delivered; "Byte Opened" = sent by me, recipient saw
       let lastMessagePreview = null;
       let lastMessageStatus = null;
       const hasUnread = participant && participant.unreadCount > 0;
@@ -235,11 +247,11 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         } else if (!lastMessageFromOther && lastMessage) {
           // Message sent by current user
           if (lastMessage.status === MessageStatus.SEEN) {
-            lastMessageStatus = "open"; // samne wale ne dekha
+            lastMessageStatus = "Byte Opened"; // samne wale ne dekha
           } else if (lastMessage.status === MessageStatus.DELIVERED) {
-            lastMessageStatus = "delivered"; // sent by me, delivered
+            lastMessageStatus = "Delivered"; // sent by me, delivered
           } else {
-            lastMessageStatus = "sent"; // sent
+            lastMessageStatus = "Delivered"; // sent
           }
         }
 
@@ -248,15 +260,15 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
           if (room.lastMessageType === MessageType.TEXT) {
             lastMessagePreview = room.lastMessage;
           } else if (room.lastMessageType === MessageType.IMAGE) {
-            lastMessagePreview = "📷 Image";
+            lastMessagePreview = "Image";
           } else if (room.lastMessageType === MessageType.SNAP) {
-            lastMessagePreview = "📸 Snap"; // Viewed snap or sent by me
+            lastMessagePreview = "Byte Opened"; // Viewed Byte Opened or sent by me
           } else if (room.lastMessageType === MessageType.POST) {
-            lastMessagePreview = "📌 Post";
+            lastMessagePreview = "Post";
           } else if (room.lastMessageType === MessageType.WRITE_POST) {
-            lastMessagePreview = "✍️ Write Post";
+            lastMessagePreview = "Write Post";
           } else if (room.lastMessageType === MessageType.ZEAL) {
-            lastMessagePreview = "🎬 Zeal";
+            lastMessagePreview = "Zeal";
           } else {
             lastMessagePreview = room.lastMessage;
           }
@@ -288,10 +300,11 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
         timeAgo: room.lastMessageAt ? getTimeAgo(room.lastMessageAt) : null, // Keep for backward compatibility
         unreadCount: participant ? participant.unreadCount : 0,
         isBlocked: room.isBlocked,
+        blockStatus: blockStatus,
         createdAt: room.createdAt,
         updatedAt: room.updatedAt,
       };
-    });
+    }));
 
     return {
       rooms: formattedRooms,
@@ -410,9 +423,13 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
     const skip = (page - 1) * limit;
 
     const baseQuery = {
-      $or: [{ userA: userId }, { userB: userId }],
       chatType: ChatType.REQUEST,
-      requesterId: { $ne: userId } // Only show requests RECEIVED by the user (User C sees A and B)
+      requestStatus: "pending", // Only show pending requests
+      $or: [
+        { userA: userId }, // User A is recipient
+        { userB: userId }  // User B is recipient
+      ],
+      requesterId: { $ne: userId } // Exclude requests sent by this user
     };
     if (search && search.trim()) {
       const matchingUsers = await User.find({
@@ -502,12 +519,19 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
         if (!lastMessagePreview) {
           if (room.lastMessageType === MessageType.TEXT) {
             lastMessagePreview = room.lastMessage;
-          } else if (room.lastMessageType === MessageType.IMAGE) lastMessagePreview = "📷 Image";
-          else if (room.lastMessageType === MessageType.SNAP) lastMessagePreview = "📸 Snap"; // Viewed snap
-          else if (room.lastMessageType === MessageType.POST) lastMessagePreview = "📌 Post";
-          else if (room.lastMessageType === MessageType.WRITE_POST) lastMessagePreview = "✍️ Write Post";
-          else if (room.lastMessageType === MessageType.ZEAL) lastMessagePreview = "🎬 Zeal";
-          else lastMessagePreview = room.lastMessage;
+          } else if (room.lastMessageType === MessageType.IMAGE) {
+            lastMessagePreview = "Image";
+          } else if (room.lastMessageType === MessageType.SNAP) {
+            lastMessagePreview = "Byte Opened"; // Viewed Byte Opened
+          } else if (room.lastMessageType === MessageType.POST) {
+            lastMessagePreview = "Post";
+          } else if (room.lastMessageType === MessageType.WRITE_POST) {
+            lastMessagePreview = "Write Post";
+          } else if (room.lastMessageType === MessageType.ZEAL) {
+            lastMessagePreview = "Zeal";
+          } else {
+            lastMessagePreview = room.lastMessage;
+          }
         }
       }
 
@@ -609,10 +633,10 @@ export const acceptMessageRequest = async (roomId, userId) => {
 };
 
 /**
- * Reject (Delete) a message request: remove thread; sender is not notified and can send again later
+ * Reject a message request: change status to rejected; room remains but not visible to recipient
  * @param {string} roomId - Room ID
  * @param {string} userId - User ID (must be the recipient)
- * @returns {Promise<boolean>} Success
+ * @returns {Promise<Object>} Updated room
  */
 export const rejectMessageRequest = async (roomId, userId) => {
   try {
@@ -631,14 +655,21 @@ export const rejectMessageRequest = async (roomId, userId) => {
       throw new Error("Only the recipient can reject the request");
     }
 
-    await Promise.all([
-      ChatMessage.deleteMany({ roomId: room._id }),
-      ChatParticipant.deleteMany({ roomId: room._id }),
-    ]);
-    await ChatRoom.deleteOne({ _id: roomId });
+    // Update room status to rejected
+    room.requestStatus = "rejected";
+    await room.save();
 
-    logger.info(`Message request ${roomId} rejected (deleted) by user ${userId}; sender can request again`);
-    return true;
+    logger.info(`Message request ${roomId} rejected by user ${userId}; status changed to rejected`);
+    
+    return {
+      id: roomId,
+      roomId: roomId,
+      chatType: ChatType.REQUEST,
+      requestStatus: "rejected",
+      requesterId: requesterIdStr,
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+    };
   } catch (error) {
     logger.error("Error in rejectMessageRequest:", error);
     throw error;

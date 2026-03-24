@@ -3,6 +3,7 @@ import User from "../models/users/User.js";
 import logger from "../utils/logger.js";
 import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
 import { ContentType } from "../models/enums.js";
+import { createNotification } from "./notification.service.js";
 
 /**
  * Create Write Post
@@ -70,6 +71,24 @@ export const createWritePost = async (userId, postData) => {
     ]);
 
     logger.info(`Write post created: ${writePost._id} by user: ${userId}`);
+
+    // Create notifications for mentioned users
+    if (postData.mentionedUserIds && postData.mentionedUserIds.length > 0) {
+      for (const mentionedUserId of postData.mentionedUserIds) {
+        try {
+          await createNotification({
+            receiverId: mentionedUserId,
+            senderId: userId,
+            type: "MENTION_IN_WRITE",
+            contentType: ContentType.WRITE_POST,
+            contentId: writePost._id,
+            message: postData.content || ""
+          });
+        } catch (error) {
+          logger.error(`Error creating mention notification for user ${mentionedUserId}:`, error);
+        }
+      }
+    }
 
     return writePost;
   } catch (error) {

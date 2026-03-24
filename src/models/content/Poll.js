@@ -49,6 +49,10 @@ const pollSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    mentionedUserIds: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    }],
     options: [pollOptionSchema],
     totalVotes: {
       type: Number,

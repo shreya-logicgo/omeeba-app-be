@@ -4,6 +4,7 @@ import Music from "../models/music/Music.js";
 import logger from "../utils/logger.js";
 import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
 import { ContentType } from "../models/enums.js";
+import { createNotification } from "./notification.service.js";
 
 /**
  * Create Post
@@ -130,6 +131,24 @@ export const createPost = async (userId, postData) => {
     ]);
 
     logger.info(`Post created: ${post._id} by user: ${userId}`);
+
+    // Create notifications for mentioned users
+    if (postData.mentionedUserIds && postData.mentionedUserIds.length > 0) {
+      for (const mentionedUserId of postData.mentionedUserIds) {
+        try {
+          await createNotification({
+            receiverId: mentionedUserId,
+            senderId: userId,
+            type: "MENTION_IN_POST",
+            contentType: ContentType.POST,
+            contentId: post._id,
+            message: post.caption || ""
+          });
+        } catch (error) {
+          logger.error(`Error creating mention notification for user ${mentionedUserId}:`, error);
+        }
+      }
+    }
 
     return post;
   } catch (error) {

@@ -59,6 +59,28 @@ const getBlockedUserIds = async (userId) => {
 };
 
 /**
+ * Get followed user IDs for a user
+ * @param {mongoose.Types.ObjectId} userId - User ID
+ * @returns {Promise<Set<string>>} Set of followed user IDs as strings
+ */
+const getFollowedUserIdSet = async (userId) => {
+  if (!userId) return new Set();
+  try {
+    const followRows = await UserFollower.find({
+      followerId: new mongoose.Types.ObjectId(userId),
+    })
+      .select("userId")
+      .lean();
+    return new Set(
+      followRows.map((row) => row.userId?.toString()).filter(Boolean)
+    );
+  } catch (error) {
+    logger.error("Error getting followed user IDs:", error);
+    return new Set();
+  }
+};
+
+/**
  * Get engagement metrics for content items
  * @param {Array} contentItems - Array of content items with contentType and _id
  * @returns {Promise<Map>} Map of contentId -> { likeCount, commentCount, shareCount }
@@ -379,7 +401,8 @@ const formatContentItem = (
   metrics,
   contentType,
   isLiked = false,
-  isSaved = false
+  isSaved = false,
+  isFollowing = false
 ) => {
   const baseItem = {
     id: item._id.toString(),
@@ -406,6 +429,7 @@ const formatContentItem = (
     shareCount: metrics.shareCount || 0,
     isLiked,
     isSaved,
+    isFollowing,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
@@ -480,6 +504,17 @@ const formatContentList = async (userId, contentItems) => {
         getSavedContentIds(userId, contentItems),
       ])
     : [new Set(), new Set()];
+  const followedUserIdSet = userId
+    ? new Set(
+        (
+          await UserFollower.find({
+            followerId: new mongoose.Types.ObjectId(userId),
+          })
+            .select("userId")
+            .lean()
+        ).map((row) => row.userId?.toString())
+      )
+    : new Set();
 
   return contentItems.map((item) => {
     const metrics = metricsMap.get(item._id.toString()) || {
@@ -489,12 +524,24 @@ const formatContentList = async (userId, contentItems) => {
     };
     const isLiked = likedContentIds.has(item._id.toString());
     const isSaved = savedContentIds.has(item._id.toString());
+    const isFollowing = getIsFollowing(item, userId, followedUserIdSet);
+
+    // Handle Poll content type separately
+    if (item.contentType === ContentType.POLL) {
+      const formattedPoll = formatPollForFeed(item, metrics, isLiked, isSaved);
+      return {
+        ...formattedPoll,
+        isFollowing,
+      };
+    }
+
     return formatContentItem(
       item,
       metrics,
       item.contentType,
       isLiked,
-      isSaved
+      isSaved,
+      isFollowing
     );
   });
 };
@@ -742,7 +789,7 @@ const fetchTrendingPolls = async (validUserIds, limit) => {
   return polls.map((p) => ({ ...p, contentType: ContentType.POLL }));
 };
 
-const formatPollForFeed = (poll) => ({
+const formatPollForFeed = (poll, metrics = {}, isLiked = false, isSaved = false) => ({
   id: poll._id.toString(),
   contentType: ContentType.POLL,
   shareableLink: generateShareableLink(ContentType.POLL, poll._id),
@@ -761,9 +808,13 @@ const formatPollForFeed = (poll) => ({
         isVerifiedBadge: poll.createdBy.isVerifiedBadge,
       }
     : null,
-  likeCount: 0,
-  commentCount: 0,
+  likeCount: metrics.likeCount || 0,
+  commentCount: metrics.commentCount || 0,
+  shareCount: metrics.shareCount || 0,
+  isLiked,
+  isSaved,
   createdAt: poll.createdAt,
+  updatedAt: poll.updatedAt,
 });
 
 /** Get optionId the user voted for, or null */
@@ -803,6 +854,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     const skip = (page - 1) * limit;
 
     // Get blocked users if userId is provided
+    let followedUserIdSet = new Set();
     let blockedUserIds = [];
     let reportedContentIds = {
       [ContentType.POST]: [],
@@ -812,7 +864,10 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     };
 
     if (userId) {
-      blockedUserIds = await getBlockedUserIds(userId);
+      [blockedUserIds, followedUserIdSet] = await Promise.all([
+        getBlockedUserIds(userId),
+        getFollowedUserIdSet(userId),
+      ]);
       try {
         reportedContentIds = await getReportedContentIds(userId);
       } catch (error) {
@@ -1040,6 +1095,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
     const formattedContent = paginatedContent.map((item) => {
       const isLiked = likedContentIds.has(item._id.toString());
       const isSaved = savedContentIds.has(item._id.toString());
+      const isFollowing = getIsFollowing(item, userId, followedUserIdSet);
 
       if (item.contentType === ContentType.POLL) {
         const userSelectedOptionId = getUserSelectedOptionId(item, userId);
@@ -1069,6 +1125,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
           shareCount: item.metrics.shareCount,
           isLiked,
           isSaved,
+          isFollowing,
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
         };
@@ -1079,7 +1136,8 @@ export const getTrendingContent = async (userId = null, options = {}) => {
         item.metrics,
         item.contentType,
         isLiked,
-        isSaved
+        isSaved,
+        isFollowing
       );
     });
 
@@ -1147,7 +1205,8 @@ export const getHomeFeed = async (userId, options = {}) => {
       zeals: [ContentType.ZEAL],
       poll: [ContentType.POLL],
       polls: [ContentType.POLL],
-      all: [ContentType.POST, ContentType.WRITE_POST, ContentType.POLL],
+      all: [ContentType.POST, ContentType.WRITE_POST
+        , ContentType.POLL],
     };
 
     const contentTypes = itemMap[normalizedItem] || itemMap.all;
@@ -1155,8 +1214,26 @@ export const getHomeFeed = async (userId, options = {}) => {
     const includePolls = contentTypeSet.has(ContentType.POLL);
 
     // Helper: add selectedByAuthUser flag on each option for logged-in user
-    const attachSelectedOption = (poll) => {
-      const formattedPoll = formatPollForFeed(poll);
+    const attachSelectedOption = async (poll) => {
+      // Get metrics and user status for this poll
+      const pollMetrics = await getEngagementMetrics([poll]);
+      const metrics = pollMetrics.get(poll._id.toString()) || {
+        likeCount: 0,
+        commentCount: 0,
+        shareCount: 0,
+      };
+      
+      const [likedContentIds, savedContentIds] = userId
+        ? await Promise.all([
+            getLikedContentIds(userId, [poll]),
+            getSavedContentIds(userId, [poll]),
+          ])
+        : [new Set(), new Set()];
+      
+      const isLiked = likedContentIds.has(poll._id.toString());
+      const isSaved = savedContentIds.has(poll._id.toString());
+      
+      const formattedPoll = formatPollForFeed(poll, metrics, isLiked, isSaved);
       const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
       const optionsWithFlag = addSelectedByAuthUserToOptions(
         formattedPoll.options,
@@ -1234,7 +1311,8 @@ export const getHomeFeed = async (userId, options = {}) => {
     // 2b) Followed users' polls (latest)
     if (includePolls && followedUserIds.length > 0) {
       const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, fetchLimit);
-      addUnique(followedPollsRaw.map(attachSelectedOption));
+      const followedPollsFormatted = await Promise.all(followedPollsRaw.map(attachSelectedOption));
+      addUnique(followedPollsFormatted);
     }
 
     // 3) Suggested/trending posts
@@ -1260,7 +1338,8 @@ export const getHomeFeed = async (userId, options = {}) => {
     addUnique(trendingContent);
     if (includePolls) {
       const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit);
-      addUnique(trendingPollsRaw.map(attachSelectedOption));
+      const trendingPollsFormatted = await Promise.all(trendingPollsRaw.map(attachSelectedOption));
+      addUnique(trendingPollsFormatted);
     }
 
     // 4) Recent fallback (global latest)
@@ -1274,12 +1353,17 @@ export const getHomeFeed = async (userId, options = {}) => {
     addUnique(latestContent);
     if (includePolls) {
       const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit);
-      addUnique(latestPollsRaw.map(attachSelectedOption));
+      const latestPollsFormatted = await Promise.all(latestPollsRaw.map(attachSelectedOption));
+      addUnique(latestPollsFormatted);
     }
 
     combined.forEach(item => {
       item.isFollowing = getIsFollowing(item, userId, followedUserIdSet);
-  });
+    });
+
+    // Sort combined content by createdAt (latest first) for proper home feed ordering
+    combined.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
     const paginated = combined.slice(skip, skip + limit);
     const total = combined.length;
 
@@ -2208,8 +2292,12 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     const total = contentWithMetrics.length;
     const paginatedContent = contentWithMetrics.slice(skip, skip + limit);
 
+    const followedUserIdSet = await getFollowedUserIdSet(userId);
+
     // Format content
     const formattedContent = paginatedContent.map((item) => {
+      const isFollowing = getIsFollowing(item, userId, followedUserIdSet);
+
       if (item.contentType === ContentType.POLL) {
         const userSelectedOptionId = getUserSelectedOptionId(item, userId);
         return {
@@ -2231,6 +2319,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
             isAccountVerified: item.createdBy.isAccountVerified,
             isVerifiedBadge: item.createdBy.isVerifiedBadge,
           },
+          isFollowing,
           createdAt: item.createdAt,
         };
       }
@@ -2242,7 +2331,8 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
         item.metrics,
         item.contentType,
         isLiked,
-        isSaved
+        isSaved,
+        isFollowing
       );
     });
 
@@ -2447,6 +2537,8 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         : [new Set(), new Set()];
 
       // Format content
+      const followedUserIdSet = await getFollowedUserIdSet(userId);
+
       const formattedContent = allContent
         .slice(0, limit)
         .map((item) => {
@@ -2457,12 +2549,15 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
           };
           const isLiked = likedContentIds.has(item._id.toString());
           const isSaved = savedContentIds.has(item._id.toString());
+          const isFollowing = getIsFollowing(item, userId, followedUserIdSet);
+
           return formatContentItem(
             item,
             metrics,
             item.contentType,
             isLiked,
-            isSaved
+            isSaved,
+            isFollowing
           );
         });
 
@@ -2516,6 +2611,8 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         : [new Set(), new Set()];
 
       // Format content
+      const followedUserIdSet = await getFollowedUserIdSet(userId);
+
       const formattedContent = allContent.map((item) => {
         const metrics = metricsMap.get(item._id.toString()) || {
           likeCount: 0,
@@ -2524,12 +2621,15 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         };
         const isLiked = likedContentIds.has(item._id.toString());
         const isSaved = savedContentIds.has(item._id.toString());
+        const isFollowing = getIsFollowing(item, userId, followedUserIdSet);
+
         return formatContentItem(
           item,
           metrics,
           item.contentType,
           isLiked,
-          isSaved
+          isSaved,
+          isFollowing
         );
       });
 
@@ -2558,8 +2658,16 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         .limit(limit)
         .lean();
 
+      const followedUserIdSet = await getFollowedUserIdSet(userId);
+
       const formattedPolls = polls.map((poll) => {
         const userSelectedOptionId = getUserSelectedOptionId(poll, userId);
+        const isFollowing = getIsFollowing(
+          { createdBy: poll.createdBy },
+          userId,
+          followedUserIdSet
+        );
+
         return {
           id: poll._id.toString(),
           caption: poll.caption || "",
@@ -2578,6 +2686,7 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
             isAccountVerified: poll.createdBy.isAccountVerified,
             isVerifiedBadge: poll.createdBy.isVerifiedBadge,
           },
+          isFollowing,
           createdAt: poll.createdAt,
         };
       });
@@ -2602,6 +2711,8 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         .limit(limit)
         .lean();
 
+      const followedUserIdSet = await getFollowedUserIdSet(userId);
+
       const formattedUsers = users.map((user) => ({
         id: user._id.toString(),
         name: user.name,
@@ -2611,6 +2722,9 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         isAccountVerified: user.isAccountVerified,
         isVerifiedBadge: user.isVerifiedBadge,
         followerCount: user.followerCount || 0,
+        isFollowing: userId
+          ? followedUserIdSet.has(user._id.toString())
+          : null,
       }));
 
       return { data: formattedUsers };

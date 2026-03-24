@@ -33,7 +33,7 @@ const subscriptionPaymentSchema = new mongoose.Schema(
     transactionId: {
       type: String,
       required: true,
-      unique: true,
+      // unique: true,
     },
     status: {
       type: String,

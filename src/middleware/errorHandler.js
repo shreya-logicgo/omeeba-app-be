@@ -57,6 +57,13 @@ export const errorHandler = (err, req, res, _next) => {
     statusCode = StatusCodes.BAD_REQUEST;
   }
 
+  // Custom error for unverified users
+  if (err.errorType === "UnverifiedUser") {
+    message = err.message || "Please verify your email address first";
+    errorType = "UnverifiedUser";
+    statusCode = StatusCodes.BAD_REQUEST;
+  }
+
   // JWT errors
   if (err.name === "JsonWebTokenError") {
     message = "Invalid token";

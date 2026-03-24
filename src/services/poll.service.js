@@ -1,6 +1,6 @@
 import Poll from "../models/content/Poll.js";
 import User from "../models/users/User.js";
-import { PollStatus, NotificationType } from "../models/enums.js";
+import { PollStatus, NotificationType, ContentType } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
 import { extractHashtags, linkHashtagsToContent } from "./hashtag.service.js";
@@ -10,7 +10,7 @@ const POLL_CONTENT_TYPE = "Poll";
 /**
  * Create Poll
  * @param {string} userId - User ID
- * @param {Object} pollData - Poll data (caption, options, duration)
+ * @param {Object} pollData - Poll data (caption, options, duration, mentionedUserIds)
  * @returns {Promise<Object>} Created poll
  */
 export const createPoll = async (userId, pollData) => {
@@ -22,6 +22,18 @@ export const createPoll = async (userId, pollData) => {
     }
     if (user.isDeleted) {
       throw new Error("User account has been deleted");
+    }
+
+    // Validate mentioned users if provided
+    if (pollData.mentionedUserIds && pollData.mentionedUserIds.length > 0) {
+      const mentionedUsers = await User.find({
+        _id: { $in: pollData.mentionedUserIds },
+        isDeleted: false,
+      });
+
+      if (mentionedUsers.length !== pollData.mentionedUserIds.length) {
+        throw new Error("One or more mentioned users not found");
+      }
     }
 
     // Validate options
@@ -51,6 +63,7 @@ export const createPoll = async (userId, pollData) => {
     const poll = new Poll({
       createdBy: userId,
       caption: pollData.caption.trim(),
+      mentionedUserIds: pollData.mentionedUserIds || [],
       options: options,
       duration: duration,
       status: PollStatus.ACTIVE,
@@ -72,13 +85,37 @@ export const createPoll = async (userId, pollData) => {
       }
     }
 
-    // Populate createdBy
-    await poll.populate({
-      path: "createdBy",
-      select: "name username profileImage email isAccountVerified isVerifiedBadge",
-    });
+    // Populate createdBy and mentioned users
+    await poll.populate([
+      {
+        path: "createdBy",
+        select: "name username profileImage email isAccountVerified isVerifiedBadge",
+      },
+      {
+        path: "mentionedUserIds",
+        select: "name username profileImage email isAccountVerified isVerifiedBadge",
+      },
+    ]);
 
     logger.info(`Poll created: ${poll._id} by user: ${userId}`);
+
+    // Create notifications for mentioned users
+    if (pollData.mentionedUserIds && pollData.mentionedUserIds.length > 0) {
+      for (const mentionedUserId of pollData.mentionedUserIds) {
+        try {
+          await createNotification({
+            receiverId: mentionedUserId,
+            senderId: userId,
+            type: "MENTION_IN_POLL",
+            contentType: ContentType.POLL,
+            contentId: poll._id,
+            message: pollData.caption || ""
+          });
+        } catch (error) {
+          logger.error(`Error creating mention notification for user ${mentionedUserId}:`, error);
+        }
+      }
+    }
 
     return poll;
   } catch (error) {

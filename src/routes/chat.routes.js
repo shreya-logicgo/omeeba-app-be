@@ -10,6 +10,9 @@ import {
   getChatRoomByIdHandler,
   deleteChatRoomHandler,
   getMessageRequestsHandler,
+  blockUserHandler,
+  unblockUserHandler,
+  getBlockedUsersHandler,
 } from "../controllers/chatRoom.controller.js";
 import {
   sendMessageHandler,
@@ -164,5 +167,38 @@ router.get(
  * @access  Private
  */
 router.get("/unread-count", protect, getTotalUnreadCountHandler);
+
+/**
+ * @route   POST /api/v1/chat/block
+ * @desc    Block a user from chat
+ * @access  Private
+ */
+router.post(
+  "/block",
+  protect,
+  blockUserHandler
+);
+
+/**
+ * @route   POST /api/v1/chat/unblock
+ * @desc    Unblock a user from chat
+ * @access  Private
+ */
+router.post(
+  "/unblock",
+  protect,
+  unblockUserHandler
+);
+
+/**
+ * @route   GET /api/v1/chat/blocked
+ * @desc    Get list of blocked users
+ * @access  Private
+ */
+router.get(
+  "/blocked",
+  protect,
+  getBlockedUsersHandler
+);
 
 export default router;

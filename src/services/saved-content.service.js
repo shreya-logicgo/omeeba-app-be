@@ -4,11 +4,95 @@ import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
 import Poll from "../models/content/Poll.js";
 import ContentLike from "../models/interactions/ContentLike.js";
+import ContentShare from "../models/interactions/ContentShare.js";
 import Comment from "../models/comments/Comment.js";
 import { ContentType, ZealStatus, PollStatus } from "../models/enums.js";
 import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { generateShareableLink } from "../utils/shareableLink.js";
+import { getIsFollowing } from "../utils/followUtils.js";
+import UserFollower from "../models/users/UserFollower.js";
+import mongoose from "mongoose";
+
+/**
+ * Get liked content IDs for a user (bulk query for efficiency)
+ * @param {mongoose.Types.ObjectId} userId - User ID
+ * @param {Array} contentItems - Array of content items with contentType and _id
+ * @returns {Promise<Set>} Set of liked content IDs (as strings)
+ */
+const getLikedContentIds = async (userId, contentItems) => {
+  if (!userId || contentItems.length === 0) {
+    return new Set();
+  }
+
+  try {
+    // Group by content type
+    const byType = {
+      [ContentType.POST]: [],
+      [ContentType.WRITE_POST]: [],
+      [ContentType.ZEAL]: [],
+      [ContentType.POLL]: [],
+    };
+
+    contentItems.forEach((item) => {
+      if (byType[item.contentType]) {
+        byType[item.contentType].push(item._id);
+      }
+    });
+
+    // Fetch likes for all content types in parallel
+    const likePromises = [];
+    for (const [contentType, contentIds] of Object.entries(byType)) {
+      if (contentIds.length > 0) {
+        likePromises.push(
+          ContentLike.find({
+            contentType,
+            contentId: { $in: contentIds },
+            userId,
+          })
+            .select("contentId")
+            .lean()
+        );
+      }
+    }
+
+    const likeResults = await Promise.all(likePromises);
+    const likedIds = new Set();
+
+    likeResults.forEach((likes) => {
+      likes.forEach((like) => {
+        likedIds.add(like.contentId.toString());
+      });
+    });
+
+    return likedIds;
+  } catch (error) {
+    logger.error("Error getting liked content IDs:", error);
+    return new Set();
+  }
+};
+
+/**
+ * Get followed user IDs for a user
+ * @param {mongoose.Types.ObjectId} userId - User ID
+ * @returns {Promise<Set<string>>} Set of followed user IDs as strings
+ */
+const getFollowedUserIdSet = async (userId) => {
+  if (!userId) return new Set();
+  try {
+    const followRows = await UserFollower.find({
+      followerId: new mongoose.Types.ObjectId(userId),
+    })
+      .select("userId")
+      .lean();
+    return new Set(
+      followRows.map((row) => row.userId?.toString()).filter(Boolean)
+    );
+  } catch (error) {
+    logger.error("Error getting followed user IDs:", error);
+    return new Set();
+  }
+};
 
 /**
  * Verify content exists and is accessible
@@ -106,6 +190,13 @@ export const saveContent = async (userId, contentType, contentId) => {
       }
     );
 
+    // Check if user has liked this content
+    const isLiked = await ContentLike.findOne({
+      contentType,
+      contentId,
+      userId,
+    }) !== null;
+
     logger.info(
       `Content saved: ${contentType} ${contentId} by user ${userId}`
     );
@@ -113,6 +204,7 @@ export const saveContent = async (userId, contentType, contentId) => {
     return {
       action: "saved",
       isSaved: true,
+      isLiked,
       savedContentId: savedContent._id,
     };
   } catch (error) {
@@ -127,9 +219,17 @@ export const saveContent = async (userId, contentType, contentId) => {
         userId,
       });
 
+      // Check if user has liked this content
+      const isLiked = await ContentLike.findOne({
+        contentType,
+        contentId,
+        userId,
+      }) !== null;
+
       return {
         action: "already_saved",
         isSaved: existingSave !== null,
+        isLiked,
       };
     }
 
@@ -162,14 +262,30 @@ export const unsaveContent = async (userId, contentType, contentId) => {
       // Not saved - return current state
       // Note: We don't check if content exists here because the user might be
       // trying to unsave already deleted content, which is fine
+      
+      // Check if user has liked this content
+      const isLiked = await ContentLike.findOne({
+        contentType,
+        contentId,
+        userId,
+      }) !== null;
+      
       return {
         action: "not_saved",
         isSaved: false,
+        isLiked,
       };
     }
 
     // Delete the save (even if content no longer exists - cleanup stale reference)
     await SavedContent.findByIdAndDelete(existingSave._id);
+
+    // Check if user has liked this content
+    const isLiked = await ContentLike.findOne({
+      contentType,
+      contentId,
+      userId,
+    }) !== null;
 
     logger.info(
       `Content unsaved: ${contentType} ${contentId} by user ${userId}`
@@ -178,6 +294,7 @@ export const unsaveContent = async (userId, contentType, contentId) => {
     return {
       action: "unsaved",
       isSaved: false,
+      isLiked,
     };
   } catch (error) {
     logger.error("Error in unsaveContent:", error);
@@ -244,14 +361,23 @@ export const isContentSaved = async (userId, contentType, contentId) => {
 export const getContentSavedStatus = async (userId, contentType, contentId) => {
   try {
     const isSaved = await isContentSaved(userId, contentType, contentId);
+    
+    // Check if user has liked this content
+    const isLiked = await ContentLike.findOne({
+      contentType,
+      contentId,
+      userId,
+    }) !== null;
 
     return {
       isSaved,
+      isLiked,
     };
   } catch (error) {
     logger.error("Error in getContentSavedStatus:", error);
     return {
       isSaved: false,
+      isLiked: false,
     };
   }
 };
@@ -600,6 +726,26 @@ export const getSavedContentListing = async (userId, options = {}) => {
               commentCountMap.set(r._id.toString(), r.count);
             });
             return { type, field: "commentCount", map: commentCountMap };
+          }),
+          ContentShare.aggregate([
+            {
+              $match: {
+                contentType: type,
+                contentId: { $in: ids },
+              },
+            },
+            {
+              $group: {
+                _id: "$contentId",
+                count: { $sum: 1 },
+              },
+            },
+          ]).then((results) => {
+            const shareCountMap = new Map();
+            results.forEach((r) => {
+              shareCountMap.set(r._id.toString(), r.count);
+            });
+            return { type, field: "shareCount", map: shareCountMap };
           })
         );
       }
@@ -610,19 +756,32 @@ export const getSavedContentListing = async (userId, options = {}) => {
     // Build count maps
     const likeCountMap = new Map();
     const commentCountMap = new Map();
+    const shareCountMap = new Map();
 
     countResults.forEach((result) => {
       if (result.field === "likeCount") {
         result.map.forEach((count, id) => likeCountMap.set(id, count));
-      } else {
+      } else if (result.field === "commentCount") {
         result.map.forEach((count, id) => commentCountMap.set(id, count));
+      } else if (result.field === "shareCount") {
+        result.map.forEach((count, id) => shareCountMap.set(id, count));
       }
     });
 
     // Add metadata to content items
     const authUserIdStr = userId.toString();
+    
+    // Get liked content IDs for all items at once
+    // and followed user IDs for isFollowing flag
+    const [likedContentIds, followedUserIdSet] = await Promise.all([
+      userId ? getLikedContentIds(userId, orderedContent) : new Set(),
+      userId ? getFollowedUserIdSet(userId) : new Set(),
+    ]);
+    
     const contentWithMetadata = orderedContent.map((item) => {
       const contentIdStr = item._id.toString();
+      const isLiked = likedContentIds.has(contentIdStr);
+      const isFollowing = getIsFollowing(item, userId, followedUserIdSet);
 
       // For Poll: add selectedByAuthUser on each option
       if (item.contentType === ContentType.POLL) {
@@ -637,11 +796,33 @@ export const getSavedContentListing = async (userId, options = {}) => {
         }));
 
         return {
-          ...item,
+          id: item._id.toString(),
+          contentType: item.contentType,
+          shareableLink: generateShareableLink(item.contentType, item._id),
+          caption: item.caption || "",
           options: optionsWithFlag,
+          totalVotes: item.totalVotes || 0,
+          status: item.status,
+          duration: item.duration,
+          createdBy: item.createdBy
+            ? {
+                id: item.createdBy._id.toString(),
+                name: item.createdBy.name,
+                username: item.createdBy.username,
+                profileImage: item.createdBy.profileImage,
+                isAccountVerified: item.createdBy.isAccountVerified,
+                isVerifiedBadge: item.createdBy.isVerifiedBadge,
+              }
+            : null,
           likeCount: likeCountMap.get(contentIdStr) || 0,
           commentCount: commentCountMap.get(contentIdStr) || 0,
-          shareableLink: generateShareableLink(item.contentType, item._id),
+          shareCount: shareCountMap.get(contentIdStr) || 0,
+          isSaved: true, // This is saved content list, so always true
+          isLiked, // Add isLiked property
+          isFollowing,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+          savedAt: item.savedAt,
         };
       }
 
@@ -649,6 +830,9 @@ export const getSavedContentListing = async (userId, options = {}) => {
         ...item,
         likeCount: likeCountMap.get(contentIdStr) || 0,
         commentCount: commentCountMap.get(contentIdStr) || 0,
+        shareCount: shareCountMap.get(contentIdStr) || 0,
+        isLiked, // Add isLiked for all content types
+        isFollowing,
         shareableLink: generateShareableLink(item.contentType, item._id),
       };
     });

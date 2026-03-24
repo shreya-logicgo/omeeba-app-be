@@ -232,6 +232,17 @@ export const login = async (req, res) => {
   } catch (error) {
     logger.error("Login error:", error);
 
+    // Handle UnverifiedUser error specifically
+    if (error.errorType === "UnverifiedUser") {
+      return sendError(
+        res,
+        error.message,
+        "UnverifiedUser",
+        error.message,
+        StatusCodes.BAD_REQUEST
+      );
+    }
+
     // Handle custom errors
     if (error.message) {
       return sendBadRequest(res, error.message);
