@@ -58,6 +58,10 @@ const pollSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    shareCount: {
+      type: Number,
+      default: 0,
+    },
     userVotes: [userVoteSchema],
     status: {
       type: String,
