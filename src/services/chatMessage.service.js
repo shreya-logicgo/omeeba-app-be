@@ -7,11 +7,11 @@ import mongoose from "mongoose";
 import ChatMessage from "../models/chat/ChatMessage.js";
 import ChatRoom from "../models/chat/ChatRoom.js";
 import ChatParticipant from "../models/chat/ChatParticipant.js";
+import User from "../models/users/User.js";
 import Post from "../models/content/Post.js";
 import WritePost from "../models/content/WritePost.js";
 import ZealPost from "../models/content/ZealPost.js";
 import Poll from "../models/content/Poll.js";
-import { User } from "../models/index.js";
 import { MessageType, MessageStatus, ChatType, ContentType, ZealStatus, NotificationType } from "../models/enums.js";
 import { getTimeAgo } from "../utils/timeAgo.js";
 import { formatTime12Hour } from "../utils/timeFormatter.js";
@@ -20,6 +20,7 @@ import { getPaginationMeta } from "../utils/pagination.js";
 import { getOrCreateChatRoom } from "./chatRoom.service.js";
 import { createNotification } from "./notification.service.js";
 import { canSendMessage, checkBlockStatus } from "./chatBlock.service.js";
+import { shareContent } from "./content-share.service.js";
 import logger from "../utils/logger.js";
 
 /** ContentType (Post, Write Post, Zeal Post, Poll) -> MessageType for chat */
@@ -637,6 +638,15 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
   const validIds = new Set(validUsers.map((u) => u._id.toString()));
 
   logger.info(`Found ${validUsers.length} valid recipients out of ${filtered.length} requested`);
+
+  // Call shareContent to update share count and create share records
+  try {
+    await shareContent(senderId, contentType, contentId, filtered);
+    logger.info(`Share count updated for ${contentType} ${contentId}`);
+  } catch (shareError) {
+    logger.error("Error updating share count in sendContentToMultipleChats:", shareError);
+    // Don't fail the operation, just log the error
+  }
 
   const results = [];
   let successCount = 0;
