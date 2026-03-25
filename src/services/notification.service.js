@@ -168,29 +168,29 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
       type === NotificationType.ZEAL_LIKED || 
       type === NotificationType.WRITE_LIKED) {
     if (count === 1) {
-      return `Liked your ${contentLabel}`;
+      return `Someone liked your ${contentLabel}`;
     } else {
       const othersCount = count - 1;
-      return `${othersCount} ${othersCount === 1 ? "other" : "others"} liked your ${contentLabel}`;
+      return `Someone and ${othersCount} ${othersCount === 1 ? "other" : "others"} liked your ${contentLabel}`;
     }
   }
 
   if (type === NotificationType.COMMENT_LIKED) {
     if (count === 1) {
-      return `Liked your comment`;
+      return `Someone liked your comment`;
     } else {
       const othersCount = count - 1;
-      return `${othersCount} ${othersCount === 1 ? "other" : "others"} liked your comment`;
+      return `Someone and ${othersCount} ${othersCount === 1 ? "other" : "others"} liked your comment`;
     }
   }
 
   if (type === NotificationType.NEW_FOLLOWER) {
     if (count === 1) {
-      return `Started following you`;
+      return `Someone started following you`;
     } 
     // else {
     //   const othersCount = count - 1;
-    //   return `${othersCount} ${othersCount === 1 ? "other" : "others"} started following you`;
+    //   return `Someone and ${othersCount} ${othersCount === 1 ? "other" : "others"} started following you`;
     // }
   }
 
@@ -200,42 +200,42 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
       type === NotificationType.POLL_COMMENT) {
     if (count === 1) {
       return truncatedText 
-        ? `Commented on your ${contentLabel}: "${truncatedText}"`
-        : `Commented on your ${contentLabel}`;
+        ? `Someone commented on your ${contentLabel}: "${truncatedText}"`
+        : `Someone commented on your ${contentLabel}`;
     } else {
       const othersCount = count - 1;
       return truncatedText
-        ? `${othersCount} ${othersCount === 1 ? "other" : "others"} commented on your ${contentLabel}. Latest: "${truncatedText}"`
-        : `${othersCount} ${othersCount === 1 ? "other" : "others"} commented on your ${contentLabel}`;
+        ? `Someone and ${othersCount} ${othersCount === 1 ? "other" : "others"} commented on your ${contentLabel}. Latest: "${truncatedText}"`
+        : `Someone and ${othersCount} ${othersCount === 1 ? "other" : "others"} commented on your ${contentLabel}`;
     }
   }
 
   if (type === NotificationType.POLL_VOTED) {
     if (count === 1) {
-      return `Voted on your poll`;
+      return `Someone voted on your poll`;
     } else {
       const othersCount = count - 1;
-      return `${othersCount} ${othersCount === 1 ? "other" : "others"} voted on your poll`;
+      return `Someone and ${othersCount} ${othersCount === 1 ? "other" : "others"} voted on your poll`;
     }
   }
 
   if (type === NotificationType.NEW_MESSAGE) {
     if (count === 1) {
       return truncatedText
-        ? `Sent you a message: "${truncatedText}"`
-        : `Sent you a message`;
+        ? `Someone sent you a message: "${truncatedText}"`
+        : `Someone sent you a message`;
     } else {
       const othersCount = count - 1;
-      return `${othersCount} ${othersCount === 1 ? "other" : "others"} sent you messages`;
+      return `Someone and ${othersCount} ${othersCount === 1 ? "other" : "others"} sent you messages`;
     }
   }
 
   // Default fallback
   if (count === 1) {
-    return `Interacted with your ${contentLabel}`;
+    return `Someone interacted with your ${contentLabel}`;
   } else {
     const othersCount = count - 1;
-    return `${othersCount} ${othersCount === 1 ? "other" : "others"} interacted with your ${contentLabel}`;
+    return `Someone and ${othersCount} ${othersCount === 1 ? "other" : "others"} interacted with your ${contentLabel}`;
   }
 };
 
