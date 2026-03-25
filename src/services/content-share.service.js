@@ -285,8 +285,11 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
           ).select("shareCount");
           break;
         case ContentType.POLL:
-          // Polls don't have shareCount field, so we skip incrementing
-          // Share count is tracked via ContentShare collection only
+          updatedContent = await Poll.findByIdAndUpdate(
+            contentId,
+            { $inc: { shareCount: createdShares.length } },
+            { new: true }
+          ).select("shareCount");
           break;
       }
     } catch (updateError) {
@@ -479,7 +482,7 @@ export const getContentShareCount = async (contentType, contentId, useCached = f
           content = await ZealPost.findById(contentId).select("shareCount").lean();
           break;
         case ContentType.POLL:
-          // Polls don't have shareCount field, so we skip cached lookup
+          content = await Poll.findById(contentId).select("shareCount").lean();
           break;
       }
       
