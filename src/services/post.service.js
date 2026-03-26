@@ -150,6 +150,29 @@ export const createPost = async (userId, postData) => {
       }
     }
 
+    // Create TAG notifications for tagged users (if different from mentions)
+    if (postData.taggedUserIds && postData.taggedUserIds.length > 0) {
+      for (const taggedUserId of postData.taggedUserIds) {
+        try {
+          // Skip if user is also in mentionedUserIds to avoid duplicate notifications
+          if (postData.mentionedUserIds && postData.mentionedUserIds.includes(taggedUserId)) {
+            continue;
+          }
+          
+          await createNotification({
+            receiverId: taggedUserId,
+            senderId: userId,
+            type: "TAG",
+            contentType: ContentType.POST,
+            contentId: post._id,
+            message: "tagged you in a post"
+          });
+        } catch (error) {
+          logger.error(`Error creating tag notification for user ${taggedUserId}:`, error);
+        }
+      }
+    }
+
     return post;
   } catch (error) {
     logger.error("Error in createPost:", error);

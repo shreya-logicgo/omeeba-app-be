@@ -45,7 +45,8 @@ const isAggregatableType = (type) => {
     NotificationType.POLL_COMMENT,
     NotificationType.POLL_VOTED,
   ];
-  return aggregatableTypes.includes(type);
+  // TAG notifications should NOT be aggregated to prevent duplicates
+  return aggregatableTypes.includes(type) && type !== NotificationType.TAG;
 };
 
 /**
@@ -104,6 +105,8 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     [NotificationType.MENTION_IN_POST]: `Mentioned you in a post`,
     [NotificationType.MENTION_IN_ZEAL]: `Mentioned you in a zeal`,
     [NotificationType.MENTION_IN_WRITE]: `Mentioned you in a write`,
+    
+    [NotificationType.TAG]: `tagged you in a post`,
     
     [NotificationType.CONTENT_SHARED]: `Shared your ${contentType === ContentType.POST ? "post" : contentType === ContentType.ZEAL ? "zeal" : "write"}`,
     [NotificationType.CONTENT_SHARED_WITH_YOU]: `Shared a ${contentType === ContentType.POST ? "post" : contentType === ContentType.ZEAL ? "zeal" : "write"} with you`,
