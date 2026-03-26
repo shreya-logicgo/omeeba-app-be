@@ -6,10 +6,10 @@ import { createSchema, commonValidations } from "../utils/validation.js";
  */
 export const createWritePostSchema = createSchema(
   {
-    content: Joi.string().trim().min(1).max(10000).required().messages({
+    content: Joi.string().trim().min(1).max(1000).required().messages({
       "string.empty": "is required",
       "string.min": "must be at least 1 character long",
-      "string.max": "cannot exceed 10000 characters",
+      "string.max": "cannot exceed 1000 characters",
       "any.required": "is required",
     }),
     mentionedUserIds: Joi.array()
