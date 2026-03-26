@@ -6,7 +6,7 @@ import { createSchema, commonValidations } from "../utils/validation.js";
  */
 export const createPostSchema = createSchema(
   {
-    caption: Joi.string().trim().max(500).allow("").optional(),
+    caption: Joi.string().trim().max(1000).allow("").optional(),
     images: Joi.array()
       .items(
         Joi.string().uri().messages({

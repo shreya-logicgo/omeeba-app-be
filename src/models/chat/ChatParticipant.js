@@ -35,6 +35,10 @@ const chatParticipantSchema = new mongoose.Schema(
       type: Boolean,
       default: true, // User is active in this chat
     },
+    clearedAt: {
+      type: Date,
+      default: null,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
