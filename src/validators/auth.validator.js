@@ -125,6 +125,19 @@ export const changePasswordSchema = createSchema(
   ["oldPassword", "newPassword"]
 );
 
+/**
+ * Refresh Token validation schema
+ */
+export const refreshTokenSchema = createSchema(
+  {
+    refreshToken: Joi.string().required().messages({
+      "string.empty": "Refresh token cannot be empty",
+      "any.required": "Refresh token is required",
+    }),
+  },
+  ["refreshToken"]
+);
+
 export default {
   registerSchema,
   verifyOTPSchema,
@@ -133,4 +146,5 @@ export default {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  refreshTokenSchema,
 };
