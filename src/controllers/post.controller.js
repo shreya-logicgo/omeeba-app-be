@@ -40,6 +40,7 @@ export const createPost = async (req, res) => {
 
     // Normalize multipart fields
     postData.mentionedUserIds = normalizeStringArray(postData.mentionedUserIds);
+    postData.taggedUserIds = normalizeStringArray(postData.taggedUserIds);  // ✅ Add this line
     postData.images = normalizeStringArray(postData.images);
 
     // Upload images from multipart form-data if provided

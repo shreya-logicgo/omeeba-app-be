@@ -3,7 +3,7 @@ import User from "../models/users/User.js";
 import Music from "../models/music/Music.js";
 import logger from "../utils/logger.js";
 import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
-import { ContentType } from "../models/enums.js";
+import { ContentType, NotificationType } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
 
 /**
@@ -166,7 +166,7 @@ export const createPost = async (userId, postData) => {
           const notification = await createNotification({
             receiverId: taggedUserId,
             senderId: userId,
-            type: "TAG",
+            type: NotificationType.TAG,
             contentType: ContentType.POST,
             contentId: post._id,
             message: "tagged you in a post"
