@@ -19,8 +19,8 @@ import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import crypto from "crypto";
-import { createNotification } from "./notification.service.js";
 import { sendPushNotificationToUser } from "./onesignal.service.js";
+import { NotificationType } from "../models/enums.js";
 
 // Initialize S3 client for generating view URLs
 let s3Client = null;
@@ -570,47 +570,33 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
           status: MessageStatus.SENT,
         });
 
-        // Create notification for snap recipient
+        // Send push notification for byte (no database notification storage)
         try {
-          logger.info(`Creating snap notification for recipient ${recipient.userId._id} from sender ${senderId}`);
-          const notification = await createNotification({
-            receiverId: recipient.userId._id,
-            senderId: senderId,
-            type: "NEW_SNAP_RECEIVED",
-            contentType: null,
-            contentId: snap._id,
-            message: "sent you a byte",
-          });
+          logger.info(`Sending byte push notification for recipient ${recipient.userId._id} from sender ${senderId}`);
           
-          logger.info(`Snap notification created: ${notification?._id} for recipient ${recipient.userId._id}`);
+          const recipientUser = await User.findById(recipient.userId._id).select("oneSignalPlayerId pushNotificationEnabled");
+          const senderUser = await User.findById(senderId).select("name username profileImage");
 
-          // Send push notification for snap
-          if (notification) {
-            const recipientUser = await User.findById(recipient.userId._id).select("oneSignalPlayerId pushNotificationEnabled");
-            const senderUser = await User.findById(senderId).select("name username profileImage");
-
-            if (recipientUser && senderUser) {
-              logger.info(`Sending push notification to user ${recipient.userId._id}, OneSignal ID: ${recipientUser.oneSignalPlayerId}`);
-              sendPushNotificationToUser(recipientUser, {
-                title: "New Byte",
-                body: `${senderUser.name || senderUser.username} sent you a byte`,
-                imageUrl: senderUser.profileImage,
-              }, {
-                notificationId: notification._id.toString(),
-                type: "NEW_SNAP_RECEIVED",
-                snapId: snap._id.toString(),
-                messageId: message._id.toString(),
-              }).then((result) => {
-                logger.info(`Push notification sent successfully to user ${recipient.userId._id}:`, result);
-              }).catch((error) => {
-                logger.error(`Failed to send push notification for snap to user ${recipient.userId._id}:`, error);
-              });
-            } else {
-              logger.warn(`Missing recipientUser or senderUser for push notification. Recipient: ${!!recipientUser}, Sender: ${!!senderUser}`);
-            }
+          if (recipientUser && senderUser) {
+            logger.info(`Sending push notification to user ${recipient.userId._id}, OneSignal ID: ${recipientUser.oneSignalPlayerId}`);
+            sendPushNotificationToUser(recipientUser, {
+              title: "New Byte",
+              body: `${senderUser.name || senderUser.username} sent you a byte`,
+              imageUrl: senderUser.profileImage,
+            }, {
+              type: NotificationType.NEW_SNAP_RECEIVED,
+              snapId: snap._id.toString(),
+              messageId: message._id.toString(),
+            }).then((result) => {
+              logger.info(`Push notification sent successfully to user ${recipient.userId._id}:`, result);
+            }).catch((error) => {
+              logger.error(`Failed to send push notification for snap to user ${recipient.userId._id}:`, error);
+            });
+          } else {
+            logger.warn(`Missing recipientUser or senderUser for push notification. Recipient: ${!!recipientUser}, Sender: ${!!senderUser}`);
           }
         } catch (notificationError) {
-          logger.error(`Error creating snap notification for user ${recipient.userId._id}:`, notificationError);
+          logger.error(`Error sending byte push notification for user ${recipient.userId._id}:`, notificationError);
           // Continue even if notification fails
         }
 

@@ -36,6 +36,7 @@ import hashtagRoutes from "./hashtag.routes.js";
 import homeRoutes from "./home.routes.js";
 import notificationRoutes from "./notification.routes.js";
 import contentRoutes from "./content.routes.js";
+import testNotificationRoutes from "./test-notification.routes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
@@ -61,5 +62,6 @@ router.use(`/${config.apiVersion}/hashtags`, hashtagRoutes);
 router.use(`/${config.apiVersion}/home`, homeRoutes);
 router.use(`/${config.apiVersion}/notifications`, notificationRoutes);
 router.use(`/${config.apiVersion}/content`, contentRoutes);
+router.use(`/${config.apiVersion}/test`, testNotificationRoutes);
 
 export default router;
