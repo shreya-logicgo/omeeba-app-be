@@ -495,6 +495,17 @@ export const generateToken = (userId) => {
 };
 
 /**
+ * Generate Refresh JWT token
+ * @param {string} userId - User ID
+ * @returns {string} JWT refresh token
+ */
+export const generateRefreshToken = (userId) => {
+  return jwt.sign({ id: userId }, config.jwt.refreshSecret, {
+    expiresIn: config.jwt.refreshExpiresIn,
+  });
+};
+
+/**
  * Login user
  * @param {string} email - User email
  * @param {string} password - User password
@@ -552,6 +563,7 @@ export const loginUser = async (email, password) => {
 
     // Generate JWT token with only user _id in payload
     const token = generateToken(user._id.toString());
+    const refreshToken = generateRefreshToken(user._id.toString());
 
     logger.info(`User logged in: ${user.email}`);
 
@@ -564,6 +576,7 @@ export const loginUser = async (email, password) => {
     return {
       user: userObject,
       token,
+      refreshToken,
     };
   } catch (error) {
     logger.error("Error in loginUser:", error);
@@ -767,6 +780,55 @@ export const changePassword = async (userId, oldPassword, newPassword) => {
   }
 };
 
+/**
+ * Refresh user token
+ * @param {string} refreshToken - User's refresh token
+ * @returns {Promise<Object>} New auth tokens
+ */
+export const refreshUserToken = async (refreshToken) => {
+  try {
+    if (!refreshToken) {
+      throw new Error("Refresh token is required");
+    }
+
+    // Verify token
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, config.jwt.refreshSecret);
+    } catch (err) {
+      throw new Error("Invalid or expired refresh token");
+    }
+
+    // Find user by ID
+    const user = await User.findOne({
+      _id: decoded.id,
+      isDeleted: false,
+    });
+
+    if (!user) {
+      throw new Error("User associated with this token no longer exists");
+    }
+
+    if (!user.isAccountVerified) {
+      throw new Error("Please verify your email address first");
+    }
+
+    // Generate new tokens
+    const newToken = generateToken(user._id.toString());
+    const newRefreshToken = generateRefreshToken(user._id.toString());
+
+    logger.info(`Token refreshed for user: ${user.email}`);
+
+    return {
+      token: newToken,
+      refreshToken: newRefreshToken,
+    };
+  } catch (error) {
+    logger.error("Error in refreshUserToken:", error);
+    throw error;
+  }
+};
+
 export default {
   registerUser,
   verifyOTP,
@@ -775,7 +837,9 @@ export default {
   forgotPassword,
   resetPassword,
   changePassword,
+  refreshUserToken,
   generateToken,
+  generateRefreshToken,
   generateOTP,
   hashPassword,
   comparePassword,

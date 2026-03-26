@@ -12,6 +12,7 @@ import {
   forgotPassword,
   resetPassword,
   changePassword,
+  refreshToken as refreshTokenHandler,
 } from "../controllers/auth.controller.js";
 import { validateBody } from "../utils/validation.js";
 import {
@@ -22,6 +23,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  refreshTokenSchema,
 } from "../validators/auth.validator.js";
 import { protect } from "../middleware/auth.js";
 
@@ -77,6 +79,17 @@ router.post(
   "/reset-password",
   validateBody(resetPasswordSchema),
   resetPassword
+);
+
+/**
+ * @route   POST /api/v1/auth/refresh-token
+ * @desc    Exchange refresh token for new access token
+ * @access  Public
+ */
+router.post(
+  "/refresh-token",
+  validateBody(refreshTokenSchema),
+  refreshTokenHandler
 );
 
 /**
