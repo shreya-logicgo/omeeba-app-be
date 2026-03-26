@@ -152,14 +152,18 @@ export const createPost = async (userId, postData) => {
 
     // Create TAG notifications for tagged users (if different from mentions)
     if (postData.taggedUserIds && postData.taggedUserIds.length > 0) {
+      logger.info(`Creating TAG notifications for ${postData.taggedUserIds.length} tagged users:`, postData.taggedUserIds);
+      
       for (const taggedUserId of postData.taggedUserIds) {
         try {
           // Skip if user is also in mentionedUserIds to avoid duplicate notifications
           if (postData.mentionedUserIds && postData.mentionedUserIds.includes(taggedUserId)) {
+            logger.info(`Skipping TAG notification for user ${taggedUserId} - already in mentionedUserIds`);
             continue;
           }
           
-          await createNotification({
+          logger.info(`Creating TAG notification for user ${taggedUserId} from sender ${userId}`);
+          const notification = await createNotification({
             receiverId: taggedUserId,
             senderId: userId,
             type: "TAG",
@@ -167,10 +171,14 @@ export const createPost = async (userId, postData) => {
             contentId: post._id,
             message: "tagged you in a post"
           });
+          
+          logger.info(`TAG notification created: ${notification?._id} for user ${taggedUserId}`);
         } catch (error) {
           logger.error(`Error creating tag notification for user ${taggedUserId}:`, error);
         }
       }
+    } else {
+      logger.info(`No taggedUserIds provided in post data`);
     }
 
     return post;

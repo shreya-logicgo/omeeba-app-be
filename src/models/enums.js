@@ -84,6 +84,7 @@ const NotificationType = {
   CONTENT_SHARED_WITH_YOU: "Content Shared With You",
   
   // Byte Opened
+  NEW_SNAP_RECEIVED: "New Snap Received",
   NEW_BYTE_OPENED_RECEIVED: "New Byte Opened Received",
   BYTE_OPENED_VIEWED: "Byte Opened Viewed",
   
