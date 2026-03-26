@@ -11,6 +11,7 @@ import {
   forgotPassword as forgotPasswordService,
   resetPassword as resetPasswordService,
   changePassword as changePasswordService,
+  refreshUserToken as refreshUserTokenService,
   generateToken,
 } from "../services/auth.service.js";
 import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
@@ -204,13 +205,14 @@ export const login = async (req, res) => {
     const { email, password } = req.body;
 
     // Login user
-    const { user, token } = await loginUser(email, password);
+    const { user, token, refreshToken } = await loginUser(email, password);
 
     // Return success response with token
     return sendSuccess(
       res,
       {
         token,
+        refreshToken,
         user: {
           id: user._id,
           email: user.email,
@@ -376,6 +378,57 @@ export const changePassword = async (req, res) => {
   }
 };
 
+/**
+ * Refresh Token
+ * @route POST /api/v1/auth/refresh-token
+ * @access Public
+ */
+export const refreshTokenHandler = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    // Call service to verify and issue new tokens
+    const { token, refreshToken: newRefreshToken } = await refreshUserTokenService(refreshToken);
+
+    // Return success response
+    return sendSuccess(
+      res,
+      {
+        token,
+        refreshToken: newRefreshToken,
+      },
+      "Token refreshed successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Refresh token error:", error);
+
+    // Handle custom errors gracefully returning 401
+    if (error.message === "Invalid or expired refresh token" || error.message === "Refresh token is required") {
+      return sendError(
+        res,
+        "Authentication failed",
+        "Unauthorized",
+        error.message,
+        StatusCodes.UNAUTHORIZED
+      );
+    }
+
+    if (error.message) {
+      return sendBadRequest(res, error.message);
+    }
+
+    // Generic error
+    return sendError(
+      res,
+      "Failed to refresh token",
+      "Refresh Token Error",
+      error.message || "An error occurred while refreshing token",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 // Export named exports for routes
 export { forgotPasswordHandler as forgotPassword };
 export { resetPasswordHandler as resetPassword };
@@ -388,4 +441,5 @@ export default {
   forgotPassword: forgotPasswordHandler,
   resetPassword: resetPasswordHandler,
   changePassword,
+  refreshToken: refreshTokenHandler,
 };
