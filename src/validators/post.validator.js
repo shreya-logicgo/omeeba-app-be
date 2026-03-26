@@ -36,6 +36,21 @@ export const createPostSchema = createSchema(
       .messages({
         "array.base": "Mentioned user IDs must be an array",
       }),
+    taggedUserIds: Joi.alternatives()
+      .try(
+        Joi.array().items(
+          Joi.string()
+            .pattern(/^[0-9a-fA-F]{24}$/)
+            .messages({
+              "string.pattern.base": "must be a valid user ID",
+            })
+        ),
+        Joi.string().allow("")
+      )
+      .optional()
+      .messages({
+        "array.base": "Tagged user IDs must be an array",
+      }),
     musicId: Joi.string()
       .pattern(/^[0-9a-fA-F]{24}$/)
       .allow(null, "")
@@ -68,6 +83,7 @@ export const createPostSchema = createSchema(
     "caption",
     "images",
     "mentionedUserIds",
+    "taggedUserIds",
     "musicId",
     "musicStartTime",
     "musicEndTime",

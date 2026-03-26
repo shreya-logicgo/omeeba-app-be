@@ -572,6 +572,7 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
 
         // Create notification for snap recipient
         try {
+          logger.info(`Creating snap notification for recipient ${recipient.userId._id} from sender ${senderId}`);
           const notification = await createNotification({
             receiverId: recipient.userId._id,
             senderId: senderId,
@@ -580,6 +581,8 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
             contentId: snap._id,
             message: "sent you a byte",
           });
+          
+          logger.info(`Snap notification created: ${notification?._id} for recipient ${recipient.userId._id}`);
 
           // Send push notification for snap
           if (notification) {
@@ -587,6 +590,7 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
             const senderUser = await User.findById(senderId).select("name username profileImage");
 
             if (recipientUser && senderUser) {
+              logger.info(`Sending push notification to user ${recipient.userId._id}, OneSignal ID: ${recipientUser.oneSignalPlayerId}`);
               sendPushNotificationToUser(recipientUser, {
                 title: "New Byte",
                 body: `${senderUser.name || senderUser.username} sent you a byte`,
@@ -596,9 +600,13 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
                 type: "NEW_SNAP_RECEIVED",
                 snapId: snap._id.toString(),
                 messageId: message._id.toString(),
+              }).then((result) => {
+                logger.info(`Push notification sent successfully to user ${recipient.userId._id}:`, result);
               }).catch((error) => {
                 logger.error(`Failed to send push notification for snap to user ${recipient.userId._id}:`, error);
               });
+            } else {
+              logger.warn(`Missing recipientUser or senderUser for push notification. Recipient: ${!!recipientUser}, Sender: ${!!senderUser}`);
             }
           }
         } catch (notificationError) {

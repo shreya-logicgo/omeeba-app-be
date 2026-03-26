@@ -471,17 +471,31 @@ export const createNotification = async (notificationData) => {
       imageUrl = null,
     } = notificationData;
 
-    // Automatically fetch Zeal thumbnail if needed
+    // Automatically fetch content images if needed
     let finalImageUrl = imageUrl;
-    if (!finalImageUrl && contentType === ContentType.ZEAL && contentId) {
+    if (!finalImageUrl && contentId) {
       try {
-        const ZealPostModel = getContentModel(ContentType.ZEAL);
-        const zealPost = await ZealPostModel.findById(contentId).select("thumbnailUrl");
-        if (zealPost && zealPost.thumbnailUrl) {
-          finalImageUrl = zealPost.thumbnailUrl;
+        if (contentType === ContentType.ZEAL) {
+          logger.info(`Fetching Zeal thumbnail for notification: ${contentId}`);
+          const ZealPostModel = getContentModel(ContentType.ZEAL);
+          const zealPost = await ZealPostModel.findById(contentId).select("thumbnailUrl");
+          if (zealPost && zealPost.thumbnailUrl) {
+            finalImageUrl = zealPost.thumbnailUrl;
+            logger.info(`Zeal thumbnail fetched: ${finalImageUrl}`);
+          }
+        } else if (contentType === ContentType.POST) {
+          logger.info(`Fetching Post images for notification: ${contentId}`);
+          const PostModel = getContentModel(ContentType.POST);
+          const post = await PostModel.findById(contentId).select("images");
+          if (post && post.images && post.images.length > 0) {
+            finalImageUrl = post.images[0]; // Use first image
+            logger.info(`Post first image fetched: ${finalImageUrl}`);
+          } else {
+            logger.info(`No images found in post: ${contentId}`);
+          }
         }
       } catch (err) {
-        logger.warn(`Error fetching Zeal thumbnail for notification: ${err.message}`);
+        logger.warn(`Error fetching content image for notification: ${err.message}`);
       }
     }
 
