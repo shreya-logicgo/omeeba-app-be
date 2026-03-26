@@ -6,9 +6,9 @@ import { createSchema, commonValidations } from "../utils/validation.js";
  */
 export const createPollSchema = createSchema(
   {
-    caption: Joi.string().trim().max(500).required().messages({
+    caption: Joi.string().trim().max(1000).required().messages({
       "string.base": "Caption must be a string",
-      "string.max": "Caption must not exceed 500 characters",
+      "string.max": "Caption must not exceed 1000 characters",
       "any.required": "Caption is required",
     }),
     options: Joi.array()
