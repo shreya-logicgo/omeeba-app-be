@@ -12,7 +12,7 @@ import {
   forgotPassword,
   resetPassword,
   changePassword,
-  refreshToken as refreshTokenHandler,
+  refreshTokenHandler,
 } from "../controllers/auth.controller.js";
 import { validateBody } from "../utils/validation.js";
 import {
