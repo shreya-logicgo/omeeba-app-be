@@ -135,7 +135,7 @@ export const getChatRooms = async (userId, page = 1, limit = 20, search = "") =>
   try {
     const skip = (page - 1) * limit;
 
-    const baseQuery = { chatType: ChatType.DIRECT };
+    const baseQuery = { chatType: ChatType.DIRECT, deletedBy: { $ne: userId } };
     if (search && search.trim()) {
       const matchingUsers = await User.find({
         username: { $regex: search.trim(), $options: "i" },
@@ -327,6 +327,7 @@ export const getChatRoomById = async (roomId, userId) => {
     const room = await ChatRoom.findOne({
       _id: roomId,
       $or: [{ userA: userId }, { userB: userId }],
+      deletedBy: { $ne: userId }
     })
       .populate("userA", "name username profileImage bio isVerifiedBadge")
       .populate("userB", "name username profileImage bio isVerifiedBadge")
@@ -395,14 +396,36 @@ export const deleteChatRoom = async (roomId, userId) => {
       throw new Error("Chat room not found");
     }
 
-    // Hard delete: remove messages, participants, then room
-    await Promise.all([
-      ChatMessage.deleteMany({ roomId }),
-      ChatParticipant.deleteMany({ roomId }),
-    ]);
-    await ChatRoom.deleteOne({ _id: roomId });
+    // Soft delete: add user to deletedBy array
+    if (!room.deletedBy) {
+      room.deletedBy = [];
+    }
+    
+    if (!room.deletedBy.includes(userId)) {
+      room.deletedBy.push(userId);
+    }
+    await room.save();
 
-    logger.info(`Chat room ${roomId} and its data deleted by user ${userId}`);
+    // Clear messages for this user
+    await ChatParticipant.findOneAndUpdate(
+      { roomId, userId },
+      { clearedAt: new Date() },
+      { upsert: false } // Only update if participant exists
+    );
+
+    // If both users have deleted the room, do a hard delete to save space
+    const otherUserId = room.userA.toString() === userId.toString() ? room.userB.toString() : room.userA.toString();
+    if (room.deletedBy.some(id => id.toString() === otherUserId)) {
+      await Promise.all([
+        ChatMessage.deleteMany({ roomId }),
+        ChatParticipant.deleteMany({ roomId }),
+      ]);
+      await ChatRoom.deleteOne({ _id: roomId });
+      logger.info(`Chat room ${roomId} and its data hard deleted as both users deleted it`);
+    } else {
+      logger.info(`Chat room ${roomId} soft deleted by user ${userId}`);
+    }
+
     return true;
   } catch (error) {
     logger.error("Error in deleteChatRoom:", error);
@@ -425,6 +448,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
     const baseQuery = {
       chatType: ChatType.REQUEST,
       requestStatus: "pending", // Only show pending requests
+      deletedBy: { $ne: userId },
       $or: [
         { userA: userId }, // User A is recipient
         { userB: userId }  // User B is recipient

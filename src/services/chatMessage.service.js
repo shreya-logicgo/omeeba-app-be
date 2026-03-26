@@ -146,6 +146,9 @@ export const sendMessage = async (roomId, senderId, messageData) => {
     room.lastMessage = lastPreview;
     room.lastMessageType = messageType;
     room.lastMessageAt = newMessage.createdAt;
+    if (room.deletedBy && room.deletedBy.length > 0) {
+      room.deletedBy = [];
+    }
     await room.save();
 
     // Update unread counts (increment for other user, reset for sender)
@@ -264,15 +267,23 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
     const otherUserId = room.userA.toString() === userId ? room.userB : room.userA;
     const blockStatus = await checkBlockStatus(userId, otherUserId);
 
+    // Fetch participant to check if chat was cleared
+    const participant = await ChatParticipant.findOne({ roomId, userId }).lean();
+    const messageQuery = { roomId };
+    
+    if (participant && participant.clearedAt) {
+      messageQuery.createdAt = { $gt: participant.clearedAt };
+    }
+
     // Fetch messages (oldest first for pagination, then reverse for display)
-    const messages = await ChatMessage.find({ roomId })
+    const messages = await ChatMessage.find(messageQuery)
       .populate("senderId", "name username profileImage bio isVerifiedBadge")
       .sort({ createdAt: -1 }) // Newest first
       .skip(skip)
       .limit(limit)
       .lean();
 
-    const total = await ChatMessage.countDocuments({ roomId });
+    const total = await ChatMessage.countDocuments(messageQuery);
 
     // Request status: "pending" = message request not accepted yet, "accepted" = normal/direct chat
     const requestStatus = room.chatType === ChatType.REQUEST ? "pending" : "accepted";
