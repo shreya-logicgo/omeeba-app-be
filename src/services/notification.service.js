@@ -915,6 +915,15 @@ export const getNotifications = async (userId, options = {}) => {
 
     if (type) {
       query.type = type;
+    } else {
+      // Exclude chat and share notifications from the general list
+      query.type = {
+        $nin: [
+          NotificationType.NEW_MESSAGE,
+          NotificationType.CONTENT_SHARED,
+          NotificationType.CONTENT_SHARED_WITH_YOU
+        ]
+      };
     }
 
     // Get notifications
@@ -1105,6 +1114,13 @@ export const getUnreadNotificationCount = async (userId) => {
     const count = await Notification.countDocuments({
       receiverId: userId,
       status: NotificationStatus.UNREAD,
+      type: {
+        $nin: [
+          NotificationType.NEW_MESSAGE,
+          NotificationType.CONTENT_SHARED,
+          NotificationType.CONTENT_SHARED_WITH_YOU
+        ]
+      }
     });
 
     return count;
