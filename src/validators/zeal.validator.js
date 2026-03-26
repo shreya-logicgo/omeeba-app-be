@@ -41,7 +41,7 @@ export const startZealUploadSchema = createSchema(
 export const createZealSchema = createSchema(
   {
     zealDraftId: commonValidations.objectId.label("Zeal Draft ID"),
-    caption: commonValidations.stringOptional(0, 2000).label("Caption"),
+    caption: commonValidations.stringOptional(0, 1000).label("Caption"),
     mentionedUserIds: Joi.array()
       .items(
         Joi.string()
