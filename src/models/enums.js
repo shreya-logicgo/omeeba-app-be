@@ -76,6 +76,9 @@ const NotificationType = {
   MENTION_IN_ZEAL: "Mention In Zeal",
   MENTION_IN_WRITE: "Mention In Write",
   
+  // Tag Notifications
+  TAG: "Tag",
+  
   // Shares
   CONTENT_SHARED: "Content Shared",
   CONTENT_SHARED_WITH_YOU: "Content Shared With You",

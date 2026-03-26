@@ -19,6 +19,8 @@ import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import crypto from "crypto";
+import { createNotification } from "./notification.service.js";
+import { sendPushNotificationToUser } from "./onesignal.service.js";
 
 // Initialize S3 client for generating view URLs
 let s3Client = null;
@@ -567,6 +569,42 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
           snapId: snap._id,
           status: MessageStatus.SENT,
         });
+
+        // Create notification for snap recipient
+        try {
+          const notification = await createNotification({
+            receiverId: recipient.userId._id,
+            senderId: senderId,
+            type: "NEW_SNAP_RECEIVED",
+            contentType: null,
+            contentId: snap._id,
+            message: "sent you a byte",
+          });
+
+          // Send push notification for snap
+          if (notification) {
+            const recipientUser = await User.findById(recipient.userId._id).select("oneSignalPlayerId pushNotificationEnabled");
+            const senderUser = await User.findById(senderId).select("name username profileImage");
+
+            if (recipientUser && senderUser) {
+              sendPushNotificationToUser(recipientUser, {
+                title: "New Byte",
+                body: `${senderUser.name || senderUser.username} sent you a byte`,
+                imageUrl: senderUser.profileImage,
+              }, {
+                notificationId: notification._id.toString(),
+                type: "NEW_SNAP_RECEIVED",
+                snapId: snap._id.toString(),
+                messageId: message._id.toString(),
+              }).catch((error) => {
+                logger.error(`Failed to send push notification for snap to user ${recipient.userId._id}:`, error);
+              });
+            }
+          }
+        } catch (notificationError) {
+          logger.error(`Error creating snap notification for user ${recipient.userId._id}:`, notificationError);
+          // Continue even if notification fails
+        }
 
         // Update room's last message
         room.lastMessage = "📸 Byte Opened";
