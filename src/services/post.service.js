@@ -142,7 +142,7 @@ export const createPost = async (userId, postData) => {
             type: NotificationType.MENTION_IN_POST,
             contentType: ContentType.POST,
             contentId: post._id,
-            message: post.caption || ""
+            message: "mentioned you in a post"  // User-friendly message like tag
           });
         } catch (error) {
           logger.error(`Error creating mention notification for user ${mentionedUserId}:`, error);

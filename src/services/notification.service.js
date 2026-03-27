@@ -102,7 +102,7 @@ const generateNotificationMessage = (type, sender, data = {}) => {
       ? `Mentioned you in a comment: "${truncatedText}"`
       : `Mentioned you in a comment`,
     
-    [NotificationType.MENTION_IN_POST]: `Mentioned you in a post`,
+    [NotificationType.MENTION_IN_POST]: `mentioned you in a post`,
     [NotificationType.MENTION_IN_ZEAL]: `Mentioned you in a zeal`,
     [NotificationType.MENTION_IN_WRITE]: `Mentioned you in a write`,
     
