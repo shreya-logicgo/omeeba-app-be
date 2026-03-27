@@ -139,7 +139,7 @@ export const createPost = async (userId, postData) => {
           await createNotification({
             receiverId: mentionedUserId,
             senderId: userId,
-            type: "MENTION_IN_POST",
+            type: NotificationType.MENTION_IN_POST,
             contentType: ContentType.POST,
             contentId: post._id,
             message: post.caption || ""
