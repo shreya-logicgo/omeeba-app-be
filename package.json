@@ -6,8 +6,11 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:legacy": "set NODE_OPTIONS=--openssl-legacy-provider && node src/server.js",
     "dev": "nodemon src/server.js",
+    "dev:legacy": "set NODE_OPTIONS=--openssl-legacy-provider && nodemon src/server.js",
     "test": "NODE_ENV=test jest --coverage",
+    "test:legacy": "set NODE_OPTIONS=--openssl-legacy-provider && NODE_ENV=test jest --coverage",
     "test:watch": "NODE_ENV=test jest --watch",
     "test:unit": "NODE_ENV=test jest tests/unit",
     "test:integration": "NODE_ENV=test jest tests/integration",
