@@ -1,8 +1,11 @@
 import https from "https";
 import { URL } from "url";
 import { google } from "googleapis";
+import { GoogleAuth } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import jwksClient from "jwks-rsa";
+import fs from "fs";
+import path from "path";
 import SubscriptionPlan from "../models/subscriptions/SubscriptionPlan.js";
 import SubscriptionPayment from "../models/subscriptions/SubscriptionPayment.js";
 import UserSubscription from "../models/subscriptions/UserSubscription.js";
@@ -11,6 +14,114 @@ import { SubscriptionStatus, BillingCycle } from "../models/enums.js";
 import { PAYMENT_PROVIDERS } from "../constants/index.js";
 import logger from "../utils/logger.js";
 import config from "../config/env.js";
+
+/**
+ * Initialize Google Auth using file-based credentials
+ * @returns {Promise<GoogleAuth>} Google Auth client
+ * @throws {Error} If key file is missing or invalid
+ */
+export const initializeGoogleAuth = async () => {
+  try {
+    const keyFilePath = path.join(process.cwd(), 'config', 'google-service-account.json');
+    
+    // Check if key file exists
+    if (!fs.existsSync(keyFilePath)) {
+      const error = new Error(`Google service account key file not found: ${keyFilePath}`);
+      error.errorType = "AUTH_ERROR";
+      error.debugStep = "key_file_check";
+      error.fix = "Place your Google service account JSON file at config/google-service-account.json";
+      throw error;
+    }
+    
+    // DEBUG: Safe runtime diagnostics
+    logger.info("DEBUG: Google Auth runtime diagnostics:", {
+      processCwd: process.cwd(),
+      keyFilePath: keyFilePath,
+      fileExists: fs.existsSync(keyFilePath)
+    });
+    
+    // TEMP: Validate JSON parsing before GoogleAuth
+    try {
+      const validationContent = fs.readFileSync(keyFilePath, 'utf8');
+      const parsedValidation = JSON.parse(validationContent);
+      logger.info("TEMP: JSON validation successful:", {
+        success: true,
+        clientEmail: parsedValidation.client_email,
+        hasType: !!parsedValidation.type,
+        hasPrivateKey: !!parsedValidation.private_key,
+        hasProjectId: !!parsedValidation.project_id
+      });
+    } catch (validationError) {
+      logger.error("TEMP: JSON validation failed:", {
+        success: false,
+        error: validationError.message,
+        stack: validationError.stack
+      });
+      throw new Error(`JSON validation failed: ${validationError.message}`);
+    }
+    
+    // Read file manually to check encoding and content
+    let fileContent;
+    try {
+      fileContent = fs.readFileSync(keyFilePath, "utf8");
+      logger.info("DEBUG: File reading successful:", {
+        fileSize: fileContent.length,
+        contentPreview: fileContent.substring(0, 80) + (fileContent.length > 80 ? "..." : "")
+      });
+    } catch (readError) {
+      const error = new Error(`Failed to read Google service account file: ${readError.message}`);
+      error.errorType = "AUTH_ERROR";
+      error.debugStep = "file_read_error";
+      error.fix = "Check file permissions and encoding";
+      throw error;
+    }
+    
+    // Validate JSON content
+    let parsedContent;
+    try {
+      parsedContent = JSON.parse(fileContent);
+      logger.info("DEBUG: JSON parsing successful:", {
+        hasClientEmail: !!parsedContent.client_email,
+        clientEmail: parsedContent.client_email
+      });
+    } catch (parseError) {
+      const error = new Error("Invalid Google service account JSON file. File may be corrupted, wrong encoding, or different from expected runtime file.");
+      error.errorType = "AUTH_ERROR";
+      error.debugStep = "json_parse_error";
+      error.originalError = parseError;
+      error.fix = "Ensure file is valid UTF-8 JSON and matches expected service account format";
+      throw error;
+    }
+    
+    logger.info("Initializing Google Auth using file-based credentials");
+    logger.info(`Key file path: ${keyFilePath}`);
+    
+    const auth = new GoogleAuth({
+      keyFile: keyFilePath,
+      scopes: ['https://www.googleapis.com/auth/androidpublisher'],
+    });
+    
+    logger.info("Google Auth initialized successfully using file-based credentials");
+    
+    return auth;
+  } catch (error) {
+    logger.error("Failed to initialize Google Auth:", {
+      error: error.message,
+      debugStep: error.debugStep || "auth_initialization",
+      keyFilePath: path.join(process.cwd(), 'config', 'google-service-account.json')
+    });
+    
+    const enhancedError = new Error(`Google authentication failed using file-based credentials: ${error.message}`);
+    enhancedError.errorType = error.errorType || "AUTH_ERROR";
+    enhancedError.debugStep = error.debugStep || "auth_initialization";
+    enhancedError.originalError = error;
+    enhancedError.fix = error.fix || "Ensure config/google-service-account.json exists and is readable";
+    throw enhancedError;
+  }
+};
+
+
+
 
 /**
  * Verify StoreKit 2 receipt using local JWT verification
@@ -435,68 +546,169 @@ const verifyAppleReceipt = async (
 };
 
 /**
- * Verify Google Play Store purchase token with Google API
+ * Verify Google Play purchase token using Google Play Developer API
  * @param {string} packageName - App package name
  * @param {string} productId - Product ID (SKU)
  * @param {string} purchaseToken - Purchase token from Google Play
- * @returns {Promise<Object>} Verified purchase data
+ * @returns {Promise<Object>} Purchase data from Google Play
  */
-const verifyGooglePurchaseToken = async (
-  packageName,
-  productId,
-  purchaseToken
-) => {
+export const verifyGooglePurchaseToken = async (packageName, productId, purchaseToken) => {
   try {
-    const googleServiceAccount =
-      config.google?.serviceAccountKey ||
-      process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
-
-    if (!googleServiceAccount) {
-      throw new Error("Google service account key not configured");
+    logger.info("Verifying Google Play purchase token using file-based authentication...");
+    logger.info(`Package: ${packageName}, Product: ${productId}`);
+    
+    // Validate inputs
+    if (!packageName || !productId || !purchaseToken) {
+      throw new Error("Missing required parameters: packageName, productId, and purchaseToken");
     }
-
-    const serviceAccount = JSON.parse(googleServiceAccount);
-
-    const auth = new google.auth.GoogleAuth({
-      credentials: serviceAccount,
-      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
-    });
-
-    const authClient = await auth.getClient();
-    const androidpublisher = google.androidpublisher({
-      version: "v3",
-      auth: authClient,
-    });
-
-    // NOTE: Assuming subscription products. If you have one-time products,
-    // you would use purchases.products.get instead.
-    const { data } = await androidpublisher.purchases.subscriptions.get({
-      packageName,
-      subscriptionId: productId,
-      token: purchaseToken,
-    });
-
-    if (!data) {
-      throw new Error("Empty response from Google Play");
-    }
-
-    // purchaseState: 0 = Purchased, 1 = Canceled, 2 = Pending
-    if (typeof data.purchaseState !== "undefined" && data.purchaseState !== 0) {
-      throw new Error("Google Play purchase is not in purchased state");
-    }
-
-    // Check if already expired according to Google
-    if (data.expiryTimeMillis) {
-      const expiryDate = new Date(Number(data.expiryTimeMillis));
-      if (expiryDate <= new Date()) {
-        throw new Error("Google Play subscription has already expired");
+    
+    // Initialize Google Auth using file-based credentials
+    let authClient;
+    try {
+      const auth = await initializeGoogleAuth();
+      authClient = await auth.getClient();
+      
+      // DEBUG: Verify access token generation
+      try {
+        const accessToken = await authClient.getAccessToken();
+        const tokenString =
+          typeof accessToken === "string"
+            ? accessToken
+            : accessToken?.token || accessToken?.access_token || null;
+        logger.info("DEBUG: Access token generated successfully:", {
+          hasToken: !!tokenString,
+          tokenLength: tokenString?.length || 0,
+          tokenPreview: tokenString
+            ? tokenString.substring(0, 20) + "..."
+            : "null"
+        });
+      } catch (tokenError) {
+        logger.error("DEBUG: Access token generation failed:", {
+          error: tokenError.message,
+          stack: tokenError.stack
+        });
       }
+      
+      logger.info("Google Auth client created successfully using file-based credentials");
+    } catch (authError) {
+      logger.error("Google authentication failed:", {
+        error: authError.message,
+        errorType: authError.errorType,
+        debugStep: authError.debugStep,
+        fix: authError.fix
+      });
+      
+      const error = new Error(`Google authentication failed: ${authError.message}`);
+      error.errorType = authError.errorType || "AUTH_ERROR";
+      error.debugStep = authError.debugStep || "google_auth_initialization";
+      error.originalError = authError;
+      error.fix = authError.fix || "Check config/google-service-account.json file";
+      throw error;
     }
 
-    return data;
+    // Create Android Publisher client
+    let androidpublisher;
+    try {
+      androidpublisher = google.androidpublisher({
+        version: "v3",
+        auth: authClient,
+      });
+      logger.info("Android Publisher client created successfully");
+    } catch (clientError) {
+      const error = new Error(`Failed to create Android Publisher client: ${clientError.message}`);
+      error.errorType = "AUTH_ERROR";
+      error.debugStep = "android_publisher_client";
+      error.originalError = clientError;
+      throw error;
+    }
+
+    // Verify the purchase with proper error handling
+    let response;
+    try {
+      response = await androidpublisher.purchases.subscriptions.get({
+        packageName: packageName,
+        subscriptionId: productId,
+        token: purchaseToken,
+      });
+      logger.info("Google Play purchase verification successful");
+    } catch (apiError) {
+      // DEBUG: Detailed Google API error logging
+      logger.error("DEBUG: Google API error details:", {
+        message: apiError.message,
+        code: apiError.code,
+        status: apiError.status,
+        response: {
+          status: apiError.response?.status,
+          data: apiError.response?.data,
+          headers: apiError.response?.headers
+        },
+        errors: apiError.errors,
+        packageName: packageName,
+        productId: productId,
+        purchaseTokenPreview: purchaseToken ? purchaseToken.substring(0, 20) + "..." : "null"
+      });
+      
+      // Handle specific Google API errors
+      if (apiError.code === 401 || apiError.status === 401) {
+        const error = new Error(`Insufficient permissions for Android Publisher API: ${apiError.message}`);
+        error.errorType = "AUTH_ERROR";
+        error.debugStep = "api_call_permissions";
+        error.originalError = apiError;
+        error.needsConfigFix = true;
+        throw error;
+      }
+      
+      if (apiError.code === 403 || apiError.status === 403) {
+        const error = new Error(`Access forbidden to Android Publisher API: ${apiError.message}`);
+        error.errorType = "AUTH_ERROR";
+        error.debugStep = "api_call_access";
+        error.originalError = apiError;
+        error.needsConfigFix = true;
+        throw error;
+      }
+      
+      if (apiError.code === 404 || apiError.status === 404) {
+        const error = new Error(`Purchase not found or invalid: ${apiError.message}`);
+        error.errorType = "INVALID_PURCHASE";
+        error.debugStep = "api_call_not_found";
+        error.originalError = apiError;
+        throw error;
+      }
+      
+      // General API error
+      const error = new Error(`Google Play API error: ${apiError.message}`);
+      error.errorType = "API_ERROR";
+      error.debugStep = "api_call_general";
+      error.originalError = apiError;
+      throw error;
+    }
+
+    const purchaseData = response.data;
+    logger.info("Google Play purchase verification completed successfully");
+
+    return purchaseData;
   } catch (error) {
-    logger.error("Google Play verification error:", error);
-    throw error;
+    // If error already has errorType, re-throw it
+    if (error.errorType) {
+      logger.error(`Google Play purchase verification failed (${error.errorType}):`, {
+        message: error.message,
+        debugStep: error.debugStep,
+        needsConfigFix: error.needsConfigFix
+      });
+      throw error;
+    }
+    
+    // Wrap unexpected errors
+    logger.error("Unexpected Google Play purchase verification error:", {
+      message: error.message,
+      stack: error.stack
+    });
+    
+    const wrappedError = new Error(`Google Play verification failed: ${error.message}`);
+    wrappedError.errorType = "UNKNOWN_ERROR";
+    wrappedError.debugStep = "unexpected_error";
+    wrappedError.originalError = error;
+    throw wrappedError;
   }
 };
 
@@ -762,12 +974,33 @@ export const verifyGooglePurchase = async (
   orderId = null
 ) => {
   try {
+    console.log('🤖 Google Purchase Verification Started');
+    console.log('📝 UserId:', userId);
+    console.log('📦 PackageName:', packageName);
+    console.log('📦 ProductId:', productId);
+    console.log('🎟️ PurchaseToken preview:', purchaseToken ? purchaseToken.substring(0, 50) + '...' : 'null');
+    console.log('🆔 OrderId:', orderId);
+    
+    // Validate userId
+    if (!userId) {
+      const error = new Error("userId is required for Google purchase verification");
+      error.errorType = "VALIDATION_ERROR";
+      error.debugStep = "user_id_validation";
+      throw error;
+    }
+    
     // Verify purchase with Google Play Developer API
     const purchaseData = await verifyGooglePurchaseToken(
       packageName,
       productId,
       purchaseToken
     );
+
+    console.log('✅ Google Purchase Data Received:', {
+      hasData: !!purchaseData,
+      purchaseState: purchaseData?.purchaseState,
+      acknowledgementState: purchaseData?.acknowledgementState
+    });
 
     const transactionId = orderId || purchaseToken; // Use orderId if provided, else purchaseToken
 
@@ -782,6 +1015,18 @@ export const verifyGooglePurchase = async (
       const subscription = await UserSubscription.findById(
         existingPayment.subscriptionId
       ).populate("planId");
+
+      // Ensure account verification flags stay consistent with the subscription status.
+      // (If this transaction was verified before, the user flags might be out of sync.)
+      if (
+        subscription &&
+        subscription.status === SubscriptionStatus.ACTIVE &&
+        subscription.endDate > new Date()
+      ) {
+        await User.findByIdAndUpdate(userId, {
+          isVerifiedBadge: true,
+        });
+      }
 
       return {
         verified: true,
@@ -812,6 +1057,8 @@ export const verifyGooglePurchase = async (
       status: SubscriptionStatus.ACTIVE,
       startDate: new Date(),
       endDate: expirationDate,
+      // Schema requires expiresAt (also used for consistency with Apple flow)
+      expiresAt: expirationDate,
     });
 
     await subscription.save();
@@ -859,8 +1106,26 @@ export const verifyGooglePurchase = async (
       },
     };
   } catch (error) {
+    // If error already has errorType from verifyGooglePurchaseToken, re-throw it
+    if (error.errorType) {
+      console.error('❌ Google Purchase Verification Error:', {
+        errorType: error.errorType,
+        message: error.message,
+        debugStep: error.debugStep,
+        needsConfigFix: error.needsConfigFix
+      });
+      throw error;
+    }
+    
+    // Handle other errors
+    console.error('❌ Unexpected Google Purchase Verification Error:', error.message);
     logger.error("Google purchase verification error:", error);
-    throw error;
+    
+    const wrappedError = new Error(`Google purchase verification failed: ${error.message}`);
+    wrappedError.errorType = "UNKNOWN_ERROR";
+    wrappedError.debugStep = "purchase_processing";
+    wrappedError.originalError = error;
+    throw wrappedError;
   }
 };
 

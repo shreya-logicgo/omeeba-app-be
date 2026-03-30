@@ -133,12 +133,6 @@ const envVarsSchema = Joi.object({
     .allow("")
     .description("Apple App Store shared secret for receipt verification"),
 
-  // Google Play Store Configuration
-  GOOGLE_SERVICE_ACCOUNT_KEY: Joi.string()
-    .optional()
-    .allow("")
-    .description("Google Play service account key (JSON string) for purchase verification"),
-
   // OneSignal Configuration
   ONESIGNAL_APP_ID: Joi.string()
     .optional()
@@ -243,9 +237,6 @@ export default {
   },
   apple: {
     appSecret: envVars.APPLE_APP_SECRET,
-  },
-  google: {
-    serviceAccountKey: envVars.GOOGLE_SERVICE_ACCOUNT_KEY,
   },
   onesignal: {
     appId: envVars.ONESIGNAL_APP_ID,

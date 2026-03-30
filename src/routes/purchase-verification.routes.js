@@ -10,6 +10,7 @@ import {
   verifyGooglePurchaseController,
   restorePurchasesController,
   getVerifiedStatusController,
+  testGoogleConfigController,
 } from "../controllers/purchase-verification.controller.js";
 import {
   validateVerifyApplePurchase,
@@ -61,5 +62,19 @@ router.get(
  * @access  Private
  */
 router.get("/status", protect, getVerifiedStatusController);
+
+/**
+ * @route   GET /api/v1/purchases/test/google-config
+ * @desc    Test Google service account configuration
+ * @access  Private
+ */
+router.get("/test/google-config", protect, testGoogleConfigController);
+
+/**
+ * @route   GET /api/v1/purchases/test/google-config-public
+ * @desc    Test Google service account configuration (public, no auth)
+ * @access  Public
+ */
+router.get("/test/google-config-public", testGoogleConfigController);
 
 export default router;
