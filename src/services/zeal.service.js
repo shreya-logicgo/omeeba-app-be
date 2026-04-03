@@ -5,7 +5,7 @@
 
 import ZealDraft from "../models/content/ZealDraft.js";
 import ZealPost from "../models/content/ZealPost.js";
-import { ZealStatus, ContentType } from "../models/enums.js";
+import { ZealStatus, ContentType ,NotificationType  } from "../models/enums.js";
 import {
   generateStorageKey,
   generatePresignedUploadUrl,
@@ -304,7 +304,7 @@ export const createZeal = async (userId, zealDraftId, zealData) => {
           await createNotification({
             receiverId: mentionedUserId,
             senderId: userId,
-            type: "MENTION_IN_ZEAL",
+            type: NotificationType.MENTION_IN_ZEAL,
             contentType: ContentType.ZEAL,
             contentId: zealPost._id,
             message: zealData.caption || ""

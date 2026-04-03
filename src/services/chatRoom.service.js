@@ -42,8 +42,19 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
     let room = await ChatRoom.findOne({ userA, userB });
 
     if (!room) {
-      if (!isDirectAllowed) {
-        // Other does not follow current → check if current is blocked from sending requests
+      // Decide final chat type (FIXED)
+      let effectiveChatType;
+
+      if (chatType === ChatType.REQUEST) {
+        effectiveChatType = ChatType.REQUEST;
+      } else {
+        effectiveChatType = isDirectAllowed
+          ? ChatType.DIRECT
+          : ChatType.REQUEST;
+      }
+
+      // Block check should depend on FINAL type (FIXED)
+      if (effectiveChatType === ChatType.REQUEST) {
         const blocked = await BlockedMessageRequest.findOne({
           blockedByUserId: otherUserId,
           blockedUserId: currentUserId,
@@ -53,8 +64,9 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
         }
       }
 
-      const effectiveChatType = isDirectAllowed ? ChatType.DIRECT : ChatType.REQUEST;
-      const requesterId = isDirectAllowed ? null : currentUserId;
+      //  Correct requester logic (FIXED)
+      const requesterId =
+        effectiveChatType === ChatType.REQUEST ? currentUserId : null;
 
       room = await ChatRoom.create({
         userA,
