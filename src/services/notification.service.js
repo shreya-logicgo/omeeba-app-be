@@ -339,9 +339,14 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
               ...metadata, // Include all new metadata, prioritizing latest
             };
           }
-          // Update imageUrl to latest sender's profileImage (if available)
+          // Update imageUrl to latest sender's profileImage (if available and not a Write/Poll)
           if (latestSender) {
-            existingNotification.imageUrl = latestSender.profileImage || existingNotification.imageUrl || null;
+            const skipProfileImage = existingNotification.contentType === ContentType.WRITE_POST || existingNotification.contentType === ContentType.POLL;
+            if (!skipProfileImage) {
+              existingNotification.imageUrl = latestSender.profileImage || existingNotification.imageUrl || null;
+            } else {
+              existingNotification.imageUrl = null;
+            }
           }
           existingNotification.message = generateAggregatedMessage(
             existingNotification.type,
@@ -405,7 +410,7 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         aggregatedUserIds: [senderId],
         metadata,
         status: NotificationStatus.UNREAD,
-        imageUrl: imageUrl || (sender ? sender.profileImage : null),
+        imageUrl: imageUrl || (!(contentType === ContentType.WRITE_POST || contentType === ContentType.POLL) && sender ? sender.profileImage : null) || null,
       });
 
       // Verify notification was saved
@@ -577,8 +582,9 @@ export const createNotification = async (notificationData) => {
       notificationMessage = `New ${type} notification`;
     }
 
-    // Always use sender's profileImage for imageUrl (unless explicitly provided)
-    notificationImageUrl = finalImageUrl || (sender ? sender.profileImage : null) || null;
+    // Always use sender's profileImage for imageUrl (unless explicitly provided or it's a Write/Poll)
+    const skipProfileImage = contentType === ContentType.WRITE_POST || contentType === ContentType.POLL;
+    notificationImageUrl = finalImageUrl || (!skipProfileImage && sender ? sender.profileImage : null) || null;
 
     // Check if this type should be push-only (not saved to DB)
     const isPushOnlyType = type === NotificationType.NEW_MESSAGE;
