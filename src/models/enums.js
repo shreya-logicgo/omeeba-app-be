@@ -76,11 +76,15 @@ const NotificationType = {
   MENTION_IN_ZEAL: "Mention In Zeal",
   MENTION_IN_WRITE: "Mention In Write",
   
+  // Tag Notifications
+  TAG: "Tag",
+  
   // Shares
   CONTENT_SHARED: "Content Shared",
   CONTENT_SHARED_WITH_YOU: "Content Shared With You",
   
   // Byte Opened
+  NEW_SNAP_RECEIVED: "New Snap Received",
   NEW_BYTE_OPENED_RECEIVED: "New Byte Opened Received",
   BYTE_OPENED_VIEWED: "Byte Opened Viewed",
   
@@ -130,6 +134,7 @@ const MessageStatus = {
 const ZealStatus = {
   DRAFT: "draft",
   PROCESSING: "processing",
+  ACTION_REQUIRED: "action_required",
   READY: "ready",
   PUBLISHED: "published",
   FAILED: "failed",

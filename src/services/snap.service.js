@@ -19,6 +19,8 @@ import { getPaginationMeta } from "../utils/pagination.js";
 import logger from "../utils/logger.js";
 import { S3Client } from "@aws-sdk/client-s3";
 import crypto from "crypto";
+import { sendPushNotificationToUser } from "./onesignal.service.js";
+import { NotificationType } from "../models/enums.js";
 
 // Initialize S3 client for generating view URLs
 let s3Client = null;
@@ -567,6 +569,36 @@ export const deliverSnapToRecipients = async (snapId, senderId) => {
           snapId: snap._id,
           status: MessageStatus.SENT,
         });
+
+        // Send push notification for byte (no database notification storage)
+        try {
+          logger.info(`Sending byte push notification for recipient ${recipient.userId._id} from sender ${senderId}`);
+          
+          const recipientUser = await User.findById(recipient.userId._id).select("oneSignalPlayerId pushNotificationEnabled");
+          const senderUser = await User.findById(senderId).select("name username profileImage");
+
+          if (recipientUser && senderUser) {
+            logger.info(`Sending push notification to user ${recipient.userId._id}, OneSignal ID: ${recipientUser.oneSignalPlayerId}`);
+            sendPushNotificationToUser(recipientUser, {
+              title: "New Byte",
+              body: `${senderUser.name || senderUser.username} sent you a byte`,
+              imageUrl: senderUser.profileImage,
+            }, {
+              type: NotificationType.NEW_SNAP_RECEIVED,
+              snapId: snap._id.toString(),
+              messageId: message._id.toString(),
+            }).then((result) => {
+              logger.info(`Push notification sent successfully to user ${recipient.userId._id}:`, result);
+            }).catch((error) => {
+              logger.error(`Failed to send push notification for snap to user ${recipient.userId._id}:`, error);
+            });
+          } else {
+            logger.warn(`Missing recipientUser or senderUser for push notification. Recipient: ${!!recipientUser}, Sender: ${!!senderUser}`);
+          }
+        } catch (notificationError) {
+          logger.error(`Error sending byte push notification for user ${recipient.userId._id}:`, notificationError);
+          // Continue even if notification fails
+        }
 
         // Update room's last message
         room.lastMessage = "📸 Byte Opened";
