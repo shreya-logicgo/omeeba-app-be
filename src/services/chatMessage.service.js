@@ -663,9 +663,10 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
   logger.info(`Found ${validUsers.length} valid recipients out of ${filtered.length} requested`);
 
   // Call shareContent to update share count and create share records
+  let shareResult = null;
   try {
-    await shareContent(senderId, contentType, contentId, filtered);
-    logger.info(`Share count updated for ${contentType} ${contentId}`);
+    shareResult = await shareContent(senderId, contentType, contentId, filtered);
+    logger.info(`Share count updated for ${contentType} ${contentId}. Total shares: ${shareResult?.totalShareCount}`);
   } catch (shareError) {
     logger.error("Error updating share count in sendContentToMultipleChats:", shareError);
     // Don't fail the operation, just log the error
@@ -712,7 +713,12 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
     `sendContentToMultipleChats: ${contentType} ${contentId} by ${senderId} -> ${successCount} sent, ${failCount} failed`
   );
 
-  return { results, successCount, failCount };
+  return { 
+    results, 
+    successCount, 
+    failCount, 
+    totalShareCount: shareResult?.totalShareCount || 0 
+  };
 };
 
 export default {

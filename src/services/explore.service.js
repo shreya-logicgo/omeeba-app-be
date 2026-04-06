@@ -161,7 +161,15 @@ const getEngagementMetrics = async (contentItems) => {
         },
         {
           $group: {
-            _id: "$contentId",
+            _id: {
+              contentId: "$contentId",
+              senderId: "$senderId"
+            },
+          },
+        },
+        {
+          $group: {
+            _id: "$_id.contentId",
             shareCount: { $sum: 1 },
           },
         },
@@ -748,19 +756,28 @@ const fetchOwnRecentContent = async (
   all.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   return all.slice(0, limit);
 };
-
 /**
  * Fetch latest polls by given users (Poll uses createdBy)
  * @param {Array<mongoose.Types.ObjectId>} userIds - User IDs (createdBy)
  * @param {number} limit - Max items to return
  * @returns {Promise<Array>} Poll items with contentType
  */
-const fetchLatestPollsByUsers = async (userIds, limit) => {
+const fetchLatestPollsByUsers = async (userIds, reportedContentIds, limit) => {
   if (!userIds || userIds.length === 0 || limit <= 0) return [];
-  const polls = await Poll.find({
+
+  const pollQuery = {
     createdBy: { $in: userIds },
-    // status: PollStatus.ACTIVE,
-  })
+  };
+
+  if (reportedContentIds && reportedContentIds[ContentType.POLL]?.length > 0) {
+    pollQuery._id = {
+      $nin: reportedContentIds[ContentType.POLL].map(
+        (id) => new mongoose.Types.ObjectId(id)
+      ),
+    };
+  }
+
+  const polls = await Poll.find(pollQuery)
     .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
     .select("-__v")
     .sort({ createdAt: -1 })
@@ -772,15 +789,26 @@ const fetchLatestPollsByUsers = async (userIds, limit) => {
 /**
  * Fetch trending polls (by totalVotes) and latest polls
  * @param {Array<mongoose.Types.ObjectId>} validUserIds - Valid user IDs
+ * @param {Object} reportedContentIds - Reported content IDs by type
  * @param {number} limit - Max items
  * @returns {Promise<Array>} Polls sorted by totalVotes desc
  */
-const fetchTrendingPolls = async (validUserIds, limit) => {
+const fetchTrendingPolls = async (validUserIds, reportedContentIds, limit) => {
   if (!validUserIds || validUserIds.length === 0 || limit <= 0) return [];
-  const polls = await Poll.find({
+
+  const pollQuery = {
     createdBy: { $in: validUserIds },
-    // status: PollStatus.ACTIVE,
-  })
+  };
+
+  if (reportedContentIds && reportedContentIds[ContentType.POLL]?.length > 0) {
+    pollQuery._id = {
+      $nin: reportedContentIds[ContentType.POLL].map(
+        (id) => new mongoose.Types.ObjectId(id)
+      ),
+    };
+  }
+
+  const polls = await Poll.find(pollQuery)
     .populate("createdBy", "name username profileImage isAccountVerified isVerifiedBadge")
     .select("-__v")
     .sort({ totalVotes: -1, createdAt: -1 })
@@ -877,6 +905,7 @@ export const getTrendingContent = async (userId = null, options = {}) => {
           [ContentType.POST]: [],
           [ContentType.WRITE_POST]: [],
           [ContentType.ZEAL]: [],
+          [ContentType.POLL]: [],
         };
       }
     }
@@ -1173,6 +1202,7 @@ export const getHomeFeed = async (userId, options = {}) => {
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
+      [ContentType.POLL]: [],
     };
 
     if (userId) {
@@ -1310,7 +1340,7 @@ export const getHomeFeed = async (userId, options = {}) => {
 
     // 2b) Followed users' polls (latest)
     if (includePolls && followedUserIds.length > 0) {
-      const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, fetchLimit);
+      const followedPollsRaw = await fetchLatestPollsByUsers(followedUserIds, reportedContentIds, fetchLimit);
       const followedPollsFormatted = await Promise.all(followedPollsRaw.map(attachSelectedOption));
       addUnique(followedPollsFormatted);
     }
@@ -1337,7 +1367,7 @@ export const getHomeFeed = async (userId, options = {}) => {
     }
     addUnique(trendingContent);
     if (includePolls) {
-      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, fetchLimit);
+      const trendingPollsRaw = await fetchTrendingPolls(validUserIds, reportedContentIds, fetchLimit);
       const trendingPollsFormatted = await Promise.all(trendingPollsRaw.map(attachSelectedOption));
       addUnique(trendingPollsFormatted);
     }
@@ -1352,7 +1382,7 @@ export const getHomeFeed = async (userId, options = {}) => {
     const latestContent = await formatContentList(userId, latestRaw);
     addUnique(latestContent);
     if (includePolls) {
-      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, fetchLimit);
+      const latestPollsRaw = await fetchLatestPollsByUsers(validUserIds, reportedContentIds, fetchLimit);
       const latestPollsFormatted = await Promise.all(latestPollsRaw.map(attachSelectedOption));
       addUnique(latestPollsFormatted);
     }
@@ -1427,6 +1457,7 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
     // Get blocked users and reported content if userId is provided
     let blockedUserIds = [];
     let reportedContentIds = {
+      [ContentType.POLL]: [],
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
@@ -1859,6 +1890,7 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     // Get blocked users and reported content
     let blockedUserIds = [];
     let reportedContentIds = {
+      [ContentType.POLL]: [],
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
@@ -1973,9 +2005,9 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
       }
 
       // Get Poll creators
-      if (contentIdsByType.Poll.length > 0) {
+      if (contentIdsByType[ContentType.POLL].length > 0) {
         const polls = await Poll.find({
-          _id: { $in: contentIdsByType.Poll },
+          _id: { $in: contentIdsByType[ContentType.POLL] },
           createdBy: { $in: validUserIds },
           // status: PollStatus.ACTIVE,
         })
@@ -2198,13 +2230,19 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     }
 
     // Search Polls
-    const pollIds = Array.from(contentIdsByType.Poll);
+    const pollIds = Array.from(contentIdsByType[ContentType.POLL]);
     if (pollIds.length > 0) {
       const pollQuery = {
         createdBy: { $in: validUserIds },
         // status: PollStatus.ACTIVE,
         _id: { $in: pollIds },
       };
+
+      if (reportedContentIds[ContentType.POLL].length > 0) {
+        pollQuery._id.$nin = reportedContentIds[ContentType.POLL].map(
+          (id) => new mongoose.Types.ObjectId(id)
+        );
+      }
 
       contentQueries.push(
         Poll.find(pollQuery)
@@ -2373,6 +2411,7 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
     // Get blocked users and reported content if userId is provided
     let blockedUserIds = [];
     let reportedContentIds = {
+      [ContentType.POLL]: [],
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
@@ -2640,6 +2679,13 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
         createdBy: { $in: validUserIds },
         // status: PollStatus.ACTIVE,
       };
+      if (reportedContentIds[ContentType.POLL].length > 0) {
+        pollQuery._id = {
+          $nin: reportedContentIds[ContentType.POLL].map(
+            (id) => new mongoose.Types.ObjectId(id)
+          ),
+        };
+      }
 
       if (safeSearchTerm) {
         if (isHashtagQuery) {

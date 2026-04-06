@@ -16,6 +16,7 @@ import {
   abortMultipartUpload,
   getPublicUrl,
 } from "./storage.service.js";
+import { extractAudioFromVideo } from "./zeal-audio.service.js";
 import config from "../config/env.js";
 // File validation functions (copied from zeal.service.js to avoid circular dependency)
 const ALLOWED_VIDEO_TYPES = [
@@ -322,6 +323,21 @@ const uploadChunksInBackground = async (
       logger.info(
         `Multipart upload completed successfully for draft: ${draftId}`
       );
+
+      // Trigger audio extraction for videos
+      if (draft.fileType === "video") {
+        const videoUrl = getPublicUrl(storageKey);
+        logger.info(`Triggering audio extraction for draft: ${draftId}`);
+        extractAudioFromVideo(videoUrl, draft.userId.toString())
+          .then(async (audioUrl) => {
+            draft.extractedAudioUrl = audioUrl;
+            await draft.save();
+            logger.info(`Audio extracted and saved for draft: ${draftId}`);
+          })
+          .catch((err) => {
+            logger.error(`Audio extraction failed for draft ${draftId}:`, err);
+          });
+      }
     }
   } catch (error) {
     logger.error(`Error in uploadChunksInBackground for draft ${draftId}:`, error);
@@ -524,6 +540,21 @@ const uploadFileSimple = async (
     }
 
     logger.info(`File uploaded successfully: ${draft._id} for user: ${userId}`);
+
+    // Trigger audio extraction for videos
+    if (fileType === "video") {
+      const videoUrl = getPublicUrl(storageKey);
+      logger.info(`Triggering audio extraction for draft: ${draft._id}`);
+      extractAudioFromVideo(videoUrl, userId)
+        .then(async (audioUrl) => {
+          draft.extractedAudioUrl = audioUrl;
+          await draft.save();
+          logger.info(`Audio extracted and saved for draft: ${draft._id}`);
+        })
+        .catch((err) => {
+          logger.error(`Audio extraction failed for draft ${draft._id}:`, err);
+        });
+    }
 
     // Return response in same format as /zeals/start endpoint
     const expiresIn = 300; // 5 minutes
