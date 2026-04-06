@@ -710,6 +710,7 @@ export const initializeSocket = (server) => {
                   profileImage: fullSnap.senderId.profileImage,
                   isVerifiedBadge: fullSnap.senderId.isVerifiedBadge,
                 },
+                messageType: MessageType.SNAP,   // ← FIXED: was missing
                 mediaType: fullSnap.mediaType,
                 thumbnailUrl: fullSnap.thumbnailUrl,
                 duration: fullSnap.duration,
