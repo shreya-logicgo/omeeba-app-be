@@ -106,7 +106,7 @@ export const createPoll = async (userId, pollData) => {
           await createNotification({
             receiverId: mentionedUserId,
             senderId: userId,
-            type: "MENTION_IN_POLL",
+            type: NotificationType.MENTION_IN_POLL,
             contentType: ContentType.POLL,
             contentId: poll._id,
             message: pollData.caption || ""

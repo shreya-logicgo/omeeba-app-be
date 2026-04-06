@@ -71,11 +71,12 @@ export const share = async (req, res) => {
       res,
       {
         shareCount: result.shareCount,
+        totalShareCount: result.totalShareCount,
         receiverIds: result.receiverIds,
         contentType,
         contentId,
       },
-      `Content shared successfully with ${result.shareCount} user(s)`,
+      `Content shared successfully with ${result.shareCount} user(s). Total unique shares: ${result.totalShareCount}`,
       StatusCodes.CREATED
     );
   } catch (error) {

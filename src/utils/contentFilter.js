@@ -25,7 +25,7 @@ export const getReportedContentIds = async (userId) => {
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
-      Poll: [],
+      [ContentType.POLL]: [],
     };
 
     reports.forEach((report) => {
@@ -44,7 +44,7 @@ export const getReportedContentIds = async (userId) => {
       [ContentType.POST]: [],
       [ContentType.WRITE_POST]: [],
       [ContentType.ZEAL]: [],
-      Poll: [],
+      [ContentType.POLL]: [],
     };
   }
 };
@@ -103,7 +103,7 @@ export const isContentReportedByUser = async (userId, contentType, contentId) =>
 export const getExcludeReportedContentQuery = async (userId, contentType) => {
   try {
     const reportedIds = await getReportedContentIdsByType(userId, contentType);
-    
+
     if (reportedIds.length === 0) {
       return {}; // No reported content, return empty query (no exclusion needed)
     }
@@ -127,7 +127,7 @@ export const getExcludeReportedContentQuery = async (userId, contentType) => {
 export const filterReportedContent = async (contentArray, userId, contentType) => {
   try {
     const reportedIds = await getReportedContentIdsByType(userId, contentType);
-    
+
     if (reportedIds.length === 0) {
       return contentArray; // No reported content, return as is
     }
