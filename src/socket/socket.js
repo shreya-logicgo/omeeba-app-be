@@ -590,10 +590,10 @@ export const initializeSocket = (server) => {
           socket.emit("request_rejected", res);
           return;
         }
-        await rejectMessageRequest(roomId, userId);
+        const result = await rejectMessageRequest(roomId, userId);
         socket.leave(`room:${roomId}`);
         socketRooms.get(socket.id)?.delete(roomId);
-        const res = { success: true, data: { roomId } };
+        const res = { success: true, data: result };
         cb(res);
         socket.emit("request_rejected", res);
       } catch (e) {
