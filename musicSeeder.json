@@ -1,0 +1,122 @@
+[
+  {
+    "title": "Energetic Action Sport",
+    "artist": "LiteSaturation",
+    "album": "Pixabay Rock Collection",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466413353-8f22d2097eb12fa7.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/rock-energy.jpg",
+    "duration": 145,
+    "category": "Rock",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Comedy Cartoon Funny Background Music",
+    "artist": "ComaStudio",
+    "album": "Pixabay Comedy Pack",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466415890-3d8459a37236e882.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/comedy-cartoon.jpg",
+    "duration": 120,
+    "category": "Comedy",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Magical Wizard School Orchestral Fantasy",
+    "artist": "Universfield",
+    "album": "Fantasy Orchestra",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466417311-67a498f8230bd250.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/fantasy-orchestra.jpg",
+    "duration": 180,
+    "category": "Classical",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Blues Ballad",
+    "artist": "SoulProdMusic",
+    "album": "Modern Blues",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466419302-7467f7408bdab251.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/blues-ballad.jpg",
+    "duration": 160,
+    "category": "Blues",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Upbeat Happy Corporate",
+    "artist": "AudioCoffee",
+    "album": "Corporate Vibes",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466419933-251a0161a551558e.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/corporate-happy.jpg",
+    "duration": 140,
+    "category": "Corporate",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Organic Flow 1015 Remastered",
+    "artist": "ComaStudio",
+    "album": "Organic Beats",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466420595-8a42466e014ac52d.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/organic-flow.jpg",
+    "duration": 130,
+    "category": "Beats",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Vlog Hip Hop",
+    "artist": "AlexGrohl",
+    "album": "Hip Hop Essentials",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466421213-51f63720cdd31d25.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/hiphop-vlog.jpg",
+    "duration": 110,
+    "category": "Hip Hop",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Epic Adventure",
+    "artist": "AlexGrohl",
+    "album": "Adventure Score",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466421775-416910f4de448b5d.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/epic-adventure.jpg",
+    "duration": 175,
+    "category": "Adventure",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Motivation Sport Rock Trailer",
+    "artist": "Grand_Project",
+    "album": "Sport Motivation",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466422368-10c6aa927625a190.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/sport-rock.jpg",
+    "duration": 150,
+    "category": "Rock",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  },
+  {
+    "title": "Inspiring Cinematic Music",
+    "artist": "Keys of Moon",
+    "album": "Cinematic Collection",
+    "audioUrl": "https://guardianshot.blr1.cdn.digitaloceanspaces.com/music/system/music/1775466422980-b5e7d43f3c55ae67.mpeg",
+    "coverImage": "https://cdn.pixabay.com/audio/2024/inspiring-cinematic.jpg",
+    "duration": 200,
+    "category": "Cinematic",
+    "language": "Instrumental",
+    "isTrending": false,
+    "isActive": true
+  }
+]
