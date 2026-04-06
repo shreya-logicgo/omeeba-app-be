@@ -10,6 +10,9 @@ import {
   getStatus,
   uploadFile,
   deleteZeal,
+  handleAudioAction,
+  getMusicLibrary,
+  getDraftAudio,
 } from "../controllers/zeal.controller.js";
 import { validateBody, validateParams } from "../utils/validation.js";
 import {
@@ -17,6 +20,7 @@ import {
   createZealSchema,
   getZealStatusParamsSchema,
   deleteZealParamsSchema,
+  handleAudioActionSchema
 } from "../validators/zeal.validator.js";
 import { protect } from "../middleware/auth.js";
 import { uploadSingle } from "../middleware/upload.js";
@@ -73,6 +77,32 @@ router.delete(
   validateParams(deleteZealParamsSchema),
   deleteZeal
 );
+
+/**
+ * @route   POST /api/v1/zeals/:zealId/handle-audio
+ * @desc    Handle audio decision (original, mute, replace)
+ * @access  Private
+ */
+router.post(
+  "/:zealId/handle-audio",
+  protect,
+  validateBody(handleAudioActionSchema),
+  handleAudioAction
+);
+
+/**
+ * @route   GET /api/v1/zeals/music
+ * @desc    Get music library for audio replacement
+ * @access  Private
+ */
+router.get("/music", protect, getMusicLibrary);
+
+/**
+ * @route   GET /api/v1/zeals/drafts/:draftId/audio
+ * @desc    Get extracted audio from a draft
+ * @access  Private
+ */
+router.get("/drafts/:draftId/audio", protect, getDraftAudio);
 
 export default router;
 

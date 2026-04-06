@@ -7,7 +7,10 @@ import {
   startZealUpload,
   createZeal,
   getZealStatus,
+  handleZealAudioAction,
 } from "../services/zeal.service.js";
+import Music from "../models/music/Music.js";
+import ZealDraft from "../models/content/ZealDraft.js";
 import { deleteZeal as deleteZealService } from "../services/contentDeletion.service.js";
 import { uploadFileWithChunking } from "../services/zeal-upload.service.js";
 import { sendSuccess, sendError, sendBadRequest, sendNotFound, sendForbidden } from "../utils/response.js";
@@ -223,11 +226,137 @@ export const deleteZeal = async (req, res) => {
   }
 };
 
+/**
+ * Handle Audio Action (User decision)
+ * @route POST /api/v1/zeals/:zealId/handle-audio
+ * @access Private
+ */
+export const handleAudioAction = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { zealId } = req.params;
+    const { action, musicId, musicStartTime, musicEndTime } = req.body;
+
+    if (!action) {
+      return sendBadRequest(res, "Action is required (original, mute, replace)");
+    }
+
+    if (action === "replace" && !musicId) {
+      return sendBadRequest(res, "Music ID is required for replacement");
+    }
+
+    const result = await handleZealAudioAction(userId, zealId, action, musicId, musicStartTime, musicEndTime);
+
+    return sendSuccess(
+      res,
+      {
+        zealId: result._id.toString(),
+        status: result.status,
+      },
+      "Audio action registered. Processing in background.",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Handle Audio Action error:", error);
+    if (error.message === "Zeal not found") return sendNotFound(res, error.message);
+    if (error.message.includes("Invalid state")) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to handle audio action",
+      "Audio Action Error",
+      error.message,
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Get Music Library
+ * @route GET /api/v1/zeals/music
+ * @access Private
+ */
+export const getMusicLibrary = async (req, res) => {
+  try {
+    const { category, language, search } = req.query;
+    
+    let query = { isActive: true };
+    if (category) query.category = category;
+    if (language) query.language = language;
+    if (search) {
+      query.title = { $regex: search, $options: "i" };
+    }
+
+    const music = await Music.find(query).sort({ isTrending: -1, createdAt: -1 });
+
+    return sendSuccess(
+      res,
+      music,
+      "Music library retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Get Music Library error:", error);
+    return sendError(
+      res,
+      "Failed to get music library",
+      "Music Library Error",
+      error.message,
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Get Draft Audio
+ * @route GET /api/v1/zeals/drafts/:draftId/audio
+ * @access Private
+ */
+export const getDraftAudio = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { draftId } = req.params;
+
+    const draft = await ZealDraft.findOne({ _id: draftId, userId });
+
+    if (!draft) {
+      return sendNotFound(res, "Zeal Draft not found");
+    }
+
+    if (!draft.extractedAudioUrl) {
+      return sendSuccess(
+        res,
+        { status: "processing" },
+        "Audio extraction in progress",
+        StatusCodes.OK
+      );
+    }
+
+    return sendSuccess(
+      res,
+      { audioUrl: draft.extractedAudioUrl, status: "ready" },
+      "Extracted audio retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Get Draft Audio error:", error);
+    return sendError(
+      res,
+      "Failed to get draft audio",
+      "Audio Error",
+      error.message,
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
 export default {
   startUpload,
   create,
   getStatus,
   uploadFile,
   deleteZeal,
+  handleAudioAction,
+  getMusicLibrary,
+  getDraftAudio,
 };
 

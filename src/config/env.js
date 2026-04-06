@@ -142,6 +142,26 @@ const envVarsSchema = Joi.object({
     .optional()
     .allow("")
     .description("OneSignal REST API Key"),
+
+  PIXABAY_API_KEY: Joi.string()
+    .optional()
+    .allow("")
+    .description("Pixabay API Key"),
+
+  ACR_HOST: Joi.string()
+    .optional()
+    .allow("")
+    .description("ACRCloud Host"),
+
+  ACR_ACCESS_KEY: Joi.string()
+    .optional()
+    .allow("")
+    .description("ACRCloud Access Key"),
+
+  ACR_ACCESS_SECRET: Joi.string()
+    .optional()
+    .allow("")
+    .description("ACRCloud Access Secret"),
 })
   .unknown()
   .prefs({ errors: { label: "key" } });
@@ -242,6 +262,14 @@ export default {
     appId: envVars.ONESIGNAL_APP_ID,
     apiKey: envVars.ONESIGNAL_API_KEY,
   },
+  pixabay: {
+    apiKey: envVars.PIXABAY_API_KEY,
+  },
+  acrcloud: {
+    host: envVars.ACR_HOST,
+    accessKey: envVars.ACR_ACCESS_KEY,
+    accessSecret: envVars.ACR_ACCESS_SECRET,
+  },
 };
 
 // Export individual variables for backward compatibility
@@ -276,3 +304,7 @@ export const OTP_LENGTH = envVars.OTP_LENGTH;
 export const DEFAULT_PAGE_SIZE = envVars.DEFAULT_PAGE_SIZE;
 export const MAX_PAGE_SIZE = envVars.MAX_PAGE_SIZE;
 export const SHARE_BASE_URL = envVars.SHARE_BASE_URL;
+export const PIXABAY_API_KEY = envVars.PIXABAY_API_KEY;
+export const ACR_HOST = envVars.ACR_HOST;
+export const ACR_ACCESS_KEY = envVars.ACR_ACCESS_KEY;
+export const ACR_ACCESS_SECRET = envVars.ACR_ACCESS_SECRET;
