@@ -1,5 +1,5 @@
 /**
- * Email Service
+ * Email Service using Brevo API
  * Handles sending emails using Brevo (formerly Sendinblue) API
  */
 
@@ -19,6 +19,12 @@ const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
  */
 export const sendEmail = async ({ to, subject, html, text }) => {
   try {
+    console.log('📧 Email Service Started');
+    console.log('� Brevo API Key configured:', !!config.brevo?.apiKey);
+    console.log('�📨 From Email:', config.email?.from);
+    console.log('📝 To:', Array.isArray(to) ? to.join(', ') : to);
+    console.log('📋 Subject:', subject);
+    
     // Check if Brevo API key is configured
     if (!config.brevo?.apiKey) {
       logger.warn(
@@ -42,8 +48,8 @@ export const sendEmail = async ({ to, subject, html, text }) => {
     // Prepare email payload
     const emailPayload = {
       sender: {
-        name: config.email.fromName,
-        email: config.email.from,
+        name: config.email?.fromName || 'Omeeba Team',
+        email: config.email?.from || 'noreply@omeeba.co.in',
       },
       to: recipients,
       subject,
@@ -51,54 +57,82 @@ export const sendEmail = async ({ to, subject, html, text }) => {
       textContent: text || html.replace(/<[^>]*>/g, ""), // Strip HTML tags for text version
     };
 
-    // Send email via Brevo API
-    const response = await fetch(BREVO_API_URL, {
-      method: "POST",
-      headers: {
-        "api-key": config.brevo.apiKey,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify(emailPayload),
-    });
+    // Send email via Brevo API with retry mechanism
+    let retries = 3;
+    let lastError;
 
-    const responseData = await response.json();
+    for (let i = 0; i < retries; i++) {
+      try {
+        const response = await fetch(BREVO_API_URL, {
+          method: "POST",
+          headers: {
+            "api-key": config.brevo.apiKey,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify(emailPayload),
+          signal: AbortSignal.timeout(15000) // 15 second timeout
+        });
 
-    if (!response.ok) {
-      const errorMessage =
-        responseData.message || `Brevo API error: ${response.status}`;
-      logger.error(`Brevo API error:`, responseData);
-      
-      // If API key is invalid/enabled, skip email but continue registration
-      if (responseData.code === "unauthorized" || errorMessage.includes("API Key is not enabled")) {
-        logger.warn(
-          "Brevo API key issue. Email sending will be skipped but registration continues."
+        const responseData = await response.json();
+
+        if (!response.ok) {
+          const errorMessage =
+            responseData.message || `Brevo API error: ${response.status}`;
+          
+          // If API key is invalid/enabled, skip email but continue registration
+          if (responseData.code === "unauthorized" || errorMessage.includes("API Key is not enabled")) {
+            logger.warn(
+              "Brevo API key issue. Email sending will be skipped but registration continues."
+            );
+            return {
+              success: false,
+              skipped: true,
+              error: "Email service temporarily unavailable",
+            };
+          }
+          
+          throw new Error(errorMessage);
+        }
+
+        console.log('✅ Email sent successfully');
+        console.log('📧 Message ID:', responseData.messageId);
+
+        logger.info(
+          `Email sent successfully to ${Array.isArray(to) ? to.join(", ") : to}. Message ID: ${responseData.messageId}`
         );
+
         return {
-          success: false,
-          skipped: true,
-          error: "Email service temporarily unavailable",
+          success: true,
+          messageId: responseData.messageId,
+          data: responseData,
         };
+      } catch (error) {
+        lastError = error;
+        console.log(`❌ Attempt ${i + 1} failed:`, error.message);
+        
+        // Wait before retry (exponential backoff)
+        if (i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+        }
       }
-      
-      throw new Error(errorMessage);
     }
 
-    logger.info(
-      `Email sent successfully to ${Array.isArray(to) ? to.join(", ") : to}. Message ID: ${responseData.messageId}`
-    );
+    // All retries failed
+    throw lastError;
 
-    return {
-      success: true,
-      messageId: responseData.messageId,
-      data: responseData,
-    };
   } catch (error) {
+    console.error('❌ Email sending failed after retries:', error.message);
     logger.error(
       `Error sending email to ${Array.isArray(to) ? to.join(", ") : to}:`,
       error
     );
-    throw new Error(`Failed to send email: ${error.message}`);
+    
+    return {
+      success: false,
+      error: error.message,
+      details: error
+    };
   }
 };
 
@@ -126,11 +160,11 @@ export const sendOTPEmail = async (email, otp) => {
         <div style="background-color: #fff; padding: 20px; border-radius: 5px; text-align: center; margin: 20px 0;">
           <h1 style="color: #007bff; font-size: 32px; margin: 0; letter-spacing: 5px;">${otp}</h1>
         </div>
-        <p>This OTP will expire in ${config.otp.expireMinutes} minutes.</p>
+        <p>This OTP will expire in ${config.otp?.expireMinutes || 10} minutes.</p>
         <p>If you didn't request this OTP, please ignore this email.</p>
         <p style="margin-top: 30px; color: #666; font-size: 12px;">
           Best regards,<br>
-          ${config.email.fromName}
+          ${config.email?.fromName || 'Omeeba Team'}
         </p>
       </div>
     </body>
@@ -146,12 +180,12 @@ export const sendOTPEmail = async (email, otp) => {
     
     OTP: ${otp}
     
-    This OTP will expire in ${config.otp.expireMinutes} minutes.
+    This OTP will expire in ${config.otp?.expireMinutes || 10} minutes.
     
     If you didn't request this OTP, please ignore this email.
     
     Best regards,
-    ${config.email.fromName}
+    ${config.email?.fromName || 'Omeeba Team'}
   `;
 
   return sendEmail({ to: email, subject, html, text });
@@ -181,11 +215,11 @@ export const sendForgotPasswordOTPEmail = async (email, otp) => {
         <div style="background-color: #fff; padding: 20px; border-radius: 5px; text-align: center; margin: 20px 0;">
           <h1 style="color: #007bff; font-size: 32px; margin: 0; letter-spacing: 5px;">${otp}</h1>
         </div>
-        <p>This OTP will expire in ${config.otp.expireMinutes} minutes.</p>
+        <p>This OTP will expire in ${config.otp?.expireMinutes || 10} minutes.</p>
         <p>If you didn't request this password reset, please ignore this email and your password will remain unchanged.</p>
         <p style="margin-top: 30px; color: #666; font-size: 12px;">
           Best regards,<br>
-          ${config.email.fromName}
+          ${config.email?.fromName || 'Omeeba Team'}
         </p>
       </div>
     </body>
@@ -201,12 +235,12 @@ export const sendForgotPasswordOTPEmail = async (email, otp) => {
     
     OTP: ${otp}
     
-    This OTP will expire in ${config.otp.expireMinutes} minutes.
+    This OTP will expire in ${config.otp?.expireMinutes || 10} minutes.
     
     If you didn't request this password reset, please ignore this email and your password will remain unchanged.
     
     Best regards,
-    ${config.email.fromName}
+    ${config.email?.fromName || 'Omeeba Team'}
   `;
 
   return sendEmail({ to: email, subject, html, text });

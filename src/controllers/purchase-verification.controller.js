@@ -1,8 +1,10 @@
 import {
   verifyApplePurchase,
   verifyGooglePurchase,
+  verifyGooglePurchaseToken,
   restorePurchases,
   getUserVerifiedStatus,
+  initializeGoogleAuth,
 } from "../services/purchase-verification.service.js";
 import {
   sendSuccess,
@@ -11,6 +13,7 @@ import {
 } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
+
 
 /**
  * Verify Apple App Store purchase
@@ -76,11 +79,29 @@ export const verifyGooglePurchaseController = async (req, res) => {
     const userId = req.user._id.toString();
     const { packageName, productId, purchaseToken, orderId } = req.body;
 
+    // Validate required inputs
+    if (!userId) {
+      return sendBadRequest(res, "User ID is required");
+    }
+
     if (!packageName || !productId || !purchaseToken) {
       return sendBadRequest(
         res,
         "Package name, product ID, and purchase token are required"
       );
+    }
+
+    // Validate input formats
+    if (typeof packageName !== 'string' || packageName.trim().length === 0) {
+      return sendBadRequest(res, "Package name must be a non-empty string");
+    }
+
+    if (typeof productId !== 'string' || productId.trim().length === 0) {
+      return sendBadRequest(res, "Product ID must be a non-empty string");
+    }
+
+    if (typeof purchaseToken !== 'string' || purchaseToken.trim().length === 0) {
+      return sendBadRequest(res, "Purchase token must be a non-empty string");
     }
 
     const result = await verifyGooglePurchase(
@@ -105,8 +126,167 @@ export const verifyGooglePurchaseController = async (req, res) => {
       StatusCodes.OK
     );
   } catch (error) {
-    logger.error("Verify Google purchase controller error:", error);
+    // Handle structured errors from service
+    if (error.errorType) {
+      logger.error("Google purchase verification failed:", {
+        errorType: error.errorType,
+        message: error.message,
+        debugStep: error.debugStep,
+        needsConfigFix: error.needsConfigFix,
+        userId: req.user?._id,
+        packageName: req.body?.packageName,
+        productId: req.body?.productId
+      });
 
+      // Return appropriate response based on error type
+      switch (error.errorType) {
+        case "VALIDATION_ERROR":
+          return sendBadRequest(res, error.message);
+          
+        case "INVALID_CREDENTIALS":
+          return sendError(
+            res,
+            "Google service account credentials are invalid or missing",
+            "Credentials Error",
+            "Please check your Google service account configuration",
+            StatusCodes.INTERNAL_SERVER_ERROR
+          );
+          
+        case "OPENSSL_ERROR":
+          const errorResponse = {
+            success: false,
+            errorType: "OPENSSL_ERROR",
+            message: "OpenSSL decoding failed during Google JWT signing",
+            fix: "Run app with NODE_OPTIONS=--openssl-legacy-provider or use Node 16 LTS",
+            nodeVersion: error.nodeVersion || process.version,
+            opensslVersion: error.opensslVersion || process.versions.openssl,
+            hasLegacyProvider: error.hasLegacyProvider || process.env.NODE_OPTIONS?.includes('--openssl-legacy-provider'),
+            debugStep: error.debugStep,
+            strategy: error.strategy || 'unknown'
+          };
+          
+          // If legacy provider is already enabled, suggest different solutions
+          if (errorResponse.hasLegacyProvider) {
+            errorResponse.fix = "Legacy provider already enabled. Try downgrading to Node.js 16 LTS OR regenerate Google service account key with different format";
+            errorResponse.legacyProviderEnabled = true;
+          }
+          
+          // Add specific recommendations based on strategy
+          if (error.strategy === 'Legacy Provider Warning') {
+            errorResponse.fix = "Enable legacy provider with NODE_OPTIONS=--openssl-legacy-provider";
+          }
+          
+          return sendError(
+            res,
+            errorResponse,
+            "Authentication Error",
+            error.fix || "OpenSSL compatibility issue detected",
+            StatusCodes.INTERNAL_SERVER_ERROR
+          );
+          
+        case "AUTH_ERROR":
+          const message = error.needsConfigFix 
+            ? "Google Play Console permissions need to be configured"
+            : "Google authentication failed";
+          return sendError(
+            res,
+            message,
+            "Authentication Error",
+            error.message,
+            StatusCodes.INTERNAL_SERVER_ERROR
+          );
+          
+        case "INVALID_PURCHASE":
+          return sendBadRequest(res, error.message);
+          
+        case "API_ERROR":
+          return sendError(
+            res,
+            "Google Play API error occurred",
+            "API Error",
+            error.message,
+            StatusCodes.INTERNAL_SERVER_ERROR
+          );
+          
+        default:
+          return sendError(
+            res,
+            "Google purchase verification failed",
+            "Verification Error",
+            error.message,
+            StatusCodes.INTERNAL_SERVER_ERROR
+          );
+      }
+    }
+
+    // Handle legacy/unstructured errors
+    const errorInfo = {
+      timestamp: new Date().toISOString(),
+      service: 'omeeba-backend',
+      component: 'purchase-verification-controller',
+      action: 'verify_google_purchase',
+      status: 'error',
+      request: {
+        userId: req.user?._id,
+        packageName: req.body?.packageName,
+        productId: req.body?.productId,
+        purchaseTokenLength: req.body?.purchaseToken?.length || 0,
+        purchaseTokenPreview: req.body?.purchaseToken ? req.body.purchaseToken.substring(0, req.body.purchaseToken.length - 6) + '******' : 'MISSING',
+        orderId: req.body?.orderId
+      },
+      error: {
+        message: error.message,
+        code: error.code,
+        status: error.status,
+        stack: error.stack
+      }
+    };
+
+    let errorType = 'UNKNOWN_ERROR';
+    if (error.code === 401 || error.status === 401 || error.message?.includes('insufficient permissions')) {
+      errorType = 'AUTH_ERROR';
+    } else if (error.message?.includes('JSON') || error.message?.includes('parse')) {
+      errorType = 'INVALID_CREDENTIALS';
+    } else if (error.message?.includes('OpenSSL') || error.message?.includes('DECODER')) {
+      errorType = 'OPENSSL_ERROR';
+    } else if (error.message?.includes('API') || error.message?.includes('access')) {
+      errorType = 'API_ACCESS_ERROR';
+    }
+
+    errorInfo.errorType = errorType;
+
+    if (error.code === 401 || error.status === 401) {
+      errorInfo.analysis = {
+        issue: 'Service account lacks required permissions',
+        solution: 'Check Google Play Console → API Access → Android Publisher API',
+        requiredPermissions: ['Android Publisher API access', 'Play Management or Finance permissions'],
+        domain: 'androidpublisher',
+        reason: 'permissionDenied',
+        notCodeIssue: true
+      };
+    }
+    
+    if (error.message?.includes('insufficient permissions')) {
+      errorInfo.analysis = {
+        issue: 'Service account is authenticated but lacks Android Publisher API permissions',
+        solution: 'Grant proper permissions in Google Play Console',
+        authenticationStatus: 'SUCCESS',
+        authorizationStatus: 'FAILED'
+      };
+    }
+    
+    if (error.message?.includes('permissionDenied')) {
+      errorInfo.analysis = {
+        domain: 'androidpublisher',
+        reason: 'permissionDenied',
+        rootCause: 'Google Play Console configuration issue',
+        notCodeIssue: true
+      };
+    }
+
+    logger.error('CONTROLLER_ERROR', errorInfo);
+
+    // Check for specific error types that should return bad request
     if (error.message.includes("duplicate") || error.message.includes("already")) {
       return sendBadRequest(res, error.message);
     }
@@ -115,6 +295,7 @@ export const verifyGooglePurchaseController = async (req, res) => {
       return sendBadRequest(res, error.message);
     }
 
+    // Return generic error for unhandled cases
     return sendError(
       res,
       "Failed to verify Google purchase",
@@ -198,9 +379,57 @@ export const getVerifiedStatusController = async (req, res) => {
   }
 };
 
+/**
+ * Test Google service account configuration
+ * @route GET /api/v1/purchases/test/google-config
+ * @access Private
+ */
+export const testGoogleConfigController = async (req, res) => {
+  try {
+    let configStatus = {
+      hasCredentials: false,
+      credentialsValid: false,
+      authWorking: false,
+      error: null,
+      credentialsType: 'file_based'
+    };
+
+    // Test file-based Google Auth initialization
+    try {
+      const auth = await initializeGoogleAuth();
+      configStatus.hasCredentials = true;
+      configStatus.credentialsValid = true;
+      
+      // Test authentication
+      const authClient = await auth.getClient();
+      configStatus.authWorking = true;
+      
+      return sendSuccess(res, {
+        configStatus,
+        message: "Google service account configuration is valid using file-based credentials"
+      }, "Google service account configuration is valid");
+      
+    } catch (error) {
+      configStatus.error = error.message;
+      configStatus.fix = error.fix || "Check config/google-service-account.json file";
+      
+      return sendError(
+        res, 
+        "Google service account configuration error", 
+        "Config Error", 
+        `${error.message}. ${error.fix || ''}`
+      );
+    }
+  } catch (error) {
+    logger.error("Test Google config error:", error);
+    return sendError(res, "Failed to test Google configuration", "Test Error", error.message);
+  }
+};
+
 export default {
   verifyApplePurchaseController,
   verifyGooglePurchaseController,
   restorePurchasesController,
   getVerifiedStatusController,
+  testGoogleConfigController,
 };

@@ -19,6 +19,7 @@ import { generateThumbnailFromUrl } from "./thumbnail.service.js";
 import config from "../config/env.js";
 import logger from "../utils/logger.js";
 import { createNotification } from "./notification.service.js";
+import { detectAudioCopyright, muteVideo, replaceVideoAudio } from "./zeal-audio.service.js";
 
 // Allowed file types
 const ALLOWED_VIDEO_TYPES = [
@@ -276,17 +277,19 @@ export const createZeal = async (userId, zealDraftId, zealData) => {
     const mediaUrl = getPublicUrl(draft.storageKey);
 
     // Create Zeal post with processing status
+    const isMute = zealData.audioAction === "mute";
     const zealPost = await ZealPost.create({
       userId,
       [draft.fileType === "video" ? "videos" : "images"]: [mediaUrl],
       caption: zealData.caption || "",
       mentionedUserIds: zealData.mentionedUserIds || [],
-      musicId: zealData.musicId || null,
-      musicStartTime: zealData.musicStartTime || null,
-      musicEndTime: zealData.musicEndTime || null,
+      musicId: isMute ? null : (zealData.musicId || null),
+      musicStartTime: isMute ? null : (zealData.musicStartTime || null),
+      musicEndTime: isMute ? null : (zealData.musicEndTime || null),
       isDevelopByAi: zealData.isDevelopByAi || false,
       status: ZealStatus.PROCESSING,
       mediaUrl,
+      audioAction: zealData.audioAction || (zealData.musicId ? "replace" : "original"),
     });
 
     // Update draft status
@@ -350,9 +353,9 @@ const processZealAsync = async (zealId) => {
       // Generate thumbnail for videos
       if (zealPost.videos && zealPost.videos.length > 0 && zealPost.mediaUrl) {
         const videoUrl = zealPost.videos[0] || zealPost.mediaUrl;
-        
+
         logger.info(`Generating thumbnail for zeal ${zealId} from video: ${videoUrl}`);
-        
+
         try {
           // Generate thumbnail from video URL (1 second offset, 640px width)
           const thumbnailBuffer = await generateThumbnailFromUrl(videoUrl, {
@@ -378,6 +381,73 @@ const processZealAsync = async (zealId) => {
           // Save thumbnail URL
           zealPost.thumbnailUrl = thumbnailUrl;
           logger.info(`Thumbnail uploaded successfully for zeal ${zealId}: ${thumbnailUrl}`);
+
+          // NEW: Audio Copyright Detection
+          // NEW: Distinction between explicit choice and direct upload
+          if (zealPost.videos && zealPost.videos.length > 0) {
+            const hasExplicitAction = zealPost.audioAction !== null;
+
+            if (hasExplicitAction) {
+              logger.info(`Applying explicit audio action "${zealPost.audioAction}" for zeal ${zealId}`);
+
+              try {
+                let finalProcessedUrl = videoUrl;
+                if (zealPost.audioAction === "mute") {
+                  logger.info(`Starting mute process for zeal ${zealId}...`);
+                  finalProcessedUrl = await muteVideo(videoUrl, zealPost.userId.toString());
+                } else if (zealPost.audioAction === "replace") {
+                  if (!zealPost.musicId) {
+                    logger.error(`Music ID missing for replace action on zeal ${zealId}`);
+                    throw new Error("Music ID is required for audio replacement");
+                  }
+                  logger.info(`Starting replace process for zeal ${zealId} with music ${zealPost.musicId}...`);
+                  finalProcessedUrl = await replaceVideoAudio(
+                    videoUrl, 
+                    zealPost.musicId.toString(), 
+                    zealPost.userId.toString(),
+                    zealPost.musicStartTime,
+                    zealPost.musicEndTime
+                  );
+                } else if (zealPost.audioAction === "original") {
+                  logger.info(`User explicitly chose original audio for zeal ${zealId}`);
+                  // Nothing more to do, keep original videoUrl
+                }
+
+                logger.info(`Audio action "${zealPost.audioAction}" processed successfully for zeal ${zealId}. New URL: ${finalProcessedUrl}`);
+
+                zealPost.videos = [finalProcessedUrl];
+                zealPost.mediaUrl = finalProcessedUrl;
+                zealPost.status = ZealStatus.PUBLISHED;
+                zealPost.audioStatus = zealPost.audioAction === "original" ? "none" : "processed";
+                await zealPost.save();
+                return; // Stop here, we already did what was requested
+              } catch (audioActionError) {
+                logger.error(`Failed to process explicit audio action for zeal ${zealId}:`, audioActionError);
+                // Fallback: flag it for user check
+                zealPost.status = ZealStatus.ACTION_REQUIRED;
+                zealPost.processingError = `Explicit audio action failed: ${audioActionError.message}`;
+                await zealPost.save();
+                return;
+              }
+            }
+
+            // If no explicit action (Direct Upload), run copyright detection
+            logger.info(`No audio action provided for zeal ${zealId}, performing mandatory copyright detection (Direct Upload)`);
+            const detection = await detectAudioCopyright(videoUrl);
+
+            if (detection.isFlagged) {
+              logger.info(`Audio flagged for zeal ${zealId}: ${detection.reason}`);
+
+              // Direct upload + flag = ALWAYS ACTION_REQUIRED
+              zealPost.status = ZealStatus.ACTION_REQUIRED;
+              zealPost.audioStatus = "flagged";
+              zealPost.processingError = detection.reason;
+              await zealPost.save();
+              return;
+            } else {
+              zealPost.audioStatus = "ok";
+            }
+          }
         } catch (thumbnailError) {
           logger.error(`Error generating thumbnail for zeal ${zealId}:`, thumbnailError);
           // Don't fail the whole processing if thumbnail generation fails
@@ -399,12 +469,12 @@ const processZealAsync = async (zealId) => {
     }
 
     if (isProcessingSuccessful) {
-      zealPost.status = ZealStatus.READY;
+      zealPost.status = ZealStatus.PUBLISHED;
       zealPost.processingError = processingError; // May contain thumbnail warning
       logger.info(`Zeal post processed successfully: ${zealId}`);
-      
+
       await zealPost.save();
-      
+
       // Link hashtags to content when status becomes READY (async, don't wait)
       if (zealPost.caption) {
         const tags = extractHashtags(zealPost.caption);
@@ -491,9 +561,102 @@ export const getZealStatus = async (userId, zealId) => {
   }
 };
 
+/**
+ * Handle user decision for flagged audio
+ * @param {string} userId - User ID
+ * @param {string} zealId - Zeal ID
+ * @param {string} action - Action to take (use_original, mute, replace)
+ * @param {string} musicId - Music ID (required for 'replace' action)
+ * @param {number} musicStartTime - Start time in seconds
+ * @param {number} musicEndTime - End time in seconds
+ * @returns {Promise<Object>} Updated Zeal post
+ */
+export const handleZealAudioAction = async (userId, zealId, action, musicId = null, musicStartTime = null, musicEndTime = null) => {
+  try {
+    const zealPost = await ZealPost.findOne({ _id: zealId, userId });
+    if (!zealPost) throw new Error("Zeal not found");
+
+    if (zealPost.status !== ZealStatus.ACTION_REQUIRED) {
+      throw new Error(`Invalid state: Zeal is in ${zealPost.status} status`);
+    }
+
+    const videoUrl = zealPost.videos[0] || zealPost.mediaUrl;
+    if (!videoUrl) throw new Error("Video URL not found");
+
+    // Set back to processing
+    zealPost.status = ZealStatus.PROCESSING;
+    zealPost.processingError = null;
+    await zealPost.save();
+
+    // Process in background
+    (async () => {
+      try {
+        let finalVideoUrl = videoUrl;
+
+        if (action === "mute") {
+          logger.info(`Muting video for zeal ${zealId}`);
+          finalVideoUrl = await muteVideo(videoUrl, userId);
+        } else if (action === "replace") {
+          if (!musicId) throw new Error("Music ID is required for replacement");
+          logger.info(`Replacing audio for zeal ${zealId} with music ${musicId}`);
+          finalVideoUrl = await replaceVideoAudio(
+            videoUrl, 
+            musicId, 
+            userId,
+            musicStartTime,
+            musicEndTime
+          );
+        } else if (action === "original") {
+          logger.info(`Using original audio for zeal ${zealId}`);
+          // Already have original URL
+        } else {
+          throw new Error("Invalid action provided");
+        }
+
+        // Update post with user's choices and final result
+        const isMute = action === "mute";
+        zealPost.musicId = isMute ? null : (musicId || zealPost.musicId);
+        zealPost.musicStartTime = isMute ? null : (musicStartTime !== null ? musicStartTime : zealPost.musicStartTime);
+        zealPost.musicEndTime = isMute ? null : (musicEndTime !== null ? musicEndTime : zealPost.musicEndTime);
+        zealPost.audioAction = action;
+        
+        zealPost.videos = [finalVideoUrl];
+        zealPost.mediaUrl = finalVideoUrl;
+        zealPost.status = ZealStatus.PUBLISHED;
+        zealPost.audioStatus = action === "original" ? "none" : "processed";
+        await zealPost.save();
+
+        logger.info(`Zeal ${zealId} processed after audio action: ${action}`);
+ 
+         // Link hashtags when finally published
+         if (zealPost.caption) {
+           const tags = extractHashtags(zealPost.caption);
+           if (tags.length > 0) {
+             linkHashtagsToContent(ContentType.ZEAL, zealPost._id, tags).catch(
+               (error) => {
+                 logger.error(`Error linking hashtags for zeal ${zealPost._id}:`, error);
+               }
+             );
+           }
+         }
+      } catch (error) {
+        logger.error(`Error processing audio action for zeal ${zealId}:`, error);
+        zealPost.status = ZealStatus.FAILED;
+        zealPost.processingError = `Failed to process audio action: ${error.message}`;
+        await zealPost.save();
+      }
+    })();
+
+    return zealPost;
+  } catch (error) {
+    logger.error("Error in handleZealAudioAction:", error);
+    throw error;
+  }
+};
+
 export default {
   startZealUpload,
   createZeal,
   getZealStatus,
+  handleZealAudioAction,
 };
-

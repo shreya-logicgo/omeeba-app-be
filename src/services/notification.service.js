@@ -45,7 +45,8 @@ const isAggregatableType = (type) => {
     NotificationType.POLL_COMMENT,
     NotificationType.POLL_VOTED,
   ];
-  return aggregatableTypes.includes(type);
+  // TAG notifications should NOT be aggregated to prevent duplicates
+  return aggregatableTypes.includes(type) && type !== NotificationType.TAG;
 };
 
 /**
@@ -101,9 +102,11 @@ const generateNotificationMessage = (type, sender, data = {}) => {
       ? `Mentioned you in a comment: "${truncatedText}"`
       : `Mentioned you in a comment`,
     
-    [NotificationType.MENTION_IN_POST]: `Mentioned you in a post`,
+    [NotificationType.MENTION_IN_POST]: `mentioned you in a post`,
     [NotificationType.MENTION_IN_ZEAL]: `Mentioned you in a zeal`,
     [NotificationType.MENTION_IN_WRITE]: `Mentioned you in a write`,
+    
+    [NotificationType.TAG]: `tagged you in a post`,
     
     [NotificationType.CONTENT_SHARED]: `Shared your ${contentType === ContentType.POST ? "post" : contentType === ContentType.ZEAL ? "zeal" : "write"}`,
     [NotificationType.CONTENT_SHARED_WITH_YOU]: `Shared a ${contentType === ContentType.POST ? "post" : contentType === ContentType.ZEAL ? "zeal" : "write"} with you`,
@@ -468,17 +471,31 @@ export const createNotification = async (notificationData) => {
       imageUrl = null,
     } = notificationData;
 
-    // Automatically fetch Zeal thumbnail if needed
+    // Automatically fetch content images if needed
     let finalImageUrl = imageUrl;
-    if (!finalImageUrl && contentType === ContentType.ZEAL && contentId) {
+    if (!finalImageUrl && contentId) {
       try {
-        const ZealPostModel = getContentModel(ContentType.ZEAL);
-        const zealPost = await ZealPostModel.findById(contentId).select("thumbnailUrl");
-        if (zealPost && zealPost.thumbnailUrl) {
-          finalImageUrl = zealPost.thumbnailUrl;
+        if (contentType === ContentType.ZEAL) {
+          logger.info(`Fetching Zeal thumbnail for notification: ${contentId}`);
+          const ZealPostModel = getContentModel(ContentType.ZEAL);
+          const zealPost = await ZealPostModel.findById(contentId).select("thumbnailUrl");
+          if (zealPost && zealPost.thumbnailUrl) {
+            finalImageUrl = zealPost.thumbnailUrl;
+            logger.info(`Zeal thumbnail fetched: ${finalImageUrl}`);
+          }
+        } else if (contentType === ContentType.POST) {
+          logger.info(`Fetching Post images for notification: ${contentId}`);
+          const PostModel = getContentModel(ContentType.POST);
+          const post = await PostModel.findById(contentId).select("images");
+          if (post && post.images && post.images.length > 0) {
+            finalImageUrl = post.images[0]; // Use first image
+            logger.info(`Post first image fetched: ${finalImageUrl}`);
+          } else {
+            logger.info(`No images found in post: ${contentId}`);
+          }
         }
       } catch (err) {
-        logger.warn(`Error fetching Zeal thumbnail for notification: ${err.message}`);
+        logger.warn(`Error fetching content image for notification: ${err.message}`);
       }
     }
 

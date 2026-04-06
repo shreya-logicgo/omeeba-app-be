@@ -32,6 +32,16 @@ const contentTypeToMessageType = {
 };
 
 /**
+ * Get request status for a chat room
+ * "pending" = message request not accepted yet, "accepted" = normal/direct chat
+ * @param {Object} room - ChatRoom document
+ * @returns {string} "pending" or "accepted"
+ */
+export const getRequestStatus = (room) => {
+  return room.chatType === ChatType.REQUEST ? "pending" : "accepted";
+};
+
+/**
  * Get mediaUrl and thumbnailUrl from shared content (Post / Write Post / Zeal) for chat message display.
  * @param {string} messageType - MessageType: "Post" | "Write Post" | "Zeal"
  * @param {string} contentId - Content ID
@@ -213,6 +223,7 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       timestamp: formatTime12Hour(newMessage.createdAt), // 12-hour format "11:02 AM"
       timeAgo: getTimeAgo(newMessage.createdAt), // Keep for backward compatibility
       createdAt: newMessage.createdAt,
+      requestStatus: getRequestStatus(room), // Add requestStatus to match messages_list structure
     };
 
     logger.info(`Message sent in room ${roomId} by user ${senderId}`);
@@ -286,7 +297,7 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
     const total = await ChatMessage.countDocuments(messageQuery);
 
     // Request status: "pending" = message request not accepted yet, "accepted" = normal/direct chat
-    const requestStatus = room.chatType === ChatType.REQUEST ? "pending" : "accepted";
+    const requestStatus = getRequestStatus(room);
 
     // Format messages and fetch content creators
     const formattedMessages = await Promise.all(
@@ -393,6 +404,7 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
           timestamp: formatTime12Hour(msg.createdAt), // 12-hour format "11:02 AM"
           timeAgo: getTimeAgo(msg.createdAt), // Keep for backward compatibility
           createdAt: msg.createdAt,
+          requestStatus: requestStatus, // Add requestStatus to match new_message structure
         };
 
         // Add content creator profile for shared content
