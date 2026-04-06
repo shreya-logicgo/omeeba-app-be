@@ -113,6 +113,7 @@ export const createZealSchema = createSchema(
     audioAction: Joi.string()
       .valid("original", "mute", "replace")
       .optional()
+      .default("original") // Added default
       .allow(null)
       .label("Audio Action"),
   },

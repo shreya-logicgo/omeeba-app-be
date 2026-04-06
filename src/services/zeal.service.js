@@ -289,7 +289,7 @@ export const createZeal = async (userId, zealDraftId, zealData) => {
       isDevelopByAi: zealData.isDevelopByAi || false,
       status: ZealStatus.PROCESSING,
       mediaUrl,
-      audioAction: zealData.audioAction || (zealData.musicId ? "replace" : null),
+      audioAction: zealData.audioAction || (zealData.musicId ? "replace" : "original"),
     });
 
     // Update draft status
