@@ -240,7 +240,7 @@ export const initializeSocket = (server) => {
      * Emits new_message to each room and to each recipient; ack + content_shared_to_chats with summary.
      */
     socket.on("share_to_chats", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { contentType, contentId, recipientIds } = data || {};
         if (!contentType || !contentId || !Array.isArray(recipientIds) || recipientIds.length === 0) {
@@ -250,7 +250,7 @@ export const initializeSocket = (server) => {
           return;
         }
 
-        const { results, successCount, failCount } = await sendContentToMultipleChats(
+        const { results, successCount, failCount, totalShareCount } = await sendContentToMultipleChats(
           userId,
           contentType,
           contentId,
@@ -259,8 +259,11 @@ export const initializeSocket = (server) => {
 
         for (const item of results) {
           if (item.message && item.roomId) {
-            io.to(`room:${item.roomId}`).emit("new_message", { message: item.message });
+            // Reaches the recipient exactly once on all their devices (handles new and old rooms)
             io.to(`user:${item.recipientId}`).emit("new_message", { message: item.message });
+
+            // Syncs the message to the sender's other devices/tabs (current socket is excluded)
+            socket.to(`user:${userId}`).emit("new_message", { message: item.message });
 
             const room = await ChatRoom.findById(item.roomId);
             if (room) {
@@ -280,7 +283,7 @@ export const initializeSocket = (server) => {
         const res = {
           success: true,
           message: `Shared to ${successCount} chat(s)`,
-          data: { results, successCount, failCount },
+          data: { results, successCount, failCount, totalShareCount },
         };
         cb(res);
         socket.emit("content_shared_to_chats", res);
@@ -297,7 +300,7 @@ export const initializeSocket = (server) => {
      * Handle: Delete single message (ack + listen: message_deleted)
      */
     socket.on("delete_message", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { roomId, messageId } = data || {};
         if (!roomId || !messageId) {
@@ -331,7 +334,7 @@ export const initializeSocket = (server) => {
         const room = await ChatRoom.findById(roomId);
         if (room) {
           const otherUserId = room.userA.toString() === userId ? room.userB : room.userA;
-          
+
           io.to(`user:${otherUserId}`).emit("messages_read", {
             roomId,
             userId,
@@ -397,7 +400,7 @@ export const initializeSocket = (server) => {
      * Handle: Create or get room (ack + listen: room_created)
      */
     socket.on("create_room", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { otherUserId, chatType = "Direct" } = data || {};
         if (!otherUserId) {
@@ -422,7 +425,7 @@ export const initializeSocket = (server) => {
      * Handle: Get chat rooms / inbox (ack + listen: rooms_list)
      */
     socket.on("get_rooms", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { page = 1, limit = 20, search = "" } = data || {};
         const result = await getChatRooms(userId, page, limit, (search && search.trim()) || "");
@@ -446,7 +449,7 @@ export const initializeSocket = (server) => {
      * Handle: Get single room (ack + listen: room_detail)
      */
     socket.on("get_room", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { roomId } = data || {};
         if (!roomId) {
@@ -477,7 +480,7 @@ export const initializeSocket = (server) => {
      * Handle: Get messages (ack + listen: messages_list)
      */
     socket.on("get_messages", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { roomId, page = 1, limit = 50 } = data || {};
         if (!roomId) {
@@ -502,7 +505,7 @@ export const initializeSocket = (server) => {
      * Handle: Unread count (ack + listen: unread_count). roomId optional: total if omitted.
      */
     socket.on("get_unread_count", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { roomId } = data || {};
         const count = roomId
@@ -523,7 +526,7 @@ export const initializeSocket = (server) => {
      * Handle: Get message requests list (ack + listen: message_requests_list)
      */
     socket.on("get_message_requests", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { page = 1, limit = 20, search = "" } = data || {};
         const result = await getMessageRequests(userId, page, limit, (search && search.trim()) || "");
@@ -548,7 +551,7 @@ export const initializeSocket = (server) => {
      * Emit request_accepted to both users so UI can move chat to inbox.
      */
     socket.on("accept_message_request", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { roomId } = data || {};
         if (!roomId) {
@@ -578,7 +581,7 @@ export const initializeSocket = (server) => {
      * Emit request_rejected only to recipient so their list updates.
      */
     socket.on("reject_message_request", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { roomId } = data || {};
         if (!roomId) {
@@ -587,10 +590,10 @@ export const initializeSocket = (server) => {
           socket.emit("request_rejected", res);
           return;
         }
-        await rejectMessageRequest(roomId, userId);
+        const result = await rejectMessageRequest(roomId, userId);
         socket.leave(`room:${roomId}`);
         socketRooms.get(socket.id)?.delete(roomId);
-        const res = { success: true, data: { roomId } };
+        const res = { success: true, data: result };
         cb(res);
         socket.emit("request_rejected", res);
       } catch (e) {
@@ -606,7 +609,7 @@ export const initializeSocket = (server) => {
      * Emit request_blocked to both users.
      */
     socket.on("block_message_request", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { roomId } = data || {};
         if (!roomId) {
@@ -643,7 +646,7 @@ export const initializeSocket = (server) => {
      * Notifies both users so they can remove from UI
      */
     socket.on("delete_room", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { roomId } = data || {};
         if (!roomId) {
@@ -728,7 +731,7 @@ export const initializeSocket = (server) => {
      * Handle: Snaps inbox (ack + listen: snaps_inbox)
      */
     socket.on("get_snaps_inbox", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { page = 1, limit = 20, includeExpired = false } = data || {};
         const result = await getSnapsInbox(userId, { page, limit, includeExpired });
@@ -747,7 +750,7 @@ export const initializeSocket = (server) => {
      * Handle: Sent snaps (ack + listen: snaps_sent)
      */
     socket.on("get_snaps_sent", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { page = 1, limit = 20 } = data || {};
         const result = await getSentSnaps(userId, { page, limit });
@@ -767,7 +770,7 @@ export const initializeSocket = (server) => {
      * Accepts snapId OR messageId (id from chat message list)
      */
     socket.on("view_snap", async (data, ack) => {
-      const cb = typeof ack === "function" ? ack : () => {};
+      const cb = typeof ack === "function" ? ack : () => { };
       try {
         const { snapId, messageId } = data || {};
         if (!snapId && !messageId) {
@@ -796,7 +799,7 @@ export const initializeSocket = (server) => {
 
       // Remove from active users
       activeUsers.delete(userId);
-      
+
       // Clean up socket rooms
       const rooms = socketRooms.get(socket.id);
       if (rooms) {

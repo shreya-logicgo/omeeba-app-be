@@ -35,15 +35,25 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
       userId: currentUserId,
       followerId: otherUserId,
     });
-
     const isDirectAllowed = !!otherFollowsCurrent;
 
     // Try to find existing room
     let room = await ChatRoom.findOne({ userA, userB });
 
     if (!room) {
-      if (!isDirectAllowed) {
-        // Other does not follow current → check if current is blocked from sending requests
+      // Decide final chat type (FIXED)
+      let effectiveChatType;
+
+      if (chatType?.toString().toLowerCase() === ChatType.REQUEST.toLowerCase()) {
+        effectiveChatType = ChatType.REQUEST;
+      } else {
+        effectiveChatType = isDirectAllowed
+          ? ChatType.DIRECT
+          : ChatType.REQUEST;
+      }
+
+      // Block check should depend on FINAL type (FIXED)
+      if (effectiveChatType === ChatType.REQUEST) {
         const blocked = await BlockedMessageRequest.findOne({
           blockedByUserId: otherUserId,
           blockedUserId: currentUserId,
@@ -53,8 +63,9 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
         }
       }
 
-      const effectiveChatType = isDirectAllowed ? ChatType.DIRECT : ChatType.REQUEST;
-      const requesterId = isDirectAllowed ? null : currentUserId;
+      //  Correct requester logic (FIXED)
+      const requesterId =
+        effectiveChatType === ChatType.REQUEST ? currentUserId : null;
 
       room = await ChatRoom.create({
         userA,
@@ -103,6 +114,7 @@ export const getOrCreateChatRoom = async (currentUserId, otherUserId, chatType =
       id: roomId,
       roomId: roomId, // Also include as roomId for clarity
       chatType: room.chatType,
+      requestStatus: room.requestStatus || null,
       requesterId: room.requesterId ? room.requesterId.toString() : null,
       otherUser: {
         id: otherUserIdStr,
@@ -353,6 +365,7 @@ export const getChatRoomById = async (roomId, userId) => {
       id: roomIdString,
       roomId: roomIdString, // Also include as roomId for clarity
       chatType: room.chatType,
+      requestStatus: room.requestStatus || null,
       requesterId: room.requesterId ? room.requesterId.toString() : null,
       otherUser: {
         id: otherUserId,
@@ -400,7 +413,7 @@ export const deleteChatRoom = async (roomId, userId) => {
     if (!room.deletedBy) {
       room.deletedBy = [];
     }
-    
+
     if (!room.deletedBy.includes(userId)) {
       room.deletedBy.push(userId);
     }
@@ -456,8 +469,13 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
       requesterId: { $ne: userId } // Exclude requests sent by this user
     };
     if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), "i");
+
       const matchingUsers = await User.find({
-        username: { $regex: search.trim(), $options: "i" },
+        $or: [
+          { username: { $regex: searchRegex } },
+          { name: { $regex: searchRegex } }, // added name
+        ],
         isDeleted: { $ne: true },
       })
         .select("_id")
@@ -466,7 +484,12 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
       if (matchingIds.length === 0) {
         return { requests: [], pagination: getPaginationMeta(0, page, limit) };
       }
-      baseQuery.requesterId = { $in: matchingIds };
+
+      // IMPORTANT: don't overwrite requesterId, combine conditions
+      baseQuery.$and = [
+        { requesterId: { $ne: userId } },
+        { requesterId: { $in: matchingIds } }
+      ];
     }
 
     const rooms = await ChatRoom.find(baseQuery)
@@ -528,7 +551,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
       let lastMessageStatus = null;
       const isLastMessageSnap = room.lastMessageType === MessageType.SNAP;
       const isSnapUnviewed = lastMessage && lastMessage.status !== MessageStatus.SEEN;
-      
+
       if (room.lastMessage) {
         // Check if last message is an unviewed snap - show "New Byte" regardless of unreadCount
         if (isLastMessageSnap && isSnapUnviewed) {
@@ -539,7 +562,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
           lastMessageStatus = "new"; // dot = requester ne msg bheja, maine abhi dekha nahi
         }
         // If hasUnread is false and not an unviewed snap, lastMessageStatus stays null (messages read)
-        
+
         if (!lastMessagePreview) {
           if (room.lastMessageType === MessageType.TEXT) {
             lastMessagePreview = room.lastMessage;
@@ -563,6 +586,7 @@ export const getMessageRequests = async (userId, page = 1, limit = 20, search = 
         id: roomId,
         roomId,
         chatType: ChatType.REQUEST,
+        requestStatus: room.requestStatus || "pending",
         otherUser: {
           id: otherUserIdStr,
           name: otherUser.name,

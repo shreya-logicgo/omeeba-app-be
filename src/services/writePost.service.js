@@ -2,7 +2,7 @@ import WritePost from "../models/content/WritePost.js";
 import User from "../models/users/User.js";
 import logger from "../utils/logger.js";
 import { linkHashtagsToContent, extractHashtags } from "./hashtag.service.js";
-import { ContentType } from "../models/enums.js";
+import { ContentType, NotificationType } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
 
 /**
@@ -79,7 +79,7 @@ export const createWritePost = async (userId, postData) => {
           await createNotification({
             receiverId: mentionedUserId,
             senderId: userId,
-            type: "MENTION_IN_WRITE",
+            type: NotificationType.MENTION_IN_WRITE,
             contentType: ContentType.WRITE_POST,
             contentId: writePost._id,
             message: postData.content || ""

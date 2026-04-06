@@ -152,20 +152,43 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
 
     const receiverObjectIds = receiverValidation.receiverObjectIds;
 
-    // Create share records (one per receiver for better querying and future chat integration)
-    // Each record represents one share event to one receiver
-    const shareRecords = receiverObjectIds.map((receiverId) => ({
+    // ================= UNIQUE SENDER CHECK =================
+    const alreadySharedByUser = await ContentShare.exists({
       contentType,
       contentId,
       senderId,
-      receiverIds: [receiverId], // Store single receiver per record for easier querying
-      createdAt: new Date(),
-    }));
+    });
 
-    // Insert all share records
-    const createdShares = await ContentShare.insertMany(shareRecords);
+    let createdShares = [];
+    let newShareCount = 0;
 
-    // Create chat messages for each share (if chat room exists)
+    // ================= CREATE SHARES (NO DUPLICATES PER RECEIVER) =================
+    for (const receiverId of receiverObjectIds) {
+      try {
+        const exists = await ContentShare.findOne({
+          contentType,
+          contentId,
+          senderId,
+          receiverIds: receiverId,
+        });
+        if (exists) continue;
+
+        const newShare = await ContentShare.create({
+          contentType,
+          contentId,
+          senderId,
+          receiverIds: [receiverId],
+          createdAt: new Date(),
+        });
+
+        createdShares.push(newShare);
+        newShareCount++;
+      } catch (err) {
+        if (err.code !== 11000) throw err;
+      }
+    }
+
+    // ================= CHAT MESSAGE CREATION =================
     try {
       for (const share of createdShares) {
         const receiverId = share.receiverIds[0];
@@ -262,62 +285,31 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
     // This tracks share count for analytics and virality tracking
     let updatedContent = null;
     try {
-      switch (contentType) {
-        case ContentType.POST:
-          updatedContent = await Post.findByIdAndUpdate(
-            contentId,
-            { $inc: { shareCount: createdShares.length } },
-            { new: true }
-          ).select("shareCount");
-          break;
-        case ContentType.WRITE_POST:
-          updatedContent = await WritePost.findByIdAndUpdate(
-            contentId,
-            { $inc: { shareCount: createdShares.length } },
-            { new: true }
-          ).select("shareCount");
-          break;
-        case ContentType.ZEAL:
-          updatedContent = await ZealPost.findByIdAndUpdate(
-            contentId,
-            { $inc: { shareCount: createdShares.length } },
-            { new: true }
-          ).select("shareCount");
-          break;
-        case ContentType.POLL:
-          updatedContent = await Poll.findByIdAndUpdate(
-            contentId,
-            { $inc: { shareCount: createdShares.length } },
-            { new: true }
-          ).select("shareCount");
-          break;
+      if (!alreadySharedByUser && newShareCount > 0) {
+        switch (contentType) {
+          case ContentType.POST:
+            await Post.findByIdAndUpdate(contentId, { $inc: { shareCount: 1 } });
+            break;
+          case ContentType.WRITE_POST:
+            await WritePost.findByIdAndUpdate(contentId, { $inc: { shareCount: 1 } });
+            break;
+          case ContentType.ZEAL:
+            await ZealPost.findByIdAndUpdate(contentId, { $inc: { shareCount: 1 } });
+            break;
+          case ContentType.POLL:
+            await Poll.findByIdAndUpdate(contentId, { $inc: { shareCount: 1 } });
+            break;
+        }
       }
-    } catch (updateError) {
-      // Log error but don't fail the share operation
-      logger.error(
-        `Error incrementing share count for ${contentType} ${contentId}:`,
-        updateError
-      );
+    } catch (err) {
+      logger.error("Error updating share count:", err);
     }
 
-    // Enhanced analytics logging for share events
-    logger.info(
-      `[SHARE_EVENT] Content shared: ${contentType} ${contentId} by user ${senderId} with ${receiverObjectIds.length} receiver(s). Total shares: ${updatedContent?.shareCount || "unknown"}`
-    );
-
-    // Log detailed analytics for moderation and virality tracking
-    logger.info(
-      JSON.stringify({
-        event: "content_shared",
-        contentType,
-        contentId: contentId.toString(),
-        senderId: senderId.toString(),
-        receiverCount: receiverObjectIds.length,
-        receiverIds: receiverObjectIds.map((id) => id.toString()),
-        shareCount: updatedContent?.shareCount || 0,
-        timestamp: new Date().toISOString(),
-      })
-    );
+    // ================= TOTAL SHARE COUNT (UNIQUE SENDERS) =================
+    const totalShareCount = await ContentShare.distinct("senderId", {
+      contentType,
+      contentId,
+    }).then((ids) => ids.length);
 
     // Create notifications
     try {
@@ -328,7 +320,7 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
       if (contentOwnerId.toString() !== senderId.toString()) {
         await createNotification({
           receiverId: contentOwnerId,
-          senderId: senderId,
+          senderId,
           type: NotificationType.CONTENT_SHARED,
           contentType,
           contentId,
@@ -336,33 +328,37 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
       }
 
       // Notify receivers
-      const receiverNotificationPromises = receiverObjectIds.map((receiverId) => {
-        // Don't notify if receiver is the sender or content owner
-        if (
-          receiverId.toString() !== senderId.toString() &&
-          receiverId.toString() !== contentOwnerId.toString()
-        ) {
-          return createNotification({
-            receiverId: receiverId,
-            senderId: senderId,
-            type: NotificationType.CONTENT_SHARED_WITH_YOU,
-            contentType,
-            contentId,
-          });
-        }
-        return Promise.resolve(null);
-      });
-
-      await Promise.all(receiverNotificationPromises);
-    } catch (notificationError) {
-      // Log error but don't fail the share operation
-      logger.error("Error creating share notifications:", notificationError);
+      await Promise.all(
+        receiverObjectIds.map((receiverId) => {
+          if (
+            receiverId.toString() !== senderId.toString() &&
+            receiverId.toString() !== contentOwnerId.toString()
+          ) {
+            return createNotification({
+              receiverId,
+              senderId,
+              type: NotificationType.CONTENT_SHARED_WITH_YOU,
+              contentType,
+              contentId,
+            });
+          }
+          return null;
+        })
+      );
+    } catch (err) {
+      logger.error("Error creating notifications:", err);
     }
 
+    // ================= ANALYTICS LOG =================
+    logger.info(
+      `[SHARE_EVENT] Content shared: ${contentType} ${contentId} by user ${senderId} with ${receiverObjectIds.length} receiver(s). Total unique senders: ${totalShareCount}`
+    );
+
+    // ================= FINAL RESPONSE =================
     return {
       success: true,
-      shareCount: createdShares.length,
-      totalShareCount: updatedContent?.shareCount || 0,
+      shareCount: totalShareCount,
+      totalShareCount,
       receiverIds: receiverObjectIds.map((id) => id.toString()),
       shares: createdShares.map((share) => ({
         id: share._id,
