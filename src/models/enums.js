@@ -134,6 +134,7 @@ const MessageStatus = {
 const ZealStatus = {
   DRAFT: "draft",
   PROCESSING: "processing",
+  ACTION_REQUIRED: "action_required",
   READY: "ready",
   PUBLISHED: "published",
   FAILED: "failed",

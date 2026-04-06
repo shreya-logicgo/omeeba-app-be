@@ -54,26 +54,67 @@ export const createZealSchema = createSchema(
       .optional()
       .default([])
       .label("Mentioned User IDs"),
-    musicId: commonValidations.objectIdOptional.label("Music ID"),
+    musicId: Joi.string()
+      .pattern(/^[0-9a-fA-F]{24}$/)
+      .when("audioAction", {
+        is: "replace",
+        then: Joi.required(),
+        otherwise: Joi.when("audioAction", {
+          is: Joi.valid("mute", "original"),
+          then: Joi.forbidden(),
+          otherwise: Joi.optional().allow(null),
+        }),
+      })
+      .messages({
+        "string.pattern.base": "must be a valid ObjectId",
+        "any.required": "is required when audioAction is 'replace'",
+        "any.unknown": "must not be sent when audioAction is 'mute' or 'original'",
+      })
+      .label("Music ID"),
     musicStartTime: Joi.number()
       .min(0)
       .allow(null)
-      .optional()
+      .when("audioAction", {
+        is: "replace",
+        then: Joi.required(),
+        otherwise: Joi.when("audioAction", {
+          is: Joi.valid("mute", "original"),
+          then: Joi.forbidden(),
+          otherwise: Joi.optional(),
+        }),
+      })
       .messages({
         "number.base": "must be a valid number",
         "number.min": "must be 0 or greater",
+        "any.required": "is required when audioAction is 'replace'",
+        "any.unknown": "must not be sent when audioAction is 'mute' or 'original'",
       })
       .label("Music Start Time"),
     musicEndTime: Joi.number()
       .min(0)
       .allow(null)
-      .optional()
+      .when("audioAction", {
+        is: "replace",
+        then: Joi.required(),
+        otherwise: Joi.when("audioAction", {
+          is: Joi.valid("mute", "original"),
+          then: Joi.forbidden(),
+          otherwise: Joi.optional(),
+        }),
+      })
       .messages({
         "number.base": "must be a valid number",
         "number.min": "must be 0 or greater",
+        "any.required": "is required when audioAction is 'replace'",
+        "any.unknown": "must not be sent when audioAction is 'mute' or 'original'",
       })
       .label("Music End Time"),
     isDevelopByAi: commonValidations.boolean.label("Is Developed By AI"),
+    audioAction: Joi.string()
+      .valid("original", "mute", "replace")
+      .optional()
+      .allow(null)
+      .label("Audio Action"),
   },
   [
     "zealDraftId",
@@ -83,7 +124,62 @@ export const createZealSchema = createSchema(
     "musicStartTime",
     "musicEndTime",
     "isDevelopByAi",
+    "audioAction",
   ]
+);
+
+/**
+ * Handle Audio Action validation schema
+ */
+export const handleAudioActionSchema = createSchema(
+  {
+    action: Joi.string()
+      .valid("original", "mute", "replace")
+      .required()
+      .messages({
+        "any.only": "must be one of 'original', 'mute', 'replace'",
+        "any.required": "is required",
+      })
+      .label("Action"),
+    musicId: Joi.string()
+      .pattern(/^[0-9a-fA-F]{24}$/)
+      .when("action", {
+        is: "replace",
+        then: Joi.required(),
+        otherwise: Joi.forbidden(),
+      })
+      .messages({
+        "string.pattern.base": "must be a valid ObjectId",
+        "any.required": "is required when action is 'replace'",
+        "any.unknown": "must not be sent when action is 'mute' or 'original'",
+      })
+      .label("Music ID"),
+    musicStartTime: Joi.number()
+      .min(0)
+      .allow(null)
+      .when("action", {
+        is: "replace",
+        then: Joi.optional(), // Start time is optional even in replace
+        otherwise: Joi.forbidden(),
+      })
+      .messages({
+        "any.unknown": "must not be sent when action is 'mute' or 'original'",
+      })
+      .label("Music Start Time"),
+    musicEndTime: Joi.number()
+      .min(0)
+      .allow(null)
+      .when("action", {
+        is: "replace",
+        then: Joi.optional(),
+        otherwise: Joi.forbidden(),
+      })
+      .messages({
+        "any.unknown": "must not be sent when action is 'mute' or 'original'",
+      })
+      .label("Music End Time"),
+  },
+  ["action", "musicId", "musicStartTime", "musicEndTime"]
 );
 
 /**
@@ -107,7 +203,9 @@ export const deleteZealParamsSchema = createSchema(
 export default {
   startZealUploadSchema,
   createZealSchema,
+  handleAudioActionSchema,
   getZealStatusParamsSchema,
   deleteZealParamsSchema,
 };
+
 
