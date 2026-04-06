@@ -123,8 +123,11 @@ export const formatJoiError = (error) => {
     } else if (field.toLowerCase() === 'messageid') {
       fieldDisplayName = 'Message ID';
     } else {
-      // Capitalize field name
-      fieldDisplayName = field.charAt(0).toUpperCase() + field.slice(1);
+      // Convert camelCase to Human Readable Title Case (e.g., oldPassword -> Old Password)
+      fieldDisplayName = field
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim();
     }
 
     // Make messages more user-friendly

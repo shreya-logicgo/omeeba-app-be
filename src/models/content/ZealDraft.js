@@ -86,6 +86,10 @@ const zealDraftSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    extractedAudioUrl: {
+      type: String,
+      default: null,
+    },
     createdAt: {
       type: Date,
       default: Date.now,

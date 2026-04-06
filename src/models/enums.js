@@ -75,7 +75,8 @@ const NotificationType = {
   MENTION_IN_POST: "Mention In Post",
   MENTION_IN_ZEAL: "Mention In Zeal",
   MENTION_IN_WRITE: "Mention In Write",
-  
+  MENTION_IN_POLL: "Mention In Poll",
+
   // Tag Notifications
   TAG: "Tag",
   
@@ -134,6 +135,7 @@ const MessageStatus = {
 const ZealStatus = {
   DRAFT: "draft",
   PROCESSING: "processing",
+  ACTION_REQUIRED: "action_required",
   READY: "ready",
   PUBLISHED: "published",
   FAILED: "failed",

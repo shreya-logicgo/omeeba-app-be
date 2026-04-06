@@ -59,6 +59,20 @@ const zealPostSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    audioUrl: {
+      type: String,
+      default: null,
+    },
+    audioStatus: {
+      type: String,
+      enum: ["none", "ok", "flagged", "processed"],
+      default: "none",
+    },
+    audioAction: {
+      type: String,
+      enum: ["original", "mute", "replace"],
+      default: "original",
+    },
     thumbnailUrl: {
       type: String,
       default: null,
