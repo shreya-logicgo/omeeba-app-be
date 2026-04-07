@@ -10,7 +10,7 @@ import { User } from "../models/index.js";
 import ChatRoom from "../models/chat/ChatRoom.js";
 import ChatMessage from "../models/chat/ChatMessage.js";
 import Snap from "../models/chat/Snap.js";
-import { MessageStatus } from "../models/enums.js";
+import { MessageStatus, MessageType } from "../models/enums.js";
 import { sendMessage, getMessages, deleteMessage, sendContentToMultipleChats } from "../services/chatMessage.service.js";
 import { markMessagesAsRead, getUnreadCount, getTotalUnreadCount } from "../services/chatRead.service.js";
 import {
@@ -259,18 +259,17 @@ export const initializeSocket = (server) => {
 
         for (const item of results) {
           if (item.message && item.roomId) {
-            // Reaches the recipient exactly once on all their devices (handles new and old rooms)
-            io.to(`user:${item.recipientId}`).emit("new_message", { message: item.message });
-
-            // Syncs the message to the sender's other devices/tabs (current socket is excluded)
-            socket.to(`user:${userId}`).emit("new_message", { message: item.message });
+            // Only emit new_message to recipient (not sender — sender uses content_shared_to_chats)
+            if (item.recipientId !== userId) {
+              io.to(`user:${item.recipientId}`).emit("new_message", { message: item.message });
+            }
 
             const room = await ChatRoom.findById(item.roomId);
             if (room) {
-              const otherUserId = room.userA.toString() === userId ? room.userB : room.userA;
-              if (activeUsers.get(otherUserId.toString())) {
+              const otherUserId = room.userA.toString() === userId ? room.userB.toString() : room.userA.toString();
+              if (activeUsers.get(otherUserId)) {
                 await ChatMessage.findByIdAndUpdate(item.message.id, { status: MessageStatus.DELIVERED });
-                io.to(`user:${userId}`).emit("message_delivered", {
+                socket.emit("message_delivered", {
                   messageId: item.message.id,
                   roomId: item.roomId,
                   status: MessageStatus.DELIVERED,
@@ -710,6 +709,7 @@ export const initializeSocket = (server) => {
                   profileImage: fullSnap.senderId.profileImage,
                   isVerifiedBadge: fullSnap.senderId.isVerifiedBadge,
                 },
+                messageType: MessageType.SNAP,   // ← FIXED: was missing
                 mediaType: fullSnap.mediaType,
                 thumbnailUrl: fullSnap.thumbnailUrl,
                 duration: fullSnap.duration,

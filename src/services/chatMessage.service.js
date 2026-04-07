@@ -78,6 +78,118 @@ const getContentMediaForMessage = async (messageType, contentId) => {
 };
 
 /**
+ * Fetch contentData for a given contentType and contentId.
+ * Used in both sendMessage (for new_message socket event) and getMessages.
+ */
+const fetchContentData = async (contentType, contentId, userId = null) => {
+  try {
+    switch (contentType) {
+      case "Post": {
+        const post = await Post.findById(contentId)
+          .select("caption userId images mentionedUserIds musicId shareCount createdAt")
+          .populate("musicId", "title artist audioUrl coverImage duration")
+          .lean();
+
+        if (!post) return null;
+
+        return {
+          caption: post.caption || "",
+          userId: post.userId,
+          images: post.images || [],
+          mentionedUserIds: post.mentionedUserIds || [],
+          music: post.musicId || null, // populated
+          shareCount: post.shareCount || 0,
+          createdAt: post.createdAt,
+        };
+      }
+
+      case "Write Post": {
+        const writePost = await WritePost.findById(contentId)
+          .select("content userId mentionedUserIds shareCount createdAt")
+          .lean();
+
+        if (!writePost) return null;
+
+        return {
+          content: writePost.content,
+          excerpt: writePost.content
+            ? writePost.content.substring(0, 150) +
+              (writePost.content.length > 150 ? "..." : "")
+            : "",
+          author: writePost.userId,
+          mentionedUserIds: writePost.mentionedUserIds || [],
+          shareCount: writePost.shareCount || 0,
+          createdAt: writePost.createdAt,
+        };
+      }
+
+      case "Zeal": {
+        const zealPost = await ZealPost.findById(contentId)
+          .select("caption mediaUrl thumbnailUrl userId mentionedUserIds shareCount createdAt musicId")
+          .populate("musicId", "title artist audioUrl coverImage duration")
+          .lean();
+
+        if (!zealPost) return null;
+
+        return {
+          caption: zealPost.caption || "",
+          mediaUrl: zealPost.mediaUrl,
+          thumbnailUrl: zealPost.thumbnailUrl,
+          userId: zealPost.userId,
+          music: zealPost.musicId || null, // populated
+          mentionedUserIds: zealPost.mentionedUserIds || [],
+          shareCount: zealPost.shareCount || 0,
+          createdAt: zealPost.createdAt,
+        };
+      }
+
+      case "Poll": {
+        const poll = await Poll.findById(contentId)
+          .select("caption options totalVotes duration createdBy userVotes")
+          .lean();
+
+        if (!poll) return null;
+
+        let hasVoted = false;
+        let selectedOptionId = null;
+
+        if (userId) {
+          const currentUserIdStr = userId.toString();
+
+          const userVote = poll.userVotes
+            ? poll.userVotes.find(
+                (v) => v.userId.toString() === currentUserIdStr
+              )
+            : null;
+
+          hasVoted = !!userVote;
+          selectedOptionId = userVote ? userVote.optionId : null;
+        }
+
+        return {
+          question: poll.caption,
+          options: poll.options,
+          totalVotes: poll.totalVotes || 0,
+          expiresAt: poll.duration,
+          createdBy: poll.createdBy,
+          userVoted: hasVoted,
+          selectedOptionId,
+        };
+      }
+
+      default:
+        return null;
+    }
+  } catch (err) {
+    logger.warn(
+      `fetchContentData failed for ${contentType} ${contentId}:`,
+      err.message
+    );
+    return null;
+  }
+};
+
+/**
  * Send a message in a chat room.
  * Supports mediaId (from POST /media/upload): resolve to mediaUrl/thumbnailUrl.
  * For contentId+contentType (Post/Zeal/Write Post), resolves media/thumbnail from content for display.
@@ -116,18 +228,23 @@ export const sendMessage = async (roomId, senderId, messageData) => {
     // Check if users have blocked each other
     const otherUserId = room.userA.toString() === senderId ? room.userB : room.userA;
     const blockCheck = await canSendMessage(senderId, otherUserId);
-    
+
     if (!blockCheck.canSend) {
       throw new Error(blockCheck.message);
     }
 
     // Message request rules: only requester can send; recipient cannot send until they accept
-    // Sender can send multiple messages (all stay in same request thread)
     if (room.chatType === ChatType.REQUEST) {
       const requesterIdStr = room.requesterId && room.requesterId.toString();
       if (requesterIdStr !== senderId) {
         throw new Error("You must accept the request before sending messages");
       }
+    }
+
+    // Fetch contentData if not provided by client (e.g. when sharing Post/Poll/Write)
+    let resolvedContentData = contentData || null;
+    if (!resolvedContentData && contentId && contentType) {
+      resolvedContentData = await fetchContentData(contentType, contentId, senderId);
     }
 
     // Create message
@@ -140,14 +257,14 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       thumbnailUrl: resolvedThumbnailUrl,
       contentId: contentId || null,
       contentType: contentType || null,
-      contentData: contentData || null,
+      contentData: resolvedContentData,
       status: MessageStatus.SENT,
     });
 
     // Update room's last message
-    const lastPreview = message || 
-      (messageType === MessageType.IMAGE ? "Image" : 
-       messageType === MessageType.SNAP ? "Snap" : 
+    const lastPreview = message ||
+      (messageType === MessageType.IMAGE ? "Image" :
+       messageType === MessageType.SNAP ? "Snap" :
        messageType === MessageType.POST ? "Post" :
        messageType === MessageType.WRITE_POST ? "Write Post" :
        messageType === MessageType.ZEAL ? "Zeal" :
@@ -161,9 +278,7 @@ export const sendMessage = async (roomId, senderId, messageData) => {
     }
     await room.save();
 
-    // Update unread counts (increment for other user, reset for sender)
-    // Note: otherUserId is already declared above in block check
-
+    // Update unread counts
     await Promise.all([
       // Increment unread count for other user
       ChatParticipant.findOneAndUpdate(
@@ -171,7 +286,7 @@ export const sendMessage = async (roomId, senderId, messageData) => {
         { $inc: { unreadCount: 1 } },
         { upsert: true, new: true }
       ),
-      // Reset unread count for sender (they've seen their own message)
+      // Reset unread count for sender
       ChatParticipant.findOneAndUpdate(
         { roomId, userId: senderId },
         {
@@ -181,13 +296,13 @@ export const sendMessage = async (roomId, senderId, messageData) => {
         },
         { upsert: true, new: true }
       ),
-      // Auto-mark other user's (User A) messages as READ when sender (User B) replies - reply implies they've read
-      // IMPORTANT: Exclude SNAP messages - they should only be marked as SEEN when actually viewed
+      // Auto-mark other user's messages as READ when sender replies
+      // Exclude SNAP messages — only mark SEEN when actually viewed
       ChatMessage.updateMany(
         {
           roomId,
           senderId: otherUserId,
-          messageType: { $ne: MessageType.SNAP }, // Exclude snap messages
+          messageType: { $ne: MessageType.SNAP },
           status: { $in: [MessageStatus.SENT, MessageStatus.DELIVERED] },
           createdAt: { $lte: newMessage.createdAt },
         },
@@ -216,14 +331,14 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       thumbnailUrl: newMessage.thumbnailUrl,
       contentId: newMessage.contentId ? newMessage.contentId.toString() : null,
       contentType: newMessage.contentType,
-      contentData: newMessage.contentData,
+      contentData: resolvedContentData,
       status: newMessage.status,
-      statusDisplay: newMessage.status === MessageStatus.SEEN ? "seen" : 
+      statusDisplay: newMessage.status === MessageStatus.SEEN ? "seen" :
                      newMessage.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered",
-      timestamp: formatTime12Hour(newMessage.createdAt), // 12-hour format "11:02 AM"
-      timeAgo: getTimeAgo(newMessage.createdAt), // Keep for backward compatibility
+      timestamp: formatTime12Hour(newMessage.createdAt),
+      timeAgo: getTimeAgo(newMessage.createdAt),
       createdAt: newMessage.createdAt,
-      requestStatus: getRequestStatus(room), // Add requestStatus to match messages_list structure
+      requestStatus: getRequestStatus(room),
     };
 
     logger.info(`Message sent in room ${roomId} by user ${senderId}`);
@@ -281,103 +396,32 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
     // Fetch participant to check if chat was cleared
     const participant = await ChatParticipant.findOne({ roomId, userId }).lean();
     const messageQuery = { roomId };
-    
+
     if (participant && participant.clearedAt) {
       messageQuery.createdAt = { $gt: participant.clearedAt };
     }
 
-    // Fetch messages (oldest first for pagination, then reverse for display)
+    // Fetch messages (newest first for pagination)
     const messages = await ChatMessage.find(messageQuery)
       .populate("senderId", "name username profileImage bio isVerifiedBadge")
-      .sort({ createdAt: -1 }) // Newest first
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
     const total = await ChatMessage.countDocuments(messageQuery);
 
-    // Request status: "pending" = message request not accepted yet, "accepted" = normal/direct chat
+    // Request status
     const requestStatus = getRequestStatus(room);
 
-    // Format messages and fetch content creators
+    // Format messages
     const formattedMessages = await Promise.all(
       messages.map(async (msg) => {
-        // Fetch contentData on-demand if missing or incomplete for content types
+        // Always re-fetch Poll (votes change in real time),
+        // fetch others only if contentData is missing in DB
         let contentData = msg.contentData;
         if ((!contentData || msg.contentType === "Poll") && msg.contentId && msg.contentType) {
-          try {
-            switch (msg.contentType) {
-              case "Post":
-                // For regular posts, contentData is typically not needed
-                contentData = null;
-                break;
-              case "Write Post": {
-                const writePost = await WritePost.findById(msg.contentId)
-                  .select("title content userId")
-                  .lean();
-                if (writePost) {
-                  contentData = {
-                    title: writePost.title,
-                    content: writePost.content,
-                    excerpt: writePost.content ? writePost.content.substring(0, 150) + (writePost.content.length > 150 ? "..." : "") : "",
-                    author: writePost.userId
-                  };
-                }
-                break;
-              }
-              case "Zeal": {
-                const zealPost = await ZealPost.findById(msg.contentId)
-                  .select("title description mediaUrl thumbnailUrl userId")
-                  .lean();
-                if (zealPost) {
-                  contentData = {
-                    title: zealPost.title,
-                    description: zealPost.description,
-                    mediaUrl: zealPost.mediaUrl,
-                    thumbnailUrl: zealPost.thumbnailUrl,
-                    userId: zealPost.userId
-                  };
-                }
-                break;
-              }
-              case "Poll": {
-                const poll = await Poll.findById(msg.contentId)
-                  .select("caption options totalVotes duration createdBy userVotes")
-                  .lean();
-                if (poll) {
-                  // Check if current user has voted on this poll
-                  const currentUserIdStr = userId.toString();
-                  logger.info(`Checking vote for user ${currentUserIdStr} in poll ${msg.contentId}`);
-                  logger.info(`Poll userVotes:`, JSON.stringify(poll.userVotes || []));
-                  
-                  const userVote = poll.userVotes ? poll.userVotes.find(vote => {
-                    const voteUserIdStr = vote.userId.toString();
-                    logger.info(`Comparing vote user ${voteUserIdStr} with current user ${currentUserIdStr}`);
-                    return voteUserIdStr === currentUserIdStr;
-                  }) : null;
-                  
-                  const selectedOptionId = userVote ? userVote.optionId : null;
-                  const hasVoted = !!userVote;
-                  
-                  logger.info(`User vote result: hasVoted=${hasVoted}, selectedOptionId=${selectedOptionId}`);
-                  
-                  contentData = {
-                    question: poll.caption, // Use caption field as question
-                    options: poll.options,
-                    totalVotes: poll.totalVotes || 0,
-                    expiresAt: poll.duration, // Use duration field as expiresAt
-                    createdBy: poll.createdBy,
-                    userVoted: hasVoted,
-                    selectedOptionId: selectedOptionId
-                  };
-                }
-                break;
-              }
-            }
-          } catch (error) {
-            logger.warn(`Failed to fetch contentData for message ${msg._id}:`, error.message);
-            contentData = null;
-          }
+          contentData = await fetchContentData(msg.contentType, msg.contentId, userId);
         }
 
         const formattedMessage = {
@@ -399,30 +443,38 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
           contentType: msg.contentType,
           contentData: contentData,
           status: msg.status,
-          statusDisplay: msg.status === MessageStatus.SEEN ? "seen" : 
-                         msg.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered", // For UI display
-          timestamp: formatTime12Hour(msg.createdAt), // 12-hour format "11:02 AM"
-          timeAgo: getTimeAgo(msg.createdAt), // Keep for backward compatibility
+          statusDisplay: msg.status === MessageStatus.SEEN ? "seen" :
+                         msg.status === MessageStatus.DELIVERED ? "Delivered" : "Delivered",
+          timestamp: formatTime12Hour(msg.createdAt),
+          timeAgo: getTimeAgo(msg.createdAt),
           createdAt: msg.createdAt,
-          requestStatus: requestStatus, // Add requestStatus to match new_message structure
+          requestStatus: requestStatus,
         };
 
         // Add content creator profile for shared content
         if (msg.contentId && msg.contentType) {
           try {
             let creator = null;
-            
+
             if (msg.contentType === "Post") {
-              const post = await Post.findById(msg.contentId).populate('userId', 'name username profileImage bio isVerifiedBadge').lean();
+              const post = await Post.findById(msg.contentId)
+                .populate("userId", "name username profileImage bio isVerifiedBadge")
+                .lean();
               if (post && post.userId) creator = post.userId;
             } else if (msg.contentType === "Write Post") {
-              const writePost = await WritePost.findById(msg.contentId).populate('userId', 'name username profileImage bio isVerifiedBadge').lean();
+              const writePost = await WritePost.findById(msg.contentId)
+                .populate("userId", "name username profileImage bio isVerifiedBadge")
+                .lean();
               if (writePost && writePost.userId) creator = writePost.userId;
             } else if (msg.contentType === "Zeal") {
-              const zealPost = await ZealPost.findById(msg.contentId).populate('userId', 'name username profileImage bio isVerifiedBadge').lean();
+              const zealPost = await ZealPost.findById(msg.contentId)
+                .populate("userId", "name username profileImage bio isVerifiedBadge")
+                .lean();
               if (zealPost && zealPost.userId) creator = zealPost.userId;
             } else if (msg.contentType === "Poll") {
-              const poll = await Poll.findById(msg.contentId).populate('createdBy', 'name username profileImage bio isVerifiedBadge').lean();
+              const poll = await Poll.findById(msg.contentId)
+                .populate("createdBy", "name username profileImage bio isVerifiedBadge")
+                .lean();
               if (poll && poll.createdBy) creator = poll.createdBy;
             }
 
@@ -438,7 +490,6 @@ export const getMessages = async (roomId, userId, page = 1, limit = 50) => {
             }
           } catch (error) {
             logger.warn(`Failed to fetch content creator for message ${msg._id}:`, error.message);
-            // Don't add contentCreator if fetch fails
           }
         }
 

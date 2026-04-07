@@ -1108,7 +1108,9 @@ export const getNotifications = async (userId, options = {}) => {
             isVerifiedBadge: user.isVerifiedBadge,
           })),
           metadata: notification.metadata || {},
-          imageUrl: notification.imageUrl || notification.senderId.profileImage || null,
+          imageUrl: (notification.contentType === ContentType.WRITE_POST || notification.contentType === ContentType.POLL)
+          ? notification.imageUrl || null
+          : notification.imageUrl || notification.senderId.profileImage || null,
           createdAt: notification.createdAt,
           updatedAt: notification.updatedAt,
         };
@@ -1330,7 +1332,9 @@ const sendPushNotificationAsync = async (receiver, sender, message, imageUrl = n
           isVerifiedBadge: user.isVerifiedBadge || false,
         })),
         metadata: notification.metadata || {},
-        imageUrl: notification.imageUrl || notification.senderId?.profileImage || sender?.profileImage || null,
+        imageUrl: (notification.contentType === ContentType.WRITE_POST || notification.contentType === ContentType.POLL)
+          ? notification.imageUrl || null
+          : notification.imageUrl || notification.senderId?.profileImage || sender?.profileImage || null,
         createdAt: notification.createdAt || new Date(),
         updatedAt: notification.updatedAt || new Date(),
       };
