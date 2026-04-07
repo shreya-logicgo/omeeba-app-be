@@ -84,35 +84,62 @@ const getContentMediaForMessage = async (messageType, contentId) => {
 const fetchContentData = async (contentType, contentId, userId = null) => {
   try {
     switch (contentType) {
-      case "Post":
-        return null;
+      case "Post": {
+        const post = await Post.findById(contentId)
+          .select("caption userId images mentionedUserIds musicId shareCount createdAt")
+          .populate("musicId", "title artist audioUrl coverImage duration")
+          .lean();
+
+        if (!post) return null;
+
+        return {
+          caption: post.caption || "",
+          userId: post.userId,
+          images: post.images || [],
+          mentionedUserIds: post.mentionedUserIds || [],
+          music: post.musicId || null, // populated
+          shareCount: post.shareCount || 0,
+          createdAt: post.createdAt,
+        };
+      }
 
       case "Write Post": {
         const writePost = await WritePost.findById(contentId)
-          .select("title content userId")
+          .select("content userId mentionedUserIds shareCount createdAt")
           .lean();
+
         if (!writePost) return null;
+
         return {
-          title: writePost.title,
           content: writePost.content,
           excerpt: writePost.content
-            ? writePost.content.substring(0, 150) + (writePost.content.length > 150 ? "..." : "")
+            ? writePost.content.substring(0, 150) +
+              (writePost.content.length > 150 ? "..." : "")
             : "",
           author: writePost.userId,
+          mentionedUserIds: writePost.mentionedUserIds || [],
+          shareCount: writePost.shareCount || 0,
+          createdAt: writePost.createdAt,
         };
       }
 
       case "Zeal": {
         const zealPost = await ZealPost.findById(contentId)
-          .select("title description mediaUrl thumbnailUrl userId")
+          .select("caption mediaUrl thumbnailUrl userId mentionedUserIds shareCount createdAt musicId")
+          .populate("musicId", "title artist audioUrl coverImage duration")
           .lean();
+
         if (!zealPost) return null;
+
         return {
-          title: zealPost.title,
-          description: zealPost.description,
+          caption: zealPost.caption || "",
           mediaUrl: zealPost.mediaUrl,
           thumbnailUrl: zealPost.thumbnailUrl,
           userId: zealPost.userId,
+          music: zealPost.musicId || null, // populated
+          mentionedUserIds: zealPost.mentionedUserIds || [],
+          shareCount: zealPost.shareCount || 0,
+          createdAt: zealPost.createdAt,
         };
       }
 
@@ -120,6 +147,7 @@ const fetchContentData = async (contentType, contentId, userId = null) => {
         const poll = await Poll.findById(contentId)
           .select("caption options totalVotes duration createdBy userVotes")
           .lean();
+
         if (!poll) return null;
 
         let hasVoted = false;
@@ -127,9 +155,13 @@ const fetchContentData = async (contentType, contentId, userId = null) => {
 
         if (userId) {
           const currentUserIdStr = userId.toString();
+
           const userVote = poll.userVotes
-            ? poll.userVotes.find((v) => v.userId.toString() === currentUserIdStr)
+            ? poll.userVotes.find(
+                (v) => v.userId.toString() === currentUserIdStr
+              )
             : null;
+
           hasVoted = !!userVote;
           selectedOptionId = userVote ? userVote.optionId : null;
         }
@@ -149,7 +181,10 @@ const fetchContentData = async (contentType, contentId, userId = null) => {
         return null;
     }
   } catch (err) {
-    logger.warn(`fetchContentData failed for ${contentType} ${contentId}:`, err.message);
+    logger.warn(
+      `fetchContentData failed for ${contentType} ${contentId}:`,
+      err.message
+    );
     return null;
   }
 };
