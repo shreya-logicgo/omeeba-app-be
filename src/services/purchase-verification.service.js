@@ -16,6 +16,34 @@ import logger from "../utils/logger.js";
 import config from "../config/env.js";
 
 /**
+ * Get user by Google Play subscription
+ * @param {string} subscriptionId - Google Play subscription ID
+ * @param {string} purchaseToken - Purchase token
+ * @returns {Promise<Object|null>} User object or null
+ */
+export const getUserByGoogleSubscription = async (subscriptionId, purchaseToken) => {
+  try {
+    // Find user subscription by subscription ID and purchase token
+    const userSubscription = await UserSubscription.findOne({
+      productId: subscriptionId,
+      $or: [
+        { latestReceiptData: purchaseToken },
+        { originalTransactionId: { $regex: subscriptionId } }
+      ]
+    }).populate('userId');
+
+    if (!userSubscription || !userSubscription.userId) {
+      return null;
+    }
+
+    return userSubscription.userId;
+  } catch (error) {
+    logger.error('Error finding user by Google subscription:', error);
+    return null;
+  }
+};
+
+/**
  * Initialize Google Auth using file-based credentials
  * @returns {Promise<GoogleAuth>} Google Auth client
  * @throws {Error} If key file is missing or invalid
