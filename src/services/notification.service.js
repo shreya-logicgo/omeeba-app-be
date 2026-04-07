@@ -410,7 +410,9 @@ const createOrUpdateAggregatedNotification = async (notificationData) => {
         aggregatedUserIds: [senderId],
         metadata,
         status: NotificationStatus.UNREAD,
-        imageUrl: imageUrl || (!(contentType === ContentType.WRITE_POST || contentType === ContentType.POLL) && sender ? sender.profileImage : null) || null,
+        imageUrl: (contentType === ContentType.WRITE_POST || contentType === ContentType.POLL) 
+          ? null 
+          : (imageUrl || (sender ? sender.profileImage : null) || null),
       });
 
       // Verify notification was saved
@@ -582,9 +584,13 @@ export const createNotification = async (notificationData) => {
       notificationMessage = `New ${type} notification`;
     }
 
-    // Always use sender's profileImage for imageUrl (unless explicitly provided or it's a Write/Poll)
-    const skipProfileImage = contentType === ContentType.WRITE_POST || contentType === ContentType.POLL;
-    notificationImageUrl = finalImageUrl || (!skipProfileImage && sender ? sender.profileImage : null) || null;
+    // For Poll and Write Post, set imageUrl to null completely
+    if (contentType === ContentType.WRITE_POST || contentType === ContentType.POLL) {
+      notificationImageUrl = null;
+    } else {
+      // For other content types, use content image if available, otherwise sender's profileImage
+      notificationImageUrl = finalImageUrl || (sender ? sender.profileImage : null) || null;
+    }
 
     // Check if this type should be push-only (not saved to DB)
     const isPushOnlyType = type === NotificationType.NEW_MESSAGE;
