@@ -24,7 +24,7 @@ export const registerSchema = createSchema(
       .label("Phone Number"),
     countryCode: Joi.string()
       .required()
-      .pattern(/^\+[1-9]\d{1,3}$/)
+      .pattern(/^\+[1-9]\d{0,2}$/)
       .messages({
         "string.pattern.base": "must be a valid country code (e.g., +91, +1)",
         "any.required": "is required",
