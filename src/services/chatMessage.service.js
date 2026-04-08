@@ -341,6 +341,48 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       requestStatus: getRequestStatus(room),
     };
 
+    // Add content creator profile for shared content
+    if (newMessage.contentId && newMessage.contentType) {
+      try {
+        let creator = null;
+
+        if (newMessage.contentType === "Post") {
+          const post = await Post.findById(newMessage.contentId)
+            .populate("userId", "name username profileImage bio isVerifiedBadge")
+            .lean();
+          if (post && post.userId) creator = post.userId;
+        } else if (newMessage.contentType === "Write Post") {
+          const writePost = await WritePost.findById(newMessage.contentId)
+            .populate("userId", "name username profileImage bio isVerifiedBadge")
+            .lean();
+          if (writePost && writePost.userId) creator = writePost.userId;
+        } else if (newMessage.contentType === "Zeal") {
+          const zealPost = await ZealPost.findById(newMessage.contentId)
+            .populate("userId", "name username profileImage bio isVerifiedBadge")
+            .lean();
+          if (zealPost && zealPost.userId) creator = zealPost.userId;
+        } else if (newMessage.contentType === "Poll") {
+          const poll = await Poll.findById(newMessage.contentId)
+            .populate("createdBy", "name username profileImage bio isVerifiedBadge")
+            .lean();
+          if (poll && poll.createdBy) creator = poll.createdBy;
+        }
+
+        if (creator) {
+          formattedMessage.contentCreator = {
+            id: creator._id.toString(),
+            name: creator.name,
+            username: creator.username,
+            profileImage: creator.profileImage,
+            bio: creator.bio,
+            isVerifiedBadge: creator.isVerifiedBadge,
+          };
+        }
+      } catch (error) {
+        logger.warn(`Failed to fetch content creator for message ${newMessage._id}:`, error.message);
+      }
+    }
+
     logger.info(`Message sent in room ${roomId} by user ${senderId}`);
 
     // Trigger push notification (non-blocking)
@@ -602,9 +644,10 @@ const verifyContentForShare = async (contentType, contentId) => {
  * @param {string} contentType - "Post" | "Write Post" | "Zeal Post" | "Poll"
  * @param {string} contentId - Content ID (postId / writePostId / zealId / pollId)
  * @param {string[]} recipientIds - Array of recipient user IDs
+ * @param {boolean} skipShareTracking - If true, skips shareContent call (used when shareContent already called)
  * @returns {Promise<{ results: Array<{ roomId, recipientId, message?, error? }>, successCount, failCount }>}
  */
-export const sendContentToMultipleChats = async (senderId, contentType, contentId, recipientIds) => {
+export const sendContentToMultipleChats = async (senderId, contentType, contentId, recipientIds, skipShareTracking = false) => {
   logger.info(`sendContentToMultipleChats called with:`, {
     senderId,
     contentType,
@@ -646,7 +689,7 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
       break;
     case ContentType.POLL:
       content = await Poll.findById(contentId)
-        .select('question options totalVotes expiresAt createdBy createdAt')
+        .select('caption options totalVotes duration createdBy createdAt userVotes')
         .lean();
       break;
     default:
@@ -675,12 +718,30 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
     };
     logger.info(`Write post content data prepared: ${JSON.stringify(contentData)}`);
   } else if (contentType === ContentType.POLL && content) {
+    // Check if current user has voted in this poll
+    let hasVoted = false;
+    let selectedOptionId = null;
+    
+    if (senderId) {
+      const currentUserIdStr = senderId.toString();
+      const userVote = content.userVotes
+        ? content.userVotes.find(
+            (v) => v.userId.toString() === currentUserIdStr
+          )
+        : null;
+      
+      hasVoted = !!userVote;
+      selectedOptionId = userVote ? userVote.optionId : null;
+    }
+    
     contentData = {
-      question: content.question,
+      question: content.caption,
       options: content.options,
       totalVotes: content.totalVotes || 0,
-      expiresAt: content.expiresAt,
-      createdBy: content.createdBy
+      expiresAt: content.duration,
+      createdBy: content.createdBy,
+      userVoted: hasVoted,
+      selectedOptionId,
     };
     logger.info(`Poll content data prepared: ${JSON.stringify(contentData)}`);
   } else if (contentType === ContentType.ZEAL && content) {
@@ -713,14 +774,16 @@ export const sendContentToMultipleChats = async (senderId, contentType, contentI
 
   logger.info(`Found ${validUsers.length} valid recipients out of ${filtered.length} requested`);
 
-  // Call shareContent to update share count and create share records
+  // Call shareContent to update share count and create share records (unless already handled)
   let shareResult = null;
-  try {
-    shareResult = await shareContent(senderId, contentType, contentId, filtered);
-    logger.info(`Share count updated for ${contentType} ${contentId}. Total shares: ${shareResult?.totalShareCount}`);
-  } catch (shareError) {
-    logger.error("Error updating share count in sendContentToMultipleChats:", shareError);
-    // Don't fail the operation, just log the error
+  if (!skipShareTracking) {
+    try {
+      shareResult = await shareContent(senderId, contentType, contentId, filtered);
+      logger.info(`Share count updated for ${contentType} ${contentId}. Total shares: ${shareResult?.totalShareCount}`);
+    } catch (shareError) {
+      logger.error("Error updating share count in sendContentToMultipleChats:", shareError);
+      // Don't fail the operation, just log the error
+    }
   }
 
   const results = [];
