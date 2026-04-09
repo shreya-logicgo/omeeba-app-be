@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.com.swastik.omeebaApp",
+        "paths": [ "/share/*" ]
+      }
+    ]
+  }
+}

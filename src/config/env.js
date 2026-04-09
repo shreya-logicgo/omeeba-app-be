@@ -124,7 +124,7 @@ const envVarsSchema = Joi.object({
   // Share Configuration
   SHARE_BASE_URL: Joi.string()
     .uri()
-    .default("https://omeeba.app/share")
+    .default("https://staging.omeeba.co.in/share")
     .description("Base URL for shareable content links"),
 
   // Apple App Store Configuration

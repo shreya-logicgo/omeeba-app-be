@@ -1,0 +1,13 @@
+[
+    {
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.omeeba.app",
+        "sha256_cert_fingerprints": [
+          "26:A7:18:26:8C:C2:86:D0:8A:52:58:72:F0:FF:3B:73:44:D1:C5:34:A3:09:C5:07:71:FF:AE:C3:D1:2A:BA:7A",
+          "F5:06:F3:07:E8:A2:72:16:A4:54:CE:94:7E:66:A5:77:0D:C0:5C:87:36:07:7B:DA:8E:12:38:B8:77:C2:D3:62"
+        ]
+      }
+    }
+  ]
