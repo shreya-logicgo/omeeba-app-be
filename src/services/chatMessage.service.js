@@ -38,7 +38,8 @@ const contentTypeToMessageType = {
  * @returns {string} "pending" or "accepted"
  */
 export const getRequestStatus = (room) => {
-  return room.chatType === ChatType.REQUEST ? "pending" : "accepted";
+  if (room.chatType === ChatType.DIRECT) return "accepted";
+  return room.requestStatus || "pending";
 };
 
 /**
@@ -225,6 +226,20 @@ export const sendMessage = async (roomId, senderId, messageData) => {
       throw new Error("Chat room not found or access denied");
     }
 
+    // If room was rejected, only the requester can send a message to reset it to pending
+    if (
+      room.chatType === ChatType.REQUEST &&
+      room.requestStatus === "rejected"
+    ) {
+      if (room.requesterId?.toString() === senderId) {
+        room.requestStatus = "pending";
+        await room.save();
+        logger.info(`Reset rejected request ${room._id} to pending because requester ${senderId} sent a new message`);
+      } else {
+        throw new Error("Message request rejected. Cannot send messages.");
+      }
+    }
+
     // Check if users have blocked each other
     const otherUserId = room.userA.toString() === senderId ? room.userB : room.userA;
     const blockCheck = await canSendMessage(senderId, otherUserId);
@@ -235,8 +250,18 @@ export const sendMessage = async (roomId, senderId, messageData) => {
 
     // Message request rules: only requester can send; recipient cannot send until they accept
     if (room.chatType === ChatType.REQUEST) {
-      const requesterIdStr = room.requesterId && room.requesterId.toString();
-      if (requesterIdStr !== senderId) {
+      const requesterIdStr = room.requesterId?.toString();
+
+      // handled above for rejected state
+      if (room.requestStatus === "rejected" && room.requesterId?.toString() !== senderId) {
+        throw new Error("Message request rejected. Cannot send messages.");
+      }
+
+      // pending → only requester can send
+      if (
+        room.requestStatus === "pending" &&
+        requesterIdStr !== senderId
+      ) {
         throw new Error("You must accept the request before sending messages");
       }
     }
@@ -386,21 +411,32 @@ export const sendMessage = async (roomId, senderId, messageData) => {
     logger.info(`Message sent in room ${roomId} by user ${senderId}`);
 
     // Trigger push notification (non-blocking)
-    createNotification({
-      receiverId: otherUserId,
-      senderId: senderId,
-      type: NotificationType.NEW_MESSAGE,
-      message: message || "Sent you a message",
-      metadata: {
-        roomId: roomId.toString(),
-        messageId: newMessage._id.toString(),
-        commentText: message,
-      },
-    }).then(notification => {
-      if (notification) {
-        logger.info(`Notification created for message ${newMessage._id}: ${notification._id}`);
-      }
-    }).catch((err) => logger.warn("Failed to create chat notification:", err.message));
+    if (
+      room.chatType === ChatType.DIRECT || // direct chats (requestStatus can be null)
+      (room.chatType === ChatType.REQUEST && room.requestStatus === "pending" && room.requesterId?.toString() === senderId) // requester sending during pending
+    ) {
+      createNotification({
+        receiverId: otherUserId,
+        senderId: senderId,
+        type: NotificationType.NEW_MESSAGE,
+        message: message || "Sent you a message",
+        metadata: {
+          roomId: roomId.toString(),
+          messageId: newMessage._id.toString(),
+          commentText: message,
+        },
+      })
+        .then((notification) => {
+          if (notification) {
+            logger.info(
+              `Notification created for message ${newMessage._id}: ${notification._id}`
+            );
+          }
+        })
+        .catch((err) =>
+          logger.warn("Failed to create chat notification:", err.message)
+        );
+    }
 
     return formattedMessage;
   } catch (error) {
