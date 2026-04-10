@@ -50,6 +50,19 @@ const isAggregatableType = (type) => {
 };
 
 /**
+ * Get display label for content type
+ * @param {string} contentType - Content type
+ * @returns {string} Content label (post, zeal, write, poll)
+ */
+const getContentLabel = (contentType) => {
+  if (contentType === ContentType.POST) return "post";
+  if (contentType === ContentType.ZEAL) return "zeal";
+  if (contentType === ContentType.WRITE_POST) return "write";
+  if (contentType === ContentType.POLL) return "poll";
+  return "content";
+};
+
+/**
  * Generate notification message based on type and data
  * @param {string} type - Notification type
  * @param {Object} sender - Sender user object
@@ -81,7 +94,7 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     [NotificationType.ZEAL_LIKED]: `Liked your zeal`,
     [NotificationType.WRITE_LIKED]: `Liked your write`,
     [NotificationType.COMMENT_LIKED]: `Liked your comment`,
-    [NotificationType.AGGREGATED_LIKES]: `Others liked your ${contentType === ContentType.POST ? "post" : contentType === ContentType.ZEAL ? "zeal" : "write"}`,
+    [NotificationType.AGGREGATED_LIKES]: `Others liked your ${getContentLabel(contentType)}`,
     
     [NotificationType.POST_COMMENT]: truncatedText 
       ? `Commented on your post: "${truncatedText}"`
@@ -108,8 +121,8 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     
     [NotificationType.TAG]: `tagged you in a post`,
     
-    [NotificationType.CONTENT_SHARED]: `Shared your ${contentType === ContentType.POST ? "post" : contentType === ContentType.ZEAL ? "zeal" : "write"}`,
-    [NotificationType.CONTENT_SHARED_WITH_YOU]: `Shared a ${contentType === ContentType.POST ? "post" : contentType === ContentType.ZEAL ? "zeal" : "write"} with you`,
+    [NotificationType.CONTENT_SHARED]: `Shared your ${getContentLabel(contentType)}`,
+    [NotificationType.CONTENT_SHARED_WITH_YOU]: `Shared a ${getContentLabel(contentType)} with you`,
     
     [NotificationType.NEW_SNAP_RECEIVED]: `Sent you a snap`,
     [NotificationType.SNAP_VIEWED]: `Viewed your snap`,
@@ -155,16 +168,7 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
   const displayText = metadata?.commentText || metadata?.replyText;
   const truncatedText = displayText ? truncateText(displayText) : "";
 
-  // Get content type label
-  const getContentLabel = () => {
-    if (contentType === ContentType.POST) return "post";
-    if (contentType === ContentType.ZEAL) return "zeal";
-    if (contentType === ContentType.WRITE_POST) return "write";
-    if (contentType === ContentType.POLL) return "poll";
-    return "content";
-  };
-
-  const contentLabel = getContentLabel();
+  const contentLabel = getContentLabel(contentType);
 
   // Generate message based on notification type
   if (type === NotificationType.POST_LIKED || 
@@ -948,7 +952,7 @@ export const getNotifications = async (userId, options = {}) => {
       // Exclude chat and share notifications from the general list
       query.type = {
         $nin: [
-          NotificationType.NEW_MESSAGE,
+          //NotificationType.NEW_MESSAGE,
           NotificationType.CONTENT_SHARED,
           NotificationType.CONTENT_SHARED_WITH_YOU
         ]
