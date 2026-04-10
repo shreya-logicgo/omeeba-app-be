@@ -952,7 +952,7 @@ export const getNotifications = async (userId, options = {}) => {
       // Exclude chat and share notifications from the general list
       query.type = {
         $nin: [
-          //NotificationType.NEW_MESSAGE,
+          NotificationType.NEW_MESSAGE,
           NotificationType.CONTENT_SHARED,
           NotificationType.CONTENT_SHARED_WITH_YOU
         ]
