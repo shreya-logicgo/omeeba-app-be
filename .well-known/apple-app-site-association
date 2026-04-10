@@ -3,8 +3,8 @@
     "apps": [],
     "details": [
       {
-        "appID": "TEAMID.com.swastik.omeebaApp",
-        "paths": [ "/share/*" ]
+        "appID": "6A8PN4S83J.com.swastik.omeebaApp",
+        "paths": ["*"]
       }
     ]
   }
