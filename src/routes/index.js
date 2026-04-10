@@ -39,6 +39,7 @@ import notificationRoutes from "./notification.routes.js";
 import contentRoutes from "./content.routes.js";
 import emailTestRoutes from "./email-test.routes.js";
 import legalRoutes from "./legal.routes.js";
+import contactRoutes from "./contactRoutes.js";
 
 // Mount routes
 router.use(`/${config.apiVersion}/auth`, authRoutes);
@@ -66,6 +67,7 @@ router.use(`/${config.apiVersion}/home`, homeRoutes);
 router.use(`/${config.apiVersion}/notifications`, notificationRoutes);
 router.use(`/${config.apiVersion}/content`, contentRoutes);
 router.use(`/${config.apiVersion}/legal`, legalRoutes);
+router.use(`/${config.apiVersion}/contact`, contactRoutes);
 router.use("/email-test", emailTestRoutes);
 
 export default router;
