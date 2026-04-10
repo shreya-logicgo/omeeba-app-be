@@ -3,6 +3,8 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import compression from "compression";
+import path from "path";
+import { fileURLToPath } from "url";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import logger from "./utils/logger.js";
 import config from "./config/env.js";
@@ -11,6 +13,9 @@ import config from "./config/env.js";
 import apiRoutes from "./routes/index.js";
 
 const app = express();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const wellKnownDir = path.resolve(__dirname, "..", ".well-known");
 
 // Security middleware
 app.use(helmet());
@@ -44,6 +49,20 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
   });
+});
+
+// Serve deep-link verification files for Android/iOS app links
+app.get("/.well-known/assetlinks.json", (req, res) => {
+  res.sendFile(path.join(wellKnownDir, "assetlinks.json"));
+});
+
+app.get("/omeeba.app/.well-known/assetlinks.json", (req, res) => {
+  res.sendFile(path.join(wellKnownDir, "assetlinks.json"));
+});
+
+app.get("/.well-known/apple-app-site-association", (req, res) => {
+  res.type("application/json");
+  res.sendFile(path.join(wellKnownDir, "apple-app-site-association"));
 });
 
 // API routes

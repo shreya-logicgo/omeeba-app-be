@@ -5,7 +5,7 @@ import { SHARE_BASE_URL } from "../config/env.js";
  * Base URL for shareable links
  * Configured via environment variable SHARE_BASE_URL
  */
-const BASE_SHARE_URL = SHARE_BASE_URL || "https://omeeba.app/share";
+const BASE_SHARE_URL = SHARE_BASE_URL || "https://staging.omeeba.co.in/share";
 
 /**
  * Map ContentType enum values to URL-friendly slugs
