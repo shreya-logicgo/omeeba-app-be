@@ -67,17 +67,29 @@ export const share = async (req, res) => {
       receiverObjectIds
     );
 
+    let message;
+    if (result.newReceiversAdded === 0) {
+      // Same sender, same receivers — nothing new happened
+      message = "Content already shared with the selected user(s)";
+    } else if (result.alreadyShared) {
+      // Same sender, but new receivers added this call
+      message = `Content shared with ${result.newReceiversAdded} new user(s)`;
+    } else {
+      // Brand new share by this sender
+      message = `Content shared successfully with ${result.newReceiversAdded} user(s)`;
+    }
+
+    // ── 8. Response ──────────────────────────────────────────────────────────
     return sendSuccess(
       res,
       {
         shareCount: result.shareCount,
-        totalShareCount: result.totalShareCount,
         receiverIds: result.receiverIds,
         contentType,
         contentId,
       },
-      `Content shared successfully with ${result.shareCount} user(s). Total unique shares: ${result.totalShareCount}`,
-      StatusCodes.CREATED
+      message,
+      StatusCodes.OK
     );
   } catch (error) {
     logger.error("Share content error:", error);
@@ -87,10 +99,15 @@ export const share = async (req, res) => {
       return sendNotFound(res, error.message);
     }
 
+    if (error.message === "Cannot share content with yourself") {
+      return sendBadRequest(res, error.message);
+    }
+
     if (
       error.message === "Invalid content type" ||
       error.message.includes("receiver") ||
-      error.message.includes("At least one receiver")
+      error.message.includes("At least one receiver") ||
+      error.message.includes("Invalid or deleted user IDs")
     ) {
       return sendBadRequest(res, error.message);
     }

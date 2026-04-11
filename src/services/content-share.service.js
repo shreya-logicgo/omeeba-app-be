@@ -152,82 +152,84 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
 
     const receiverObjectIds = receiverValidation.receiverObjectIds;
 
-    // ================= UNIQUE SENDER CHECK =================
-    const alreadySharedByUser = await ContentShare.exists({
+    const alreadySharedByUser = !!(await ContentShare.exists({
       contentType,
       contentId,
       senderId,
-    });
+    }));
+
+    const existingShares = await ContentShare.find({
+      contentType,
+      contentId,
+      senderId,
+      receiverIds: { $in: receiverObjectIds },
+    })
+      .select("receiverIds")
+      .lean();
+
+    const alreadySentTo = new Set(
+      existingShares.flatMap((s) => s.receiverIds.map((id) => id.toString()))
+    );
+
+    const toCreate = receiverObjectIds.filter(
+      (id) => !alreadySentTo.has(id.toString())
+    );
 
     let createdShares = [];
     let newShareCount = 0;
 
-    // ================= CREATE SHARES (NO DUPLICATES PER RECEIVER) =================
-    for (const receiverId of receiverObjectIds) {
+    if (toCreate.length > 0) {
       try {
-        const exists = await ContentShare.findOne({
-          contentType,
-          contentId,
-          senderId,
-          receiverIds: receiverId,
-        });
-        if (exists) continue;
-
-        const newShare = await ContentShare.create({
+        const docs = toCreate.map((receiverId) => ({
           contentType,
           contentId,
           senderId,
           receiverIds: [receiverId],
           createdAt: new Date(),
-        });
-
-        createdShares.push(newShare);
-        newShareCount++;
+        }));
+        createdShares = await ContentShare.insertMany(docs, { ordered: false });
+        newShareCount = createdShares.length;
       } catch (err) {
-        if (err.code !== 11000) throw err;
-      }
-    }
-
-    // Chat messages are now created by sendContentToMultipleChats in the socket handler
-    // to avoid duplication. This section removed to prevent double message creation.
-
-    // Increment share count on the content document (atomic operation)
-    // This tracks share count for analytics and virality tracking
-    let updatedContent = null;
-    try {
-      if (!alreadySharedByUser && newShareCount > 0) {
-        switch (contentType) {
-          case ContentType.POST:
-            await Post.findByIdAndUpdate(contentId, { $inc: { shareCount: 1 } });
-            break;
-          case ContentType.WRITE_POST:
-            await WritePost.findByIdAndUpdate(contentId, { $inc: { shareCount: 1 } });
-            break;
-          case ContentType.ZEAL:
-            await ZealPost.findByIdAndUpdate(contentId, { $inc: { shareCount: 1 } });
-            break;
-          case ContentType.POLL:
-            await Poll.findByIdAndUpdate(contentId, { $inc: { shareCount: 1 } });
-            break;
+        if (err.code === 11000 && err.insertedDocs) {
+          createdShares = err.insertedDocs;
+          newShareCount = createdShares.length;
+        } else {
+          throw err;
         }
       }
-    } catch (err) {
-      logger.error("Error updating share count:", err);
     }
 
-    // ================= TOTAL SHARE COUNT (UNIQUE SENDERS) =================
-    const totalShareCount = await ContentShare.distinct("senderId", {
+    if (newShareCount > 0) {
+      try {
+        switch (contentType) {
+          case ContentType.POST:
+            await Post.findByIdAndUpdate(contentId, { $inc: { shareCount: newShareCount } });
+            break;
+          case ContentType.WRITE_POST:
+            await WritePost.findByIdAndUpdate(contentId, { $inc: { shareCount: newShareCount } });
+            break;
+          case ContentType.ZEAL:
+            await ZealPost.findByIdAndUpdate(contentId, { $inc: { shareCount: newShareCount } });
+            break;
+          case ContentType.POLL:
+            await Poll.findByIdAndUpdate(contentId, { $inc: { shareCount: newShareCount } });
+            break;
+        }
+      } catch (err) {
+        logger.error("Error updating share count:", err);
+      }
+    }
+
+    const totalShareCount = await ContentShare.countDocuments({
       contentType,
       contentId,
-    }).then((ids) => ids.length);
+    });
 
-    // Create notifications
     try {
-      // Poll uses 'createdBy' instead of 'userId'
       const contentOwnerId = content.userId || content.createdBy;
+      const contentOwnerIdStr = contentOwnerId.toString();
 
-      // Notify content owner (if not self-share)
-      if (contentOwnerId.toString() !== senderId.toString()) {
+      if (!alreadySharedByUser && contentOwnerIdStr !== senderId.toString()) {
         await createNotification({
           receiverId: contentOwnerId,
           senderId,
@@ -237,23 +239,22 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
         });
       }
 
-      // Notify receivers
+      const newlyAddedReceiverIds = createdShares.map(
+        (s) => s.receiverIds[0].toString()
+      );
+
       await Promise.all(
-        receiverObjectIds.map((receiverId) => {
-          if (
-            receiverId.toString() !== senderId.toString() &&
-            receiverId.toString() !== contentOwnerId.toString()
-          ) {
-            return createNotification({
+        newlyAddedReceiverIds
+          .filter((id) => id !== senderId.toString() && id !== contentOwnerIdStr)
+          .map((receiverId) =>
+            createNotification({
               receiverId,
               senderId,
               type: NotificationType.CONTENT_SHARED_WITH_YOU,
               contentType,
               contentId,
-            });
-          }
-          return null;
-        })
+            })
+          )
       );
     } catch (err) {
       logger.error("Error creating notifications:", err);
@@ -268,7 +269,6 @@ export const shareContent = async (senderId, contentType, contentId, receiverIds
     return {
       success: true,
       shareCount: totalShareCount,
-      totalShareCount,
       receiverIds: receiverObjectIds.map((id) => id.toString()),
       shares: createdShares.map((share) => ({
         id: share._id,

@@ -161,15 +161,7 @@ const getEngagementMetrics = async (contentItems) => {
         },
         {
           $group: {
-            _id: {
-              contentId: "$contentId",
-              senderId: "$senderId"
-            },
-          },
-        },
-        {
-          $group: {
-            _id: "$_id.contentId",
+            _id: "$contentId",
             shareCount: { $sum: 1 },
           },
         },
