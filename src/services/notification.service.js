@@ -44,6 +44,7 @@ const isAggregatableType = (type) => {
     NotificationType.WRITE_COMMENT,
     NotificationType.POLL_COMMENT,
     NotificationType.POLL_VOTED,
+    NotificationType.POLL_LIKED
   ];
   // TAG notifications should NOT be aggregated to prevent duplicates
   return aggregatableTypes.includes(type) && type !== NotificationType.TAG;
@@ -93,6 +94,7 @@ const generateNotificationMessage = (type, sender, data = {}) => {
     [NotificationType.POST_LIKED]: `Liked your post`,
     [NotificationType.ZEAL_LIKED]: `Liked your zeal`,
     [NotificationType.WRITE_LIKED]: `Liked your write`,
+    [NotificationType.POLL_LIKED]: `Liked your poll`,
     [NotificationType.COMMENT_LIKED]: `Liked your comment`,
     [NotificationType.AGGREGATED_LIKES]: `Others liked your ${getContentLabel(contentType)}`,
     
@@ -173,7 +175,8 @@ const generateAggregatedMessage = (type, firstSender, latestSender = null, count
   // Generate message based on notification type
   if (type === NotificationType.POST_LIKED || 
       type === NotificationType.ZEAL_LIKED || 
-      type === NotificationType.WRITE_LIKED) {
+      type === NotificationType.WRITE_LIKED || 
+      type === NotificationType.POLL_LIKED) {
     if (count === 1) {
       return `Someone liked your ${contentLabel}`;
     } else {

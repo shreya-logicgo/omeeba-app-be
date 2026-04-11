@@ -118,7 +118,13 @@ export const likeContent = async (userId, contentType, contentId) => {
     // Create notification for content owner (if not self-like)
     try {
       // Poll uses 'createdBy' instead of 'userId'
-      const contentOwnerId = content.userId || content.createdBy;
+      const contentOwnerRaw = content.userId || content.createdBy;
+
+      const contentOwnerId =
+        typeof contentOwnerRaw === "object"
+          ? contentOwnerRaw._id
+          : contentOwnerRaw;
+          
       if (contentOwnerId.toString() !== userId.toString()) {
         let notificationType;
         if (contentType === ContentType.POST) {
