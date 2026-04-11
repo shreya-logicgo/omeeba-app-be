@@ -16,6 +16,8 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const wellKnownDir = path.resolve(__dirname, "..", ".well-known");
+// Serve pages folder
+app.use(express.static(path.join(__dirname, "../pages")));
 
 // Security middleware
 app.use(helmet());

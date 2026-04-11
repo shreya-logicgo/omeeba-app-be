@@ -32,14 +32,12 @@ body {
   flex-direction: column;
 }
 
-/* Navbar/Logo Header (logo removed, space optimized) */
 .header-logo {
   display: none;
 }
 
 .header-logo img {
   height: 60px;
-  /* Adjust based on logo proportions */
   object-fit: contain;
 }
 
@@ -72,7 +70,7 @@ body {
 
 @media (max-width: 320px) {
   .container {
-    padding: 10px;
+    padding: 15px;
   }
 }
 
@@ -99,6 +97,17 @@ body {
   line-height: 1.6;
 }
 
+.sub-section {
+  margin-top: 24px;
+}
+
+.sub-section h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--text-main);
+}
+
 .content-block ul {
   list-style: none;
   padding-top: 10px;
@@ -106,7 +115,7 @@ body {
 
 .content-block li {
   margin-bottom: 8px;
-  padding-left: 15px;
+  padding-left: 20px;
   position: relative;
 }
 
@@ -115,9 +124,9 @@ body {
   position: absolute;
   left: 0;
   color: var(--primary);
+  font-weight: bold;
 }
 
-/* Buttons (Matching App Styles) */
 .btn-group {
   display: flex;
   flex-direction: column;
@@ -211,8 +220,6 @@ button.btn {
   display: inline;
 }
 
-/* Removed gradient from footer links */
-
 /* Mobile Adjustments */
 /* Tablet (max 768px) */
 @media (max-width: 768px) {
@@ -229,7 +236,7 @@ button.btn {
   }
 
   .container {
-    padding: 30px 15px 15px;
+    padding: 35px 20px 20px;
   }
 
   .btn-group {
@@ -251,6 +258,10 @@ button.btn {
 
   .content-block h2 {
     font-size: 1rem;
+  }
+
+  .sub-section h3 {
+    font-size: 0.85rem;
   }
 
   .content-block p,
