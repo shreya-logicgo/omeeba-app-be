@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting | Omeeba</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <main class="redirect-stack">
+        <div class="branding-group">
+            <img src="assets/logo.png" alt="Omeeba Logo" class="brand-logo-main">
+            <img src="assets/omeeba_name.png" alt="Omeeba Name" class="brand-name-main">
+        </div>
+        <div class="message-group">
+            <p>We’re redirecting you now, Please Wait…</p>
+        </div>
+    </main>
+<script>
+    const ANDROID_PACKAGE = "com.omeeba.app";
+    const IOS_APP_STORE_ID = "6753140500";
+
+    // Your app deep link
+    const appDeepLink = "myapp://product/123";
+
+    // Store URLs
+    const playStoreUrl = "https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}"
+    const appStoreUrl = "https://apps.apple.com/app/id${IOS_APP_STORE_ID}"
+
+    function isAndroid() {
+      return /Android/i.test(navigator.userAgent);
+    }
+
+    function isIOS() {
+      return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+
+    function redirectToStore() {
+      if (isAndroid()) {
+        window.location.href = playStoreUrl;
+      } else if (isIOS()) {
+        window.location.href = appStoreUrl;
+      } else {
+        // Optional: fallback website
+        window.location.href = "https://staging.omeeba.co.in/";
+      }
+    }
+
+    function openAppOrStore() {
+      const start = Date.now();
+
+      // Try opening app
+      window.location.href = appDeepLink;
+
+      // If app did not open, go to store
+      setTimeout(() => {
+        const elapsed = Date.now() - start;
+
+        // If still on page after delay, assume app is not installed
+        if (elapsed < 2500) {
+          redirectToStore();
+        }
+      }, 1500);
+    }
+
+    openAppOrStore();
+</script> 
+</body>
+</html>
