@@ -21,13 +21,10 @@
 <script>
     const ANDROID_PACKAGE = "com.omeeba.app";
     const IOS_APP_STORE_ID = "6753140500";
-
-    // Your app deep link
-    const appDeepLink = "myapp://product/123";
-
-    // Store URLs
-    const playStoreUrl = "https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}"
-    const appStoreUrl = "https://apps.apple.com/app/id${IOS_APP_STORE_ID}"
+    const APP_SCHEME = "omeeba";
+    const WEB_FALLBACK_URL = "https://omeeba.co.in/";
+    const IOS_FALLBACK_DELAY_MS = 2200;
+    const ANDROID_FALLBACK_DELAY_MS = 2500;
 
     function isAndroid() {
       return /Android/i.test(navigator.userAgent);
@@ -37,35 +34,101 @@
       return /iPhone|iPad|iPod/i.test(navigator.userAgent);
     }
 
+    function normalizePath(pathValue) {
+      return String(pathValue || "").replace(/^\/+|\/+$/g, "");
+    }
+
+    function looksLikeSharePath(pathValue) {
+      const parts = normalizePath(pathValue).split("/").filter(Boolean);
+      return parts[0] === "share" && parts.length >= 3;
+    }
+
+    function getTargetPath() {
+      const currentPath = normalizePath(window.location.pathname);
+      if (looksLikeSharePath(currentPath)) {
+        return currentPath;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const fromQuery = normalizePath(params.get("path") || params.get("target"));
+      if (looksLikeSharePath(fromQuery)) {
+        return fromQuery;
+      }
+
+      return "";
+    }
+
+    function buildDeepLink(pathValue) {
+      return pathValue ? `${APP_SCHEME}://${pathValue}` : `${APP_SCHEME}://`;
+    }
+
+    function buildAndroidIntentUrl(pathValue, fallbackUrl) {
+      const intentPath = pathValue || "";
+      const encodedFallback = encodeURIComponent(fallbackUrl);
+      return `intent://${intentPath}#Intent;scheme=${APP_SCHEME};package=${ANDROID_PACKAGE};S.browser_fallback_url=${encodedFallback};end`;
+    }
+
+    const targetPath = getTargetPath();
+    const appDeepLink = buildDeepLink(targetPath);
+    const playStoreUrl = `https://play.google.com/store/apps/details?id=${ANDROID_PACKAGE}`;
+    const appStoreUrl = `https://apps.apple.com/app/id${IOS_APP_STORE_ID}`;
+    const androidIntentUrl = buildAndroidIntentUrl(targetPath, playStoreUrl);
+
     function redirectToStore() {
       if (isAndroid()) {
-        window.location.href = playStoreUrl;
+        window.location.replace(playStoreUrl);
       } else if (isIOS()) {
-        window.location.href = appStoreUrl;
+        window.location.replace(appStoreUrl);
       } else {
-        // Optional: fallback website
-        window.location.href = "https://staging.omeeba.co.in/";
+        window.location.replace(WEB_FALLBACK_URL);
       }
     }
 
-    function openAppOrStore() {
-      const start = Date.now();
+    function attemptOpen(openUrl, fallbackDelayMs) {
+      let appOpened = false;
 
-      // Try opening app
-      window.location.href = appDeepLink;
+      const onVisibilityChange = () => {
+        if (document.visibilityState === "hidden") {
+          appOpened = true;
+        }
+      };
 
-      // If app did not open, go to store
-      setTimeout(() => {
-        const elapsed = Date.now() - start;
+      const onPageHide = () => {
+        appOpened = true;
+      };
 
-        // If still on page after delay, assume app is not installed
-        if (elapsed < 2500) {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      window.addEventListener("pagehide", onPageHide);
+
+      window.location.href = openUrl;
+
+      window.setTimeout(() => {
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        window.removeEventListener("pagehide", onPageHide);
+
+        if (!appOpened && document.visibilityState === "visible") {
           redirectToStore();
         }
-      }, 1500);
+      }, fallbackDelayMs);
     }
 
-    openAppOrStore();
+    function startRedirectFlow() {
+      if (isAndroid()) {
+        // Prefer intent:// on Android for better browser coverage and built-in fallback.
+        attemptOpen(androidIntentUrl, ANDROID_FALLBACK_DELAY_MS);
+        return;
+      }
+
+      if (isIOS()) {
+        // iOS browsers do not support intent://, so use the app scheme with timeout fallback.
+        attemptOpen(appDeepLink, IOS_FALLBACK_DELAY_MS);
+        return;
+      }
+
+      redirectToStore();
+    }
+
+    startRedirectFlow();
 </script> 
 </body>
 </html>
