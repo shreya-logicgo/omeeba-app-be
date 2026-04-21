@@ -757,8 +757,12 @@ const fetchOwnRecentContent = async (
 const fetchLatestPollsByUsers = async (userIds, reportedContentIds, limit) => {
   if (!userIds || userIds.length === 0 || limit <= 0) return [];
 
+  const now = new Date();
+  const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
   const pollQuery = {
     createdBy: { $in: userIds },
+    duration: { $gte: twoDaysAgo }, // active + ended within last 2 days
   };
 
   if (reportedContentIds && reportedContentIds[ContentType.POLL]?.length > 0) {
@@ -788,8 +792,12 @@ const fetchLatestPollsByUsers = async (userIds, reportedContentIds, limit) => {
 const fetchTrendingPolls = async (validUserIds, reportedContentIds, limit) => {
   if (!validUserIds || validUserIds.length === 0 || limit <= 0) return [];
 
+  const now = new Date();
+  const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
   const pollQuery = {
     createdBy: { $in: validUserIds },
+    duration: { $gte: twoDaysAgo }, // active + ended within last 2 days
   };
 
   if (reportedContentIds && reportedContentIds[ContentType.POLL]?.length > 0) {
@@ -1017,10 +1025,13 @@ export const getTrendingContent = async (userId = null, options = {}) => {
 
     // Polls query (only active)
     if (contentType === "all" || contentType === "poll") {
-      const pollQuery = {
-        createdBy: { $in: validUserIds },
-        // status: PollStatus.ACTIVE,
-      };
+    const now = new Date();
+    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+    const pollQuery = {
+      createdBy: { $in: validUserIds },
+      duration: { $gte: twoDaysAgo }, // active + ended within last 2 days
+    };
 
       if (reportedContentIds[ContentType.POLL]?.length) {
         pollQuery._id = {
@@ -1701,10 +1712,21 @@ export const searchAcrossEntities = async (userId = null, options = {}) => {
 
     // Search Polls
     if (type === "all" || type === "polls") {
+      const now = new Date();
+      const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
       const pollQuery = {
         createdBy: { $in: validUserIds },
-        // status: PollStatus.ACTIVE,
+        duration: { $gte: twoDaysAgo }, // active + ended within 2 days
       };
+
+      if (reportedContentIds[ContentType.POLL].length > 0) {
+        pollQuery._id = {
+          $nin: reportedContentIds[ContentType.POLL].map(
+            (id) => new mongoose.Types.ObjectId(id)
+          ),
+        };
+      }
 
       if (isHashtagQuery) {
         pollQuery.caption = { $regex: `#${searchTerm}\\b`, $options: "i" };
@@ -1998,10 +2020,13 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
 
       // Get Poll creators
       if (contentIdsByType[ContentType.POLL].length > 0) {
+        const now = new Date();
+        const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
         const polls = await Poll.find({
           _id: { $in: contentIdsByType[ContentType.POLL] },
           createdBy: { $in: validUserIds },
-          // status: PollStatus.ACTIVE,
+          duration: { $gte: twoDaysAgo },
         })
           .select("createdBy")
           .lean();
@@ -2224,10 +2249,13 @@ export const getContentByHashtag = async (userId = null, options = {}) => {
     // Search Polls
     const pollIds = Array.from(contentIdsByType[ContentType.POLL]);
     if (pollIds.length > 0) {
+      const now = new Date();
+      const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
       const pollQuery = {
         createdBy: { $in: validUserIds },
-        // status: PollStatus.ACTIVE,
         _id: { $in: pollIds },
+        duration: { $gte: twoDaysAgo }, // active + ended within last 2 days
       };
 
       if (reportedContentIds[ContentType.POLL].length > 0) {
@@ -2666,11 +2694,13 @@ export const simplifiedSearch = async (userId = null, options = {}) => {
 
       return { data: formattedContent };
     } else if (type === "polls") {
-      // Polls: only polls
-      const pollQuery = {
-        createdBy: { $in: validUserIds },
-        // status: PollStatus.ACTIVE,
-      };
+        const now = new Date();
+        const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+        const pollQuery = {
+          createdBy: { $in: validUserIds },
+          duration: { $gte: twoDaysAgo }, // active + ended within last 2 days
+        };
       if (reportedContentIds[ContentType.POLL].length > 0) {
         pollQuery._id = {
           $nin: reportedContentIds[ContentType.POLL].map(
