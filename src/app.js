@@ -16,8 +16,13 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const wellKnownDir = path.resolve(__dirname, "..", ".well-known");
-// Serve pages folder
-app.use(express.static(path.join(__dirname, "../pages")));
+const pagesDir = path.resolve(__dirname, "..", "pages");
+const publicDir = path.resolve(__dirname, "..", "public");
+const redirectPagePath = path.join(publicDir, "redirect.html");
+
+// Serve static folders
+app.use(express.static(pagesDir));
+app.use(express.static(publicDir));
 
 // Security middleware
 app.use(helmet());
@@ -65,6 +70,11 @@ app.get("/omeeba.app/.well-known/assetlinks.json", (req, res) => {
 app.get("/.well-known/apple-app-site-association", (req, res) => {
   res.type("application/json");
   res.sendFile(path.join(wellKnownDir, "apple-app-site-association"));
+});
+
+// Deep-link share routes must resolve to redirect page (before API/404 handlers)
+app.get(["/share", "/share/*"], (req, res) => {
+  res.sendFile(redirectPagePath);
 });
 
 // API routes
