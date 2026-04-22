@@ -4,7 +4,7 @@ import {
   toggleLikeBodySchema,
   contentTypeParamsSchema,
 } from "../validators/content-like.validator.js";
-import { toggle, getStatus } from "../controllers/content-like.controller.js";
+import { toggle, getStatus , getLikedUsers} from "../controllers/content-like.controller.js";
 import { protect } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -27,6 +27,16 @@ router.get(
   protect,
   validateParams(contentTypeParamsSchema),
   getStatus
+);
+
+/**
+ * Get liked users list (bottom sheet API)
+ */
+router.get(
+  "/:contentType/:contentId/users",
+  protect,
+  validateParams(contentTypeParamsSchema),
+  getLikedUsers
 );
 
 export default router;

@@ -30,10 +30,10 @@ export const toggleLikeBodySchema = createSchema(
  */
 export const contentTypeParamsSchema = Joi.object({
   contentType: Joi.string()
-    .valid(...Object.values(ContentType))
+    .valid(...Object.values(ContentType), "Post", "WritePost", "ZealPost", "Poll", "writepost", "zealpost", "Write-Post", "Zeal-Post")
     .required()
     .messages({
-      "any.only": `Content type must be one of: ${Object.values(ContentType).join(", ")}`,
+      "any.only": `Content type must be one of: Post, Write Post, Zeal Post, Poll, WritePost, ZealPost`,
       "any.required": "Content type is required",
     }),
   contentId: Joi.string()

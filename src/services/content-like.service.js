@@ -6,6 +6,7 @@ import Poll from "../models/content/Poll.js";
 import { ContentType, ZealStatus, PollStatus, NotificationType } from "../models/enums.js";
 import { createNotification } from "./notification.service.js";
 import logger from "../utils/logger.js";
+import { UserFollower } from "../models/index.js";
 
 /**
  * Verify content exists and is accessible
@@ -124,7 +125,7 @@ export const likeContent = async (userId, contentType, contentId) => {
         typeof contentOwnerRaw === "object"
           ? contentOwnerRaw._id
           : contentOwnerRaw;
-          
+
       if (contentOwnerId.toString() !== userId.toString()) {
         let notificationType;
         if (contentType === ContentType.POST) {
@@ -349,6 +350,96 @@ export const getContentLikeStatus = async (userId, contentType, contentId) => {
   }
 };
 
+/**
+ * Get users who liked a content + follow status
+ */
+export const getContentLikedUsers = async (
+  contentType,
+  contentId,
+  currentUserId,
+  { page = 1, limit = 20 } = {}
+) => {
+  try {
+    // Validate content type
+    if (!Object.values(ContentType).includes(contentType)) {
+      throw new Error("Invalid content type");
+    }
+
+    const skip = (page - 1) * limit;
+
+    // 1. Fetch likes (paginated)
+    const likes = await ContentLike.find({
+      contentType,
+      contentId,
+    })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("userId", "name username profileImage coverImage bio")
+      .lean();
+
+    // 2. Remove null users (safety)
+    const validLikes = likes.filter(like => like.userId);
+
+    // 3. Extract user IDs
+    const likedUserIds = validLikes.map(like => like.userId._id);
+
+    // 4. Fetch follow relationships (single query)
+    const followingDocs = await UserFollower.find({
+      followerId: currentUserId,
+      userId: { $in: likedUserIds },
+    }).lean();
+
+    // 5. Fast lookup set
+    const followingSet = new Set(
+      followingDocs.map(f => f.userId.toString())
+    );
+
+    // 6. Build response
+    const users = validLikes.map(like => {
+      const user = like.userId;
+      const userIdStr = user._id.toString();
+      const isSelf = userIdStr === currentUserId.toString();
+
+      return {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        bio: user.bio,
+        profileImage: user.profileImage || null,
+        coverImage: user.coverImage || null,
+        isFollowing: isSelf ? false : followingSet.has(userIdStr),
+        isSelf: isSelf, // always present (true/false)
+      };
+    });
+
+    // 7. Optional: show followed users first
+    users.sort((a, b) => b.isFollowing - a.isFollowing);
+
+    // 8. Total count
+    const total = await ContentLike.countDocuments({
+      contentType,
+      contentId,
+    });
+
+    // 9. Final response
+    return {
+      users,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        hasNext : page * limit < total,
+        hasPrev : page > 1,
+      },
+    };
+  } catch (error) {
+    logger.error("getContentLikedUsers error:", error);
+    throw error;
+  }
+};
+
 export default {
   likeContent,
   unlikeContent,
@@ -356,5 +447,6 @@ export default {
   isContentLiked,
   getContentLikeCount,
   getContentLikeStatus,
+  getContentLikedUsers,
 };
 
