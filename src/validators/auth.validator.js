@@ -6,6 +6,13 @@
 import Joi from "joi";
 import { commonValidations, createSchema } from "../utils/validation.js";
 
+const deviceFields = {
+  deviceId: Joi.string().allow(null, "").optional(),
+  deviceName: Joi.string().allow(null, "").optional(),
+  platform: Joi.string().allow(null, "").optional(),
+  browser: Joi.string().allow(null, "").optional(),
+};
+
 /**
  * Registration validation schema
  */
@@ -66,8 +73,9 @@ export const verifyOTPSchema = createSchema(
     type: Joi.string().valid("account", "password").optional().messages({
       "any.only": "must be either 'account' or 'password'",
     }),
+    ...deviceFields,
   },
-  ["email", "otp", "type"]
+  ["email", "otp", "type", "deviceId", "deviceName", "platform", "browser"]
 );
 
 /**
@@ -87,8 +95,9 @@ export const loginSchema = createSchema(
   {
     email: commonValidations.email,
     password: commonValidations.password,
+    ...deviceFields,
   },
-  ["email", "password"]
+  ["email", "password", "deviceId", "deviceName", "platform", "browser"]
 );
 
 /**
@@ -134,8 +143,9 @@ export const refreshTokenSchema = createSchema(
       "string.empty": "Refresh token cannot be empty",
       "any.required": "Refresh token is required",
     }),
+    ...deviceFields,
   },
-  ["refreshToken"]
+  ["refreshToken", "deviceId", "deviceName", "platform", "browser"]
 );
 
 export default {

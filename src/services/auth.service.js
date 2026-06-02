@@ -5,15 +5,134 @@
 
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import mongoose from "mongoose";
 import User from "../models/users/User.js";
+import UserSession from "../models/users/UserSession.js";
 import { sendOTPEmail, sendForgotPasswordOTPEmail } from "./email.service.js";
 import config from "../config/env.js";
 import logger from "../utils/logger.js";
 
+// ─── Token helpers ────────────────────────────────────────────────────────────
+
 /**
- * Generate OTP
- * @returns {number} 6-digit OTP
+ * Generate JWT access token (15 min)
+ * @param {string} userId
+ * @returns {string}
  */
+export const generateToken = (userId, sessionId) => {
+  return jwt.sign({ id: userId, sessionId, typ: "access" }, config.jwt.secretKey, {
+    expiresIn: config.jwt.expiresIn, // must be "15m" in .env
+  });
+};
+
+/**
+ * Generate JWT refresh token (90 days)
+ * @param {string} userId
+ * @returns {string}
+ */
+export const generateRefreshToken = (userId, sessionId, jti = crypto.randomUUID()) => {
+  return jwt.sign({ id: userId, sessionId, jti, typ: "refresh" }, config.jwt.refreshSecret, {
+    expiresIn: config.jwt.refreshExpiresIn, // must be "90d" in .env
+  });
+};
+
+/**
+ * Hash a raw refresh token with bcrypt for safe DB storage.
+ * @param {string} rawToken
+ * @returns {Promise<string>}
+ */
+const hashRefreshToken = (rawToken) => bcrypt.hash(rawToken, 10);
+
+/**
+ * Compare a raw refresh token against a stored bcrypt hash.
+ * @param {string} rawToken
+ * @param {string} hash
+ * @returns {Promise<boolean>}
+ */
+const verifyRefreshTokenHash = (rawToken, hash) =>
+  bcrypt.compare(rawToken, hash);
+
+const refreshTokenFingerprint = (rawToken) =>
+  crypto.createHash("sha256").update(rawToken).digest("hex");
+
+const parseDurationMs = (duration) => {
+  if (typeof duration === "number") return duration * 1000;
+
+  const match = /^(\d+)\s*(ms|s|m|h|d)$/i.exec(String(duration || ""));
+  if (!match) throw new Error("Invalid JWT refresh expiry configuration");
+
+  const value = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  const multipliers = {
+    ms: 1,
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+  };
+
+  return value * multipliers[unit];
+};
+
+const getRefreshExpiresAt = () =>
+  new Date(Date.now() + parseDurationMs(config.jwt.refreshExpiresIn));
+
+/**
+ * Create a new UserSession document after login or token rotation.
+ * @param {string} userId
+ * @param {string} rawRefreshToken
+ * @param {Object} deviceInfo - { deviceId, deviceName, platform, ipAddress }
+ * @returns {Promise<void>}
+ */
+const createSession = async (
+  userId,
+  sessionId,
+  rawRefreshToken,
+  refreshTokenJti,
+  deviceInfo = {},
+  options = {}
+) => {
+  const hash = await hashRefreshToken(rawRefreshToken);
+  const expiresAt = getRefreshExpiresAt();
+
+  const [session] = await UserSession.create([{
+    userId,
+    sessionId,
+    refreshTokenHash: hash,
+    refreshTokenJti,
+    refreshTokenFingerprint: refreshTokenFingerprint(rawRefreshToken),
+    deviceId: deviceInfo.deviceId || null,
+    deviceName: deviceInfo.deviceName || "Unknown device",
+    platform: deviceInfo.platform || null,
+    browser: deviceInfo.browser || null,
+    ipAddress: deviceInfo.ipAddress || null,
+    lastUsedAt: new Date(),
+    expiresAt,
+    revokedAt: null,
+  }], options);
+
+  return session;
+};
+
+export const createAuthenticatedSession = async (userId, deviceInfo = {}) => {
+  const sessionId = crypto.randomUUID();
+  const refreshTokenJti = crypto.randomUUID();
+  const refreshToken = generateRefreshToken(userId, sessionId, refreshTokenJti);
+  const session = await createSession(
+    userId,
+    sessionId,
+    refreshToken,
+    refreshTokenJti,
+    deviceInfo
+  );
+  const token = generateToken(userId, session.sessionId);
+
+  return { token, refreshToken, session };
+};
+
+// ─── Password helpers ─────────────────────────────────────────────────────────
+
 export const generateOTP = () => {
   const min = Math.pow(10, config.otp.length - 1);
   const max = Math.pow(10, config.otp.length) - 1;
@@ -483,35 +602,16 @@ export const resendOTP = async (email, type = null) => {
   }
 };
 
-/**
- * Generate JWT token
- * @param {string} userId - User ID
- * @returns {string} JWT token
- */
-export const generateToken = (userId) => {
-  return jwt.sign({ id: userId }, config.jwt.secretKey, {
-    expiresIn: config.jwt.expiresIn,
-  });
-};
+// ─── Login ────────────────────────────────────────────────────────────────────
 
 /**
- * Generate Refresh JWT token
- * @param {string} userId - User ID
- * @returns {string} JWT refresh token
+ * Login user — creates a new device session and returns both tokens.
+ * @param {string} email
+ * @param {string} password
+ * @param {Object} deviceInfo - { deviceId, deviceName, platform, ipAddress }
+ * @returns {Promise<{ user, token, refreshToken }>}
  */
-export const generateRefreshToken = (userId) => {
-  return jwt.sign({ id: userId }, config.jwt.refreshSecret, {
-    expiresIn: config.jwt.refreshExpiresIn,
-  });
-};
-
-/**
- * Login user
- * @param {string} email - User email
- * @param {string} password - User password
- * @returns {Promise<Object>} User data with token
- */
-export const loginUser = async (email, password) => {
+export const loginUser = async (email, password, deviceInfo = {}) => {
   try {
     // Find user by email
     const user = await User.findOne({
@@ -561,9 +661,10 @@ export const loginUser = async (email, password) => {
       throw new Error("Invalid email or password");
     }
 
-    // Generate JWT token with only user _id in payload
-    const token = generateToken(user._id.toString());
-    const refreshToken = generateRefreshToken(user._id.toString());
+    const { token, refreshToken } = await createAuthenticatedSession(
+      user._id.toString(),
+      deviceInfo
+    );
 
     logger.info(`User logged in: ${user.email}`);
 
@@ -710,9 +811,11 @@ export const resetPassword = async (email, newPassword) => {
     user.forgotPasswordOTPVerifiedAt = null;
     await user.save();
 
-    logger.info(`Password reset successful for ${user.email}`);
+    // Revoke ALL sessions — forces re-login on every device
+    await revokeAllUserSessions(user._id.toString());
 
-    // Return user without password and OTP
+    logger.info(`Password reset successful for ${user.email} — all sessions revoked`);
+
     const userObject = user.toObject();
     delete userObject.password;
     delete userObject.otp;
@@ -770,9 +873,11 @@ export const changePassword = async (userId, oldPassword, newPassword) => {
     user.password = hashedPassword;
     await user.save();
 
-    logger.info(`Password changed for user ${user.email}`);
+    // Revoke ALL sessions — forces re-login on every device
+    await revokeAllUserSessions(userId);
 
-    // Return user without sensitive fields
+    logger.info(`Password changed for user ${user.email} — all sessions revoked`);
+
     return removeSensitiveFields(user.toObject());
   } catch (error) {
     logger.error("Error in changePassword:", error);
@@ -780,51 +885,255 @@ export const changePassword = async (userId, oldPassword, newPassword) => {
   }
 };
 
-/**
- * Refresh user token
- * @param {string} refreshToken - User's refresh token
- * @returns {Promise<Object>} New auth tokens
- */
-export const refreshUserToken = async (refreshToken) => {
-  try {
-    if (!refreshToken) {
-      throw new Error("Refresh token is required");
-    }
+// ─── Refresh token (with real rotation + reuse detection) ─────────────────────
 
-    // Verify token
+/**
+ * Refresh tokens using a valid refresh token.
+ *
+ * Flow:
+ * 1. Verify the JWT signature/expiry.
+ * 2. Find the matching session by userId + hash comparison.
+ * 3. If the JWT is valid but NO active session matches → stolen token reuse detected.
+ *    Revoke ALL sessions for this user immediately.
+ * 4. If a valid session is found → delete it, issue new tokens, store new session hash.
+ *    (Sliding expiration: expiresAt resets to now + 90d.)
+ *
+ * @param {string} rawRefreshToken
+ * @param {Object} deviceInfo - { deviceId, deviceName, platform, ipAddress }
+ * @returns {Promise<{ token, refreshToken }>}
+ */
+export const refreshUserToken = async (rawRefreshToken, deviceInfo = {}) => {
+  try {
+    if (!rawRefreshToken) throw new Error("Refresh token is required");
+
     let decoded;
     try {
-      decoded = jwt.verify(refreshToken, config.jwt.refreshSecret);
+      decoded = jwt.verify(rawRefreshToken, config.jwt.refreshSecret);
     } catch (err) {
       throw new Error("Invalid or expired refresh token");
     }
 
-    // Find user by ID
-    const user = await User.findOne({
-      _id: decoded.id,
-      isDeleted: false,
-    });
+    const userId = decoded.id;
+    const { sessionId, jti, typ } = decoded;
 
-    if (!user) {
-      throw new Error("User associated with this token no longer exists");
+    if (!userId || !sessionId || !jti || typ !== "refresh") {
+      throw new Error("Invalid or expired refresh token");
     }
 
-    if (!user.isAccountVerified) {
-      throw new Error("Please verify your email address first");
+    const tokenFingerprint = refreshTokenFingerprint(rawRefreshToken);
+    const mongoSession = await mongoose.startSession();
+    let rotatedTokens;
+
+    try {
+      await mongoSession.withTransaction(async () => {
+        const now = new Date();
+        const matchedSession = await UserSession.findOneAndUpdate(
+          {
+            userId,
+            sessionId,
+            refreshTokenJti: jti,
+            refreshTokenFingerprint: tokenFingerprint,
+            revokedAt: null,
+            expiresAt: { $gt: now },
+          },
+          {
+            $set: {
+              revokedAt: now,
+              lastUsedAt: now,
+            },
+          },
+          { new: false, session: mongoSession }
+        );
+
+        if (!matchedSession) {
+          throw new Error("Suspicious activity detected. Please login again");
+        }
+
+        const isMatch = await verifyRefreshTokenHash(
+          rawRefreshToken,
+          matchedSession.refreshTokenHash
+        );
+        if (!isMatch) throw new Error("Invalid or expired refresh token");
+
+        const user = await User.findOne(
+          { _id: userId, isDeleted: false },
+          null,
+          { session: mongoSession }
+        );
+        if (!user) throw new Error("User associated with this token no longer exists");
+        if (!user.isAccountVerified) throw new Error("Please verify your email address first");
+
+        const newSessionId = crypto.randomUUID();
+        const newRefreshTokenJti = crypto.randomUUID();
+        const newRefreshToken = generateRefreshToken(
+          userId,
+          newSessionId,
+          newRefreshTokenJti
+        );
+
+        const resolvedDeviceInfo = {
+          deviceId: deviceInfo.deviceId || matchedSession.deviceId,
+          deviceName: deviceInfo.deviceName || matchedSession.deviceName,
+          platform: deviceInfo.platform || matchedSession.platform,
+          browser: deviceInfo.browser || matchedSession.browser,
+          ipAddress: deviceInfo.ipAddress || matchedSession.ipAddress,
+        };
+
+        await createSession(
+          userId,
+          newSessionId,
+          newRefreshToken,
+          newRefreshTokenJti,
+          resolvedDeviceInfo,
+          { session: mongoSession }
+        );
+
+        rotatedTokens = {
+          token: generateToken(userId, newSessionId),
+          refreshToken: newRefreshToken,
+          user,
+        };
+      });
+    } catch (error) {
+      if (error.message === "Suspicious activity detected. Please login again") {
+        logger.warn(
+          `Refresh token reuse detected for userId: ${userId} - revoking all sessions`
+        );
+        await revokeAllUserSessions(userId);
+      }
+      throw error;
+    } finally {
+      await mongoSession.endSession();
     }
 
-    // Generate new tokens
-    const newToken = generateToken(user._id.toString());
-    const newRefreshToken = generateRefreshToken(user._id.toString());
-
-    logger.info(`Token refreshed for user: ${user.email}`);
+    logger.info(`Token refreshed for user: ${rotatedTokens.user.email}`);
 
     return {
-      token: newToken,
-      refreshToken: newRefreshToken,
+      token: rotatedTokens.token,
+      refreshToken: rotatedTokens.refreshToken,
     };
   } catch (error) {
     logger.error("Error in refreshUserToken:", error);
+    throw error;
+  }
+};
+// ─── Session management ───────────────────────────────────────────────────────
+
+/**
+ * Logout a single device session.
+ * @param {string} userId
+ * @param {string} rawRefreshToken
+ * @returns {Promise<void>}
+ */
+export const logoutUser = async (userId, rawRefreshToken) => {
+  try {
+    if (!rawRefreshToken) throw new Error("Refresh token is required");
+
+    let decoded;
+    try {
+      decoded = jwt.verify(rawRefreshToken, config.jwt.refreshSecret);
+    } catch (err) {
+      logger.info(`Logout called with invalid refresh token for userId: ${userId}`);
+      return;
+    }
+
+    if (decoded.id !== userId.toString() || decoded.typ !== "refresh") {
+      logger.info(`Logout called with mismatched refresh token for userId: ${userId}`);
+      return;
+    }
+
+    const session = await UserSession.findOne({
+      userId,
+      sessionId: decoded.sessionId,
+      refreshTokenJti: decoded.jti,
+      refreshTokenFingerprint: refreshTokenFingerprint(rawRefreshToken),
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!session) {
+      logger.info(`Logout called with already-invalid token for userId: ${userId}`);
+      return;
+    }
+
+    const isMatch = await verifyRefreshTokenHash(rawRefreshToken, session.refreshTokenHash);
+    if (!isMatch) return;
+
+    await UserSession.updateOne(
+      { _id: session._id, revokedAt: null },
+      { $set: { revokedAt: new Date() } }
+    );
+    logger.info(`Session logged out for userId: ${userId}, sessionId: ${session.sessionId}`);
+  } catch (error) {
+    logger.error("Error in logoutUser:", error);
+    throw error;
+  }
+};
+/**
+ * Logout a specific session by its MongoDB _id.
+ * Used by "remove device" flow.
+ * @param {string} userId
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+export const logoutSession = async (userId, sessionId) => {
+  try {
+    const session = await UserSession.findOne({
+      sessionId,
+      userId,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    });
+    if (!session) throw new Error("Session not found");
+
+    await UserSession.updateOne(
+      { _id: session._id, revokedAt: null },
+      { $set: { revokedAt: new Date() } }
+    );
+    logger.info(`Session ${sessionId} removed for userId: ${userId}`);
+  } catch (error) {
+    logger.error("Error in logoutSession:", error);
+    throw error;
+  }
+};
+
+/**
+ * Revoke ALL active sessions for a user (logout all devices).
+ * Called after password change/reset and on reuse detection.
+ * @param {string} userId
+ * @returns {Promise<void>}
+ */
+export const revokeAllUserSessions = async (userId) => {
+  try {
+    await UserSession.updateMany(
+      { userId, revokedAt: null },
+      { revokedAt: new Date() }
+    );
+    logger.info(`All sessions revoked for userId: ${userId}`);
+  } catch (error) {
+    logger.error("Error in revokeAllUserSessions:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get all active sessions for a user (active devices list).
+ * @param {string} userId
+ * @returns {Promise<Array>}
+ */
+export const getUserSessions = async (userId) => {
+  try {
+    const sessions = await UserSession.find({
+      userId,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    })
+      .select("-refreshTokenHash -refreshTokenFingerprint -refreshTokenJti")
+      .sort({ lastUsedAt: -1 });
+
+    return sessions;
+  } catch (error) {
+    logger.error("Error in getUserSessions:", error);
     throw error;
   }
 };
@@ -838,8 +1147,13 @@ export default {
   resetPassword,
   changePassword,
   refreshUserToken,
+  logoutUser,
+  logoutSession,
+  revokeAllUserSessions,
+  getUserSessions,
   generateToken,
   generateRefreshToken,
+  createAuthenticatedSession,
   generateOTP,
   hashPassword,
   comparePassword,

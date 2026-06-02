@@ -13,6 +13,10 @@ import {
   resetPassword,
   changePassword,
   refreshTokenHandler,
+  logout,
+  logoutAll,
+  getSessionsHandler,
+  revokeSessionHandler,
 } from "../controllers/auth.controller.js";
 import { validateBody } from "../utils/validation.js";
 import {
@@ -104,5 +108,16 @@ router.put(
   validateBody(changePasswordSchema),
   changePassword
 );
+/** */
+router.post("/logout", protect, logout);
+
+/** */
+router.post("/logout-all", protect, logoutAll);
+
+/** */
+router.get("/sessions", protect, getSessionsHandler);
+
+/** */
+router.delete("/sessions/:sessionId", protect, revokeSessionHandler);
 
 export default router;

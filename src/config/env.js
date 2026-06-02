@@ -65,11 +65,11 @@ const envVarsSchema = Joi.object({
   JWT_SECRET: Joi.string()
     .default("your-secret-key-change-in-production")
     .description("JWT secret key"),
-  JWT_EXPIRE: Joi.string().default("7d"),
+  JWT_EXPIRE: Joi.string().default("15m"),
   JWT_REFRESH_SECRET: Joi.string()
     .default("your-refresh-secret-change-in-production")
     .description("JWT refresh secret key"),
-  JWT_REFRESH_EXPIRE: Joi.string().default("30d"),
+  JWT_REFRESH_EXPIRE: Joi.string().default("90d"),
 
   // Bcrypt Configuration
   BCRYPT_SALT_ROUNDS: Joi.number().default(12),
