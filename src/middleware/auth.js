@@ -1,55 +1,66 @@
 import jwt from "jsonwebtoken";
 import config from "../config/env.js";
 import User from "../models/users/User.js";
+import UserSession from "../models/users/UserSession.js";
 import { sendUnauthorized, sendForbidden } from "../utils/response.js";
 import logger from "../utils/logger.js";
 
-/**
- * Protect routes - Verify JWT token
- * Handles token expiration, invalid tokens, and other JWT errors
- */
-export const protect = async (req, res, next) => {
-  let token;
-
-  // Extract token from Authorization header
+const extractBearerToken = (req) => {
   if (
     req.headers.authorization &&
     req.headers.authorization.startsWith("Bearer")
   ) {
-    token = req.headers.authorization.split(" ")[1];
+    return req.headers.authorization.split(" ")[1];
   }
 
-  // Check if token exists
+  return null;
+};
+
+export const validateAccessTokenSession = async (token) => {
+  const decoded = jwt.verify(token, config.jwt.secretKey);
+
+  if (!decoded || !decoded.id || !decoded.sessionId || decoded.typ !== "access") {
+    throw new Error("Invalid token");
+  }
+
+  const session = await UserSession.findOne({
+    userId: decoded.id,
+    sessionId: decoded.sessionId,
+    revokedAt: null,
+    expiresAt: { $gt: new Date() },
+  });
+
+  if (!session) {
+    throw new Error("Session is no longer active");
+  }
+
+  const user = await User.findById(decoded.id).select("-password");
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  if (user.isDeleted) {
+    throw new Error("User account has been deleted");
+  }
+
+  return { user, session, decoded };
+};
+
+/**
+ * Protect routes - Verify JWT token and backing session.
+ */
+export const protect = async (req, res, next) => {
+  const token = extractBearerToken(req);
+
   if (!token) {
     return sendUnauthorized(res, "Token is required");
   }
 
   try {
-    // Verify and decode token
-    const decoded = jwt.verify(token, config.jwt.secretKey);
-
-    // Check if decoded token has required fields
-    if (!decoded || !decoded.id) {
-      logger.warn("Invalid token payload structure");
-      return sendUnauthorized(res, "Invalid token");
-    }
-
-    // Find user by ID from token
-    const user = await User.findById(decoded.id).select("-password");
-
-    if (!user) {
-      logger.warn(`User not found for token ID: ${decoded.id}`);
-      return sendUnauthorized(res, "User not found");
-    }
-
-    // Check if user account is deleted
-    if (user.isDeleted) {
-      logger.warn(`Deleted user attempted to access: ${user.email}`);
-      return sendUnauthorized(res, "User account has been deleted");
-    }
-
-    // Attach user to request object
+    const { user, session } = await validateAccessTokenSession(token);
     req.user = user;
+    req.session = session;
     next();
   } catch (error) {
     // Handle different JWT error types
@@ -92,67 +103,40 @@ export const protect = async (req, res, next) => {
  * Useful for endpoints that work both with and without authentication
  */
 export const optionalProtect = async (req, res, next) => {
-  let token;
+  const token = extractBearerToken(req);
 
-  // Extract token from Authorization header
-  if (
-    req.headers.authorization &&
-    req.headers.authorization.startsWith("Bearer")
-  ) {
-    token = req.headers.authorization.split(" ")[1];
-  }
-
-  // If no token, continue without user
   if (!token) {
     req.user = null;
+    req.session = null;
     return next();
   }
 
   try {
-    // Verify and decode token
-    const decoded = jwt.verify(token, config.jwt.secretKey);
-
-    // Check if decoded token has required fields
-    if (!decoded || !decoded.id) {
-      logger.warn("Invalid token payload structure");
-      req.user = null;
-      return next();
-    }
-
-    // Find user by ID from token
-    const user = await User.findById(decoded.id).select("-password");
-
-    if (!user || user.isDeleted) {
-      req.user = null;
-      return next();
-    }
-
-    // Attach user to request object
+    const { user, session } = await validateAccessTokenSession(token);
     req.user = user;
+    req.session = session;
     next();
   } catch (error) {
-    // For optional auth, just continue without user on any error
     req.user = null;
+    req.session = null;
     next();
   }
 };
 
 /**
- * Verify account status - Check if user account is verified and not deleted
- * Must be used after protect middleware
+ * Verify account status - Check if user account is verified and not deleted.
+ * Must be used after protect middleware.
  */
 export const verifyAccountStatus = (req, res, next) => {
   if (!req.user) {
     return sendUnauthorized(res, "User not authenticated");
   }
 
-  // Check if account is deleted
   if (req.user.isDeleted) {
     logger.warn(`Deleted user attempted to access: ${req.user.email}`);
     return sendUnauthorized(res, "User account has been deleted");
   }
 
-  // Check if account is verified
   if (!req.user.isAccountVerified) {
     logger.warn(`Unverified user attempted to access: ${req.user.email}`);
     return sendUnauthorized(res, "Please verify your account to access this feature");
@@ -162,14 +146,14 @@ export const verifyAccountStatus = (req, res, next) => {
 };
 
 /**
- * Authorize specific roles
+ * Authorize specific roles.
  */
 export const authorize = (...roles) => {
   return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
+    if (!req.user || !roles.includes(req.user.role)) {
       return sendForbidden(
         res,
-        `User role '${req.user.role}' is not authorized to access this route`
+        `User role '${req.user?.role}' is not authorized to access this route`
       );
     }
     next();

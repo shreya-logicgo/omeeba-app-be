@@ -12,11 +12,30 @@ import {
   resetPassword as resetPasswordService,
   changePassword as changePasswordService,
   refreshUserToken as refreshUserTokenService,
-  generateToken,
+  logoutUser as logoutUserService,
+  logoutSession as logoutSessionService,
+  revokeAllUserSessions,
+  getUserSessions,
+  createAuthenticatedSession,
 } from "../services/auth.service.js";
 import { sendSuccess, sendError, sendBadRequest } from "../utils/response.js";
 import { StatusCodes } from "http-status-codes";
 import logger from "../utils/logger.js";
+
+/**
+ * Extract device metadata from request headers/body.
+ * The client should send these in the request body; fall back to headers.
+ */
+const extractDeviceInfo = (req) => ({
+  deviceId: req.body.deviceId || req.headers["x-device-id"] || null,
+  deviceName: req.body.deviceName || req.headers["x-device-name"] || "Unknown device",
+  platform: req.body.platform || req.headers["x-platform"] || null,
+  browser: req.body.browser || req.headers["x-browser"] || null,
+  ipAddress:
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    null,
+});
 
 /**
  * Register new user
@@ -96,19 +115,23 @@ export const register = async (req, res) => {
 export const verifyOTP = async (req, res) => {
   try {
     const { email, otp, type } = req.body;
+    const deviceInfo = extractDeviceInfo(req);
 
     // Verify OTP
     const result = await verifyOTPService(email, otp, type);
 
     // Handle account verification response
     if (result.type === "account") {
-      // Generate JWT token after successful account verification
-      const token = generateToken(result.user._id.toString());
+      const { token, refreshToken } = await createAuthenticatedSession(
+        result.user._id.toString(),
+        deviceInfo
+      );
 
       return sendSuccess(
         res,
         {
           token,
+          refreshToken,
           user: {
             id: result.user._id,
             email: result.user.email,
@@ -203,9 +226,14 @@ export const resendOTP = async (req, res) => {
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    const deviceInfo = extractDeviceInfo(req);
 
     // Login user
-    const { user, token, refreshToken } = await loginUser(email, password);
+    const { user, token, refreshToken } = await loginUser(
+      email,
+      password,
+      deviceInfo
+    );
 
     // Return success response with token
     return sendSuccess(
@@ -356,7 +384,7 @@ export const changePassword = async (req, res) => {
           username: user.username,
         },
       },
-      "Password changed successfully",
+      "Password changed successfully. Please login again on all devices.",
       StatusCodes.OK
     );
   } catch (error) {
@@ -386,11 +414,13 @@ export const changePassword = async (req, res) => {
 export const refreshTokenHandler = async (req, res) => {
   try {
     const { refreshToken } = req.body;
+    const deviceInfo = extractDeviceInfo(req);
 
-    // Call service to verify and issue new tokens
-    const { token, refreshToken: newRefreshToken } = await refreshUserTokenService(refreshToken);
+    const { token, refreshToken: newRefreshToken } = await refreshUserTokenService(
+      refreshToken,
+      deviceInfo
+    );
 
-    // Return success response
     return sendSuccess(
       res,
       {
@@ -429,15 +459,132 @@ export const refreshTokenHandler = async (req, res) => {
   }
 };
 
-// Export named exports for routes
+// ─── Logout ───────────────────────────────────────────────────────────────────
+
+/**
+ * Logout current device.
+ * @route POST /api/v1/auth/logout
+ * @access Private (protect middleware)
+ *
+ * Body: { refreshToken }
+ */
+export const logout = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    const userId = req.user._id || req.user.id;
+
+    await logoutUserService(userId, refreshToken);
+
+    return sendSuccess(res, null, "Logged out successfully", StatusCodes.OK);
+  } catch (error) {
+    logger.error("Logout error:", error);
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to logout",
+      "Logout Error",
+      error.message || "An error occurred during logout",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Logout all devices.
+ * @route POST /api/v1/auth/logout-all
+ * @access Private (protect middleware)
+ */
+export const logoutAll = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    await revokeAllUserSessions(userId);
+    return sendSuccess(res, null, "Logged out from all devices", StatusCodes.OK);
+  } catch (error) {
+    logger.error("Logout all error:", error);
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to logout from all devices",
+      "Logout Error",
+      error.message || "An error occurred",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+// ─── Sessions (active devices) ────────────────────────────────────────────────
+
+/**
+ * List all active sessions for the current user.
+ * @route GET /api/v1/auth/sessions
+ * @access Private (protect middleware)
+ */
+export const getSessionsHandler = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const sessions = await getUserSessions(userId);
+    return sendSuccess(
+      res,
+      { sessions },
+      "Sessions retrieved successfully",
+      StatusCodes.OK
+    );
+  } catch (error) {
+    logger.error("Get sessions error:", error);
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to retrieve sessions",
+      "Sessions Error",
+      error.message || "An error occurred",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+/**
+ * Revoke (remove) a specific session by its ID.
+ * @route DELETE /api/v1/auth/sessions/:sessionId
+ * @access Private (protect middleware)
+ */
+export const revokeSessionHandler = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const { sessionId } = req.params;
+
+    await logoutSessionService(userId, sessionId);
+
+    return sendSuccess(res, null, "Session removed successfully", StatusCodes.OK);
+  } catch (error) {
+    logger.error("Revoke session error:", error);
+    if (error.message === "Session not found") {
+      return sendError(res, "Session not found", "Not Found", error.message, StatusCodes.NOT_FOUND);
+    }
+    if (error.message) return sendBadRequest(res, error.message);
+    return sendError(
+      res,
+      "Failed to remove session",
+      "Session Error",
+      error.message || "An error occurred",
+      StatusCodes.INTERNAL_SERVER_ERROR
+    );
+  }
+};
+
+
 export { forgotPasswordHandler as forgotPassword };
 export { resetPasswordHandler as resetPassword };
+export { refreshTokenHandler as refreshToken };
 
 export default {
   register,
   verifyOTP,
   resendOTP,
   login,
+  logout,
+  logoutAll,
+  getSessionsHandler,
+  revokeSessionHandler,
   forgotPassword: forgotPasswordHandler,
   resetPassword: resetPasswordHandler,
   changePassword,
