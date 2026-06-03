@@ -4,7 +4,6 @@
  */
 
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken";
 import config from "../config/env.js";
 import { User } from "../models/index.js";
 import ChatRoom from "../models/chat/ChatRoom.js";
@@ -13,6 +12,8 @@ import Snap from "../models/chat/Snap.js";
 import { MessageStatus, MessageType } from "../models/enums.js";
 import { sendMessage, getMessages, deleteMessage, sendContentToMultipleChats } from "../services/chatMessage.service.js";
 import { markMessagesAsRead, getUnreadCount, getTotalUnreadCount } from "../services/chatRead.service.js";
+import { validateAccessTokenSession } from "../middleware/auth.js";
+import UserSession from "../models/users/UserSession.js";
 import {
   getOrCreateChatRoom,
   getChatRooms,
@@ -36,6 +37,25 @@ const activeUsers = new Map();
 // Store socket rooms: socketId -> Set of roomIds
 const socketRooms = new Map();
 
+const validateUserSession = async (userId, sessionId) => {
+  if (!sessionId) {
+    throw new Error("Authentication error: sessionId required for userId auth");
+  }
+
+  const session = await UserSession.findOne({
+    userId,
+    sessionId,
+    revokedAt: null,
+    expiresAt: { $gt: new Date() },
+  });
+
+  if (!session) {
+    throw new Error("Authentication error: Session is not active");
+  }
+
+  return session;
+};
+
 /**
  * Authenticate socket connection.
  * Supports:
@@ -46,13 +66,10 @@ const authenticateSocket = async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(" ")[1];
     const userId = socket.handshake.query?.userId || socket.handshake.auth?.userId;
+    const sessionId = socket.handshake.query?.sessionId || socket.handshake.auth?.sessionId;
 
     if (token) {
-      const decoded = jwt.verify(token, config.jwt.secretKey);
-      const user = await User.findById(decoded.id).select("-password");
-      if (!user || user.isDeleted) {
-        return next(new Error("Authentication error: User not found"));
-      }
+      const { user } = await validateAccessTokenSession(token);
       socket.userId = user._id.toString();
       socket.user = user;
       return next();
@@ -63,6 +80,9 @@ const authenticateSocket = async (socket, next) => {
       if (!user || user.isDeleted) {
         return next(new Error("Authentication error: User not found"));
       }
+
+      await validateUserSession(userId, sessionId);
+
       socket.userId = user._id.toString();
       socket.user = user;
       return next();
