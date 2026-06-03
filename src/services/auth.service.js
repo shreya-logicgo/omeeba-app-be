@@ -661,7 +661,10 @@ export const loginUser = async (email, password, deviceInfo = {}) => {
       throw new Error("Invalid email or password");
     }
 
-    const { token, refreshToken } = await createAuthenticatedSession(
+    // Enforce 1 active session per device (if deviceId provided)
+    await revokeUserDeviceSessions(user._id.toString(), deviceInfo.deviceId);
+
+    const { token, refreshToken, session } = await createAuthenticatedSession(
       user._id.toString(),
       deviceInfo
     );
@@ -678,6 +681,7 @@ export const loginUser = async (email, password, deviceInfo = {}) => {
       user: userObject,
       token,
       refreshToken,
+      sessionId: session.sessionId,
     };
   } catch (error) {
     logger.error("Error in loginUser:", error);
@@ -991,6 +995,7 @@ export const refreshUserToken = async (rawRefreshToken, deviceInfo = {}) => {
         rotatedTokens = {
           token: generateToken(userId, newSessionId),
           refreshToken: newRefreshToken,
+          sessionId: newSessionId,
           user,
         };
       });
@@ -1011,6 +1016,7 @@ export const refreshUserToken = async (rawRefreshToken, deviceInfo = {}) => {
     return {
       token: rotatedTokens.token,
       refreshToken: rotatedTokens.refreshToken,
+      sessionId: rotatedTokens.sessionId,
     };
   } catch (error) {
     logger.error("Error in refreshUserToken:", error);
@@ -1098,6 +1104,33 @@ export const logoutSession = async (userId, sessionId) => {
 };
 
 /**
+ * Revoke active sessions for a given user+device.
+ * Used to enforce one active session per device on login.
+ * @param {string} userId
+ * @param {string} deviceId
+ * @returns {Promise<void>}
+ */
+export const revokeUserDeviceSessions = async (userId, deviceId) => {
+  try {
+    if (!userId || !deviceId) return;
+
+    const now = new Date();
+    await UserSession.updateMany(
+      {
+        userId,
+        deviceId,
+        revokedAt: null,
+        expiresAt: { $gt: now },
+      },
+      { $set: { revokedAt: now, lastUsedAt: now } }
+    );
+  } catch (error) {
+    logger.error("Error in revokeUserDeviceSessions:", error);
+    throw error;
+  }
+};
+
+/**
  * Revoke ALL active sessions for a user (logout all devices).
  * Called after password change/reset and on reuse detection.
  * @param {string} userId
@@ -1149,6 +1182,7 @@ export default {
   refreshUserToken,
   logoutUser,
   logoutSession,
+  revokeUserDeviceSessions,
   revokeAllUserSessions,
   getUserSessions,
   generateToken,
