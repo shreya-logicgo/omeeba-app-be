@@ -122,7 +122,7 @@ export const verifyOTP = async (req, res) => {
 
     // Handle account verification response
     if (result.type === "account") {
-      const { token, refreshToken } = await createAuthenticatedSession(
+      const { token, refreshToken, session } = await createAuthenticatedSession(
         result.user._id.toString(),
         deviceInfo
       );
@@ -132,6 +132,7 @@ export const verifyOTP = async (req, res) => {
         {
           token,
           refreshToken,
+          sessionId: session.sessionId,
           user: {
             id: result.user._id,
             email: result.user.email,
@@ -229,7 +230,7 @@ export const login = async (req, res) => {
     const deviceInfo = extractDeviceInfo(req);
 
     // Login user
-    const { user, token, refreshToken } = await loginUser(
+    const { user, token, refreshToken, sessionId } = await loginUser(
       email,
       password,
       deviceInfo
@@ -241,6 +242,7 @@ export const login = async (req, res) => {
       {
         token,
         refreshToken,
+        sessionId,
         user: {
           id: user._id,
           email: user.email,
@@ -416,7 +418,7 @@ export const refreshTokenHandler = async (req, res) => {
     const { refreshToken } = req.body;
     const deviceInfo = extractDeviceInfo(req);
 
-    const { token, refreshToken: newRefreshToken } = await refreshUserTokenService(
+    const { token, refreshToken: newRefreshToken, sessionId } = await refreshUserTokenService(
       refreshToken,
       deviceInfo
     );
@@ -426,6 +428,7 @@ export const refreshTokenHandler = async (req, res) => {
       {
         token,
         refreshToken: newRefreshToken,
+        sessionId,
       },
       "Token refreshed successfully",
       StatusCodes.OK
